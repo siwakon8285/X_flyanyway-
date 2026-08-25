@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
-import { Footer } from "@/components/layout/Footer";
-import { Header } from "@/components/layout/Header";
+import { SiteShell } from "@/components/layout/SiteShell";
 import { SmoothScrollProvider } from "@/components/motion/SmoothScrollProvider";
 
 import "lenis/dist/lenis.css";
@@ -19,9 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "X-Fly Anyway · Design + Motion Foundation",
+  title: "X-Fly Anyway · Global Shell Preview",
   description:
-    "Temporary design and motion-system preview for the X-Fly Anyway frontend foundation.",
+    "Temporary public global-shell preview for the X-Fly Anyway frontend.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -32,9 +31,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="flex min-h-full flex-col">
         <SmoothScrollProvider>
-          <Header />
-          {children}
-          <Footer />
+          <SiteShell>{children}</SiteShell>
         </SmoothScrollProvider>
       </body>
     </html>
