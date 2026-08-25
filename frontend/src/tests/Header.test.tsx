@@ -27,6 +27,22 @@ describe("Header", () => {
       screen.getByRole("link", { name: "Experience" }),
     );
     expect(screen.getByRole("link", { name: "Book a Flight" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Explore" })).toHaveAttribute(
+      "href",
+      "#global-reach",
+    );
+    expect(screen.getByRole("link", { name: "Destinations" })).toHaveAttribute(
+      "href",
+      "#global-reach",
+    );
+    expect(screen.getByRole("link", { name: "Cabins" })).toHaveAttribute(
+      "href",
+      "#cabins",
+    );
+    expect(screen.getByRole("link", { name: "Experience" })).toHaveAttribute(
+      "href",
+      "#journey-experience",
+    );
   });
 
   it("renders desktop and mobile navigation without React warnings", () => {

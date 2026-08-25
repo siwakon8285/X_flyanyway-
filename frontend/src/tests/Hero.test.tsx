@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 
 import Home from "@/app/page";
 
@@ -12,11 +12,14 @@ describe("cinematic hero", () => {
       "Go anywhere. Fly different.",
     );
 
-    expect(screen.getByRole("link", { name: "Book a Flight" })).toHaveAttribute(
-      "href",
-      "#journey",
-    );
-    expect(screen.getByRole("link", { name: "Explore X-Fly" })).toHaveAttribute(
+    const hero = screen.getByRole("region", {
+      name: "Go anywhere. Fly different.",
+    });
+
+    expect(
+      within(hero).getByRole("link", { name: "Book a Flight" }),
+    ).toHaveAttribute("href", "#journey");
+    expect(within(hero).getByRole("link", { name: "Explore X-Fly" })).toHaveAttribute(
       "href",
       "#journey",
     );
@@ -24,7 +27,10 @@ describe("cinematic hero", () => {
 
     const mediaLayer = container.querySelector("[data-hero-media]");
     expect(mediaLayer).toBeInTheDocument();
-    expect(mediaLayer?.querySelector('img[alt=""]')).toBeInTheDocument();
+    expect(mediaLayer?.querySelector('img[alt=""]')).toHaveAttribute(
+      "src",
+      expect.stringContaining("x-fly-aircraft-hero-sharp-v1.png"),
+    );
   });
 
   it("keeps the complete hero usable when reduced motion is requested", () => {

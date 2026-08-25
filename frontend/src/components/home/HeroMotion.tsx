@@ -98,8 +98,12 @@ const HeroMotion = ({ children }: HeroMotionProps) => {
               trigger: element,
             },
           })
-          .to(select("[data-hero-media-frame]"), { yPercent: 3 }, 0)
-          .to(select("[data-hero-content]"), { autoAlpha: 0.64, y: -24 }, 0)
+          .to(
+            select("[data-hero-media-frame]"),
+            { scale: 1.025, yPercent: 4 },
+            0,
+          )
+          .to(select("[data-hero-content]"), { autoAlpha: 0.62, y: -28 }, 0)
           .to(select("[data-hero-scroll-cue]"), { autoAlpha: 0 }, 0);
       });
 
