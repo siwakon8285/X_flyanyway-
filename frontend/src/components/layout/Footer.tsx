@@ -6,9 +6,9 @@ const footerGroups = [
     id: "explore",
     label: "Explore",
     links: [
-      { href: "#journey", id: "explore", label: "Explore" },
-      { href: "#journey", id: "destinations", label: "Destinations" },
-      { href: "#journey", id: "cabins", label: "Cabins" },
+      { href: "#global-reach", id: "explore", label: "Explore" },
+      { href: "#global-reach", id: "destinations", label: "Destinations" },
+      { href: "#cabins", id: "cabins", label: "Cabins" },
     ],
   },
   {
@@ -22,7 +22,9 @@ const footerGroups = [
   {
     id: "company",
     label: "Company",
-    links: [{ href: "#journey", id: "about", label: "About X-Fly" }],
+    links: [
+      { href: "#journey-experience", id: "about", label: "About X-Fly" },
+    ],
   },
   {
     id: "support",

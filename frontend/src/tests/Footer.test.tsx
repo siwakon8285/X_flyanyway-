@@ -14,5 +14,13 @@ describe("Footer", () => {
     expect(screen.getByRole("heading", { name: "Legal" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Privacy" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Terms" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Cabins" })).toHaveAttribute(
+      "href",
+      "#cabins",
+    );
+    expect(screen.getByRole("link", { name: "About X-Fly" })).toHaveAttribute(
+      "href",
+      "#journey-experience",
+    );
   });
 });
