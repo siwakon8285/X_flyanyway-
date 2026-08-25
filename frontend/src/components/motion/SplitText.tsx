@@ -14,12 +14,14 @@ type SplitTextElement = "h1" | "h2" | "h3" | "p" | "span";
 type SplitTextMode = "words" | "words,chars";
 
 type SplitTextProps = Omit<ComponentPropsWithoutRef<"p">, "children"> & {
+  animate?: boolean;
   as?: SplitTextElement;
   split?: SplitTextMode;
   text: string;
 };
 
 const SplitText = ({
+  animate = true,
   as: Component = "p",
   className,
   split = "words",
@@ -43,7 +45,7 @@ const SplitText = ({
 
       generatedUnits.forEach((unit) => unit.setAttribute("aria-hidden", "true"));
 
-      if (units?.length) {
+      if (animate && units?.length) {
         gsap.fromTo(
           units,
           { autoAlpha: 0, yPercent: 65 },
@@ -65,7 +67,7 @@ const SplitText = ({
       return () => splitType.revert();
     },
     {
-      dependencies: [reducedMotion, split, text],
+      dependencies: [animate, reducedMotion, split, text],
       revertOnUpdate: true,
       scope: elementRef,
     },

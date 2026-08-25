@@ -29,6 +29,19 @@ describe("Header", () => {
     expect(screen.getByRole("link", { name: "Book a Flight" })).toBeInTheDocument();
   });
 
+  it("renders desktop and mobile navigation without React warnings", () => {
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      render(<Header />);
+      fireEvent.click(screen.getByRole("button", { name: "Open navigation menu" }));
+
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("opens mobile navigation and returns focus to its trigger after Escape", async () => {
     render(<Header />);
 
