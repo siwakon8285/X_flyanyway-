@@ -2754,3 +2754,39 @@ X-Fly Anyway ถือว่าประสบความสำเร็จเ�
 - Mobile ใช้งานได้ดี
 - Reduced motion รองรับ
 - Production build เร็วและเสถียร
+
+| Branch                            | Model          | Reasoning  | เหตุผล                                         |
+| --------------------------------- | -------------- | ---------- | ---------------------------------------------- |
+| `feat/01-design-foundation`       | **Terra**      | Medium     | Scaffold + design system ไม่ต้อง Sol           |
+| `feat/02-motion-foundation`       | **Sol**        | Medium     | GSAP + Lenis + ScrollTrigger lifecycle ซับซ้อน |
+| `feat/03-global-shell`            | **Terra**      | Medium     | Navbar/layout/motion integration ระดับกลาง     |
+| `feat/04-cinematic-hero`          | **Sol**        | High       | visual choreography สำคัญมาก                   |
+| `feat/05-scroll-storytelling`     | **Sol**        | High       | pinned scroll + performance + responsive       |
+| `feat/06-horizontal-journey`      | **Terra**      | Medium     | pattern ค่อนข้างตรงไปตรงมา                     |
+| `feat/07-global-network-moon`     | **Sol**        | Medium     | SVG/motion/visual storytelling ซับซ้อน         |
+| `feat/08-flight-search-ui`        | **Terra**      | Medium     | form/search UX                                 |
+| `feat/09-flight-results-ui`       | **Terra**      | Medium     | cards/filter/sorting                           |
+| `feat/10-flight-detail-cabin`     | **Terra**      | Medium     | UI + Flip ระดับกลาง                            |
+| `feat/11-seat-map-ui`             | **Sol**        | Medium     | state/layout/accessibility ซับซ้อน             |
+| `feat/12-seat-concurrency-ui`     | **Sol**        | High       | frontend ↔ backend concurrency behavior        |
+| `feat/13-passenger-flow`          | **Terra**      | Medium     | forms/validation                               |
+| `feat/14-booking-review`          | **Luna/Terra** | Low        | summary UI ค่อนข้างง่าย                        |
+| `feat/15-mock-payment-ui`         | **Terra**      | Medium     | state/payment UX                               |
+| `feat/16-ticket-qr-experience`    | **Terra**      | Medium     | QR + print/ticket UI                           |
+| `feat/17-manage-booking-ui`       | **Terra**      | Medium     | lookup/detail                                  |
+| `feat/18-cancellation-refund-ui`  | **Terra**      | Medium     | business-state UI                              |
+| `feat/19-admin-shell`             | **Terra**      | Medium     | dashboard shell/auth states                    |
+| `feat/20-admin-flight-management` | **Terra**      | Medium     | CRUD/forms                                     |
+| `feat/21-admin-booking-ticketing` | **Terra**      | Medium     | CRUD/table/detail                              |
+| `feat/22-admin-analytics`         | **Sol**        | Medium     | aggregations + chart design                    |
+| `feat/23-integration-admin-ui`    | **Terra**      | Medium     | client/scope admin UI                          |
+| `feat/24-security-hardening-ui`   | **Sol**        | High       | security-sensitive                             |
+| `chore/25-accessibility-motion`   | **Sol**        | Medium     | motion + accessibility edge cases              |
+| `feat/26-responsive-motion`       | **Sol**        | Medium     | responsive animation complexity                |
+| `perf/27-frontend-performance`    | **Sol**        | High       | profiling/optimization reasoning               |
+| `test/28-cross-browser-qa`        | **Terra**      | Low/Medium | mostly fixes from QA                           |
+| `test/29-booking-e2e`             | **Terra**      | Medium     | Playwright flow                                |
+| `chore/30-deployment-prep`        | **Terra**      | Medium     | env/CORS/build config                          |
+| `chore/31-production-deploy`      | **Sol**        | Medium     | production problems can be subtle              |
+| `feat/32-final-polish`            | **Terra**      | Medium     | mostly visual refinements                      |
+| `docs/33-final-documentation`     | **Luna**       | Low        | docs/summarization                             |

@@ -6,23 +6,23 @@ import { buttonVariants } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
 
 const navigationItems = [
-  { href: "#typography", label: "Typography" },
-  { href: "#components", label: "Components" },
-  { href: "#surfaces", label: "Surfaces" },
+  { href: "#components", label: "Design" },
+  { href: "#motion", label: "Motion" },
+  { href: "#layout-motion", label: "Layout" },
 ] as const;
 
 const Header = () => (
   <header className="border-b border-border/80 bg-background/95">
     <Container className="flex min-h-18 items-center justify-between gap-6 py-3">
       <a
-        aria-label="X-Fly Anyway design foundation home"
+        aria-label="X-Fly Anyway design and motion foundation home"
         className="rounded-control outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-4 focus-visible:ring-offset-background"
         href="#top"
       >
         <BrandWordmark />
       </a>
 
-      <nav aria-label="Foundation preview" className="hidden md:block">
+      <nav aria-label="Foundation preview sections" className="hidden md:block">
         <ul className="flex items-center gap-7">
           {navigationItems.map((item) => (
             <li key={item.href}>
@@ -39,9 +39,9 @@ const Header = () => (
 
       <a
         className={cn(buttonVariants({ size: "sm" }), "hidden sm:inline-flex")}
-        href="#components"
+        href="#motion"
       >
-        Review UI
+        Review motion
         <ArrowUpRight aria-hidden="true" />
       </a>
     </Container>

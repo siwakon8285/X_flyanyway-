@@ -3,7 +3,9 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { SmoothScrollProvider } from "@/components/motion/SmoothScrollProvider";
 
+import "lenis/dist/lenis.css";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,9 +19,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "X-Fly Anyway · Design Foundation",
+  title: "X-Fly Anyway · Design + Motion Foundation",
   description:
-    "Temporary design-system preview for the X-Fly Anyway frontend foundation.",
+    "Temporary design and motion-system preview for the X-Fly Anyway frontend foundation.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -29,9 +31,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        <Header />
-        {children}
-        <Footer />
+        <SmoothScrollProvider>
+          <Header />
+          {children}
+          <Footer />
+        </SmoothScrollProvider>
       </body>
     </html>
   );

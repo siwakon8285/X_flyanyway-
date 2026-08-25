@@ -9,6 +9,7 @@ import { BrandMark } from "@/components/brand/BrandMark";
 import { BrandWordmark } from "@/components/brand/BrandWordmark";
 import { Container } from "@/components/layout/Container";
 import { Section } from "@/components/layout/Section";
+import { MotionPlayground } from "@/components/motion/MotionPlayground";
 import { Badge } from "@/components/ui/Badge";
 import { Button, buttonVariants } from "@/components/ui/Button";
 import {
@@ -71,21 +72,21 @@ const Home = () => (
       <Container>
         <div className="grid items-end gap-12 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <div>
-            <Badge variant="brand">Temporary review page</Badge>
+            <Badge variant="brand">Temporary Motion Foundation Preview</Badge>
             <p className="mt-8 text-label text-muted-foreground">X-FLY ANYWAY</p>
             <Heading as="h1" className="mt-4 max-w-5xl" size="display">
-              Design
+              Design + Motion
               <br />
               Foundation
             </Heading>
           </div>
           <div className="space-y-6 border-l border-brand/50 pl-6">
             <p className="text-body-lg text-muted-foreground">
-              A practical preview of the visual language, responsive layout,
-              and accessible UI primitives prepared for future X-Fly journeys.
+              A practical preview of the visual language, accessible UI
+              primitives, and production-safe motion architecture.
             </p>
             <p className="text-caption text-muted-foreground">
-              Not the final landing page · No cinematic motion
+              Not the final X-Fly landing page · No final hero or booking flow
             </p>
           </div>
         </div>
@@ -358,13 +359,15 @@ const Home = () => (
       </Container>
     </Section>
 
+    <MotionPlayground />
+
     <Section className="border-t border-border/80" spacing="sm">
       <Container>
         <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-reading">
             <p className="text-label text-brand">Foundation ready for review</p>
             <Heading className="mt-3" size="h3">
-              Motion belongs to the next branch.
+              Design and motion foundations are ready for review.
             </Heading>
           </div>
           <a className={buttonVariants({ size: "lg" })} href="#top">
@@ -374,8 +377,8 @@ const Home = () => (
         </div>
         <Separator className="my-10" />
         <p className="text-body-sm text-muted-foreground">
-          This page validates tokens and primitives only. It intentionally does
-          not represent the final X-Fly landing experience.
+          This page validates design and motion primitives only. It intentionally
+          does not represent the final X-Fly landing experience.
         </p>
       </Container>
     </Section>

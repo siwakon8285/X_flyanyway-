@@ -141,6 +141,15 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+.motion-split-text {
+  font-kerning: none;
+}
+
+.motion-parallax-media {
+  min-height: inherit;
+  will-change: transform;
+}
+
 ::selection {
   background: var(--brand);
   color: var(--brand-foreground);
@@ -162,5 +171,9 @@ body {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .motion-parallax-media {
+    will-change: auto;
   }
 }
