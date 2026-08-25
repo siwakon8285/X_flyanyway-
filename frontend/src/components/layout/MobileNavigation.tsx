@@ -91,7 +91,7 @@ const MobileNavigation = () => {
           <nav aria-label="Mobile navigation">
             <ul className="space-y-2">
               {navigationItems.map((item) => (
-                <li data-mobile-navigation-item key={item.href}>
+                <li data-mobile-navigation-item key={item.id}>
                   <DialogClose asChild>
                     <a
                       className="inline-flex rounded-sm py-2 text-h1 text-foreground outline-none transition-colors hover:text-brand focus-visible:ring-2 focus-visible:ring-focus"
@@ -111,7 +111,7 @@ const MobileNavigation = () => {
               </a>
             </DialogClose>
             <p className="text-caption text-muted-foreground">
-              Temporary public shell preview
+              Global aviation · Designed to go anywhere
             </p>
           </div>
         </div>

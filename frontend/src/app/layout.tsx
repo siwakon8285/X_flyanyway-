@@ -18,9 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "X-Fly Anyway · Global Shell Preview",
+  title: "X-Fly Anyway · Go Anywhere. Fly Different.",
   description:
-    "Temporary public global-shell preview for the X-Fly Anyway frontend.",
+    "A premium global aviation experience designed to take you anywhere.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
