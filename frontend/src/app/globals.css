@@ -21,6 +21,7 @@
   --focus: #ffd400;
 
   --page-gutter: clamp(1rem, 3vw, 4rem);
+  --header-height: 4.75rem;
   --section-space-sm: clamp(3rem, 7vw, 5rem);
   --section-space-md: clamp(4.5rem, 9vw, 8rem);
   --section-space-lg: clamp(6rem, 12vw, 11rem);
@@ -54,6 +55,7 @@
   --radius-surface: 0.75rem;
 
   --spacing-page-gutter: var(--page-gutter);
+  --spacing-header: var(--header-height);
   --spacing-section-sm: var(--section-space-sm);
   --spacing-section-md: var(--section-space-md);
   --spacing-section-lg: var(--section-space-lg);
@@ -62,6 +64,10 @@
   --container-content: var(--content-max);
   --container-reading: var(--reading-max);
   --breakpoint-3xl: 120rem;
+}
+
+@utility pt-header-safe {
+  padding-top: var(--header-height);
 }
 
 @utility text-display {
@@ -139,6 +145,21 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), sans-serif;
   text-rendering: optimizeLegibility;
+}
+
+.site-header {
+  border-bottom: 1px solid transparent;
+  background-color: transparent;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    backdrop-filter 180ms ease;
+}
+
+.site-header[data-scrolled] {
+  border-bottom-color: rgb(48 48 48 / 80%);
+  background-color: rgb(9 9 9 / 84%);
+  backdrop-filter: blur(12px);
 }
 
 .motion-split-text {

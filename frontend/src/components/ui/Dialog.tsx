@@ -20,11 +20,16 @@ const DialogOverlay = ({
   />
 );
 
+type DialogContentProps = ComponentProps<typeof DialogPrimitive.Content> & {
+  showCloseButton?: boolean;
+};
+
 const DialogContent = ({
   children,
   className,
+  showCloseButton = true,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content>) => (
+}: DialogContentProps) => (
   <DialogPrimitive.Portal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -35,10 +40,12 @@ const DialogContent = ({
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-control p-2 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus">
-        <X aria-hidden="true" className="size-4" />
-        <span className="sr-only">Close dialog</span>
-      </DialogPrimitive.Close>
+      {showCloseButton ? (
+        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-control p-2 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus">
+          <X aria-hidden="true" className="size-4" />
+          <span className="sr-only">Close dialog</span>
+        </DialogPrimitive.Close>
+      ) : null}
     </DialogPrimitive.Content>
   </DialogPrimitive.Portal>
 );
@@ -81,3 +88,4 @@ export {
   DialogTitle,
   DialogTrigger,
 };
+export type { DialogContentProps };

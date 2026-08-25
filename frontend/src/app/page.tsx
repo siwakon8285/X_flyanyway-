@@ -67,26 +67,26 @@ const colorTokens = [
 ] as const;
 
 const Home = () => (
-  <main className="flex-1" id="top">
-    <Section className="border-b border-border/80" spacing="lg">
+  <>
+    <Section className="border-b border-border/80 pt-header-safe" id="experience" spacing="lg">
       <Container>
         <div className="grid items-end gap-12 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <div>
-            <Badge variant="brand">Temporary Motion Foundation Preview</Badge>
+            <Badge variant="brand">Temporary Global Shell Preview</Badge>
             <p className="mt-8 text-label text-muted-foreground">X-FLY ANYWAY</p>
             <Heading as="h1" className="mt-4 max-w-5xl" size="display">
-              Design + Motion
+              Global Shell
               <br />
-              Foundation
+              Preview
             </Heading>
           </div>
           <div className="space-y-6 border-l border-brand/50 pl-6">
             <p className="text-body-lg text-muted-foreground">
-              A practical preview of the visual language, accessible UI
-              primitives, and production-safe motion architecture.
+              A practical preview of the public navigation, page framing,
+              accessible shell behavior, and existing motion foundation.
             </p>
             <p className="text-caption text-muted-foreground">
-              Not the final X-Fly landing page · No final hero or booking flow
+              Not the final X-Fly landing page · No cinematic hero or booking flow
             </p>
           </div>
         </div>
@@ -382,7 +382,7 @@ const Home = () => (
         </p>
       </Container>
     </Section>
-  </main>
+  </>
 );
 
 export default Home;
