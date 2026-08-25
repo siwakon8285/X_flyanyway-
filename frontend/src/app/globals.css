@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+
+  --background: #090909;
+  --foreground: #f5f3ea;
+  --surface: #121212;
+  --surface-elevated: #1a1a1a;
+  --surface-highlight: #242424;
+  --muted: #202020;
+  --muted-foreground: #a5a5a5;
+  --border: #303030;
+  --border-strong: #4a4a4a;
+  --brand: #ffd400;
+  --brand-strong: #ffe033;
+  --brand-foreground: #090909;
+  --destructive: #e5484d;
+  --destructive-strong: #f2555a;
+  --destructive-foreground: #ffffff;
+  --focus: #ffd400;
+
+  --page-gutter: clamp(1rem, 3vw, 4rem);
+  --section-space-sm: clamp(3rem, 7vw, 5rem);
+  --section-space-md: clamp(4.5rem, 9vw, 8rem);
+  --section-space-lg: clamp(6rem, 12vw, 11rem);
+  --card-gap: clamp(1rem, 2vw, 1.5rem);
+  --content-max: 90rem;
+  --reading-max: 45rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-highlight: var(--surface-highlight);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-strong: var(--destructive-strong);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-focus: var(--focus);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --radius-control: 0.5rem;
+  --radius-surface: 0.75rem;
+
+  --spacing-page-gutter: var(--page-gutter);
+  --spacing-section-sm: var(--section-space-sm);
+  --spacing-section-md: var(--section-space-md);
+  --spacing-section-lg: var(--section-space-lg);
+  --spacing-card-gap: var(--card-gap);
+
+  --container-content: var(--content-max);
+  --container-reading: var(--reading-max);
+  --breakpoint-3xl: 120rem;
+}
+
+@utility text-display {
+  font-size: clamp(3rem, 9vw, 8.75rem);
+  font-weight: 600;
+  letter-spacing: -0.065em;
+  line-height: 0.88;
+}
+
+@utility text-h1 {
+  font-size: clamp(2.5rem, 6vw, 5.5rem);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.96;
+}
+
+@utility text-h2 {
+  font-size: clamp(2rem, 4vw, 3.75rem);
+  font-weight: 560;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+@utility text-h3 {
+  font-size: clamp(1.5rem, 2.5vw, 2.25rem);
+  font-weight: 540;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+@utility text-body-lg {
+  font-size: clamp(1.125rem, 1.5vw, 1.375rem);
+  line-height: 1.55;
+}
+
+@utility text-body {
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+@utility text-body-sm {
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+@utility text-caption {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+@utility text-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  background: var(--background);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 20rem;
+  background:
+    radial-gradient(circle at 85% 5%, rgb(255 212 0 / 6%), transparent 24rem),
+    var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--brand);
+  color: var(--brand-foreground);
+}
+
+:focus-visible {
+  outline-color: var(--focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
