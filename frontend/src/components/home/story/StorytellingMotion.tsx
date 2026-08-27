@@ -289,9 +289,6 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
             "[data-journey-value]",
             journeyStory,
           );
-          const journeyCta = journeyStory.querySelector<HTMLElement>(
-            "[data-journey-cta]",
-          );
 
           gsap
             .timeline({
@@ -315,12 +312,6 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
               { opacity: 0.32, x: 28 },
               { opacity: 1, stagger: 0.12, x: 0 },
               0.12,
-            )
-            .fromTo(
-              journeyCta,
-              { opacity: 0.38, y: 24 },
-              { opacity: 1, y: 0 },
-              0.36,
             );
         }
 

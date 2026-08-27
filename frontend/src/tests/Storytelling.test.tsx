@@ -125,6 +125,7 @@ describe("scroll storytelling", () => {
       container.querySelector("#journey-path"),
       container.querySelector("#future-moon"),
       container.querySelector("#journey-experience"),
+      container.querySelector("#flight-search"),
     ];
 
     expect(storySections.every(Boolean)).toBe(true);
@@ -360,26 +361,32 @@ describe("scroll storytelling", () => {
     ).toHaveClass("md:mt-24", "lg:mt-36");
   });
 
-  it("ends with a compact, route-ready conversion choice", () => {
+  it("ends storytelling with the brand summary before the single flight search", () => {
     const { container } = render(<Home />);
     const journey = container.querySelector("#journey-experience");
+    const flightSearch = container.querySelector("#flight-search");
 
     expect(journey).not.toBeNull();
+    expect(flightSearch).not.toBeNull();
     expect(
       within(journey as HTMLElement).getByRole("heading", {
-        level: 3,
-        name: "Ready to go anywhere?",
+        level: 2,
+        name: "Designed around the journey.",
       }),
     ).toBeInTheDocument();
-    expect(
-      within(journey as HTMLElement).getByText("Your next journey starts here."),
-    ).toBeInTheDocument();
-    expect(
-      within(journey as HTMLElement).getByRole("link", { name: "Book a Flight" }),
-    ).toHaveAttribute("href", "#journey");
-    expect(
-      within(journey as HTMLElement).getByRole("link", { name: "Explore Cabins" }),
-    ).toHaveAttribute("href", "#cabins");
+    expect(within(journey as HTMLElement).getByText("Comfort")).toBeInTheDocument();
+    expect(within(journey as HTMLElement).getByText("Control")).toBeInTheDocument();
+    expect(within(journey as HTMLElement).getByText("Choice")).toBeInTheDocument();
+    expect(within(journey as HTMLElement).queryByText("Your next horizon")).not.toBeInTheDocument();
+    expect(within(journey as HTMLElement).queryByText("Ready to go anywhere?")).not.toBeInTheDocument();
+    expect(within(journey as HTMLElement).queryByText("Your next journey starts here.")).not.toBeInTheDocument();
+    expect(within(journey as HTMLElement).queryByRole("link", { name: "Book a Flight" })).not.toBeInTheDocument();
+    expect(within(journey as HTMLElement).queryByRole("link", { name: "Explore Cabins" })).not.toBeInTheDocument();
+    expect(journey?.querySelector("[data-journey-cta]")).not.toBeInTheDocument();
+    expect(journey?.compareDocumentPosition(flightSearch as Node)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(container.querySelectorAll("#flight-search")).toHaveLength(1);
   });
 
   it("communicates global scale and presents 4 dedicated cabin tiers with photography and without interactive controls", () => {

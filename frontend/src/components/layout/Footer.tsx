@@ -1,5 +1,6 @@
 import { BrandWordmark } from "@/components/brand/BrandWordmark";
 import { Container } from "@/components/layout/Container";
+import { bookingHref } from "@/components/layout/navigationItems";
 
 const footerGroups = [
   {
@@ -15,7 +16,7 @@ const footerGroups = [
     id: "travel",
     label: "Travel",
     links: [
-      { href: "#journey", id: "book-flight", label: "Book a Flight" },
+      { href: bookingHref, id: "book-flight", label: "Book a Flight" },
       { href: "#top", id: "manage-booking", label: "Manage Booking" },
     ],
   },

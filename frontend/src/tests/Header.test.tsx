@@ -26,7 +26,10 @@ describe("Header", () => {
     expect(navigation).toContainElement(
       screen.getByRole("link", { name: "Experience" }),
     );
-    expect(screen.getByRole("link", { name: "Book a Flight" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Book a Flight" })).toHaveAttribute(
+      "href",
+      "#flight-search",
+    );
     expect(screen.getByRole("link", { name: "Explore" })).toHaveAttribute(
       "href",
       "#global-reach",

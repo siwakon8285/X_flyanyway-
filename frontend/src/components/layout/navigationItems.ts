@@ -11,7 +11,7 @@ const navigationItems = [
   { href: "#journey-experience", id: "experience", label: "Experience" },
 ] as const satisfies readonly NavigationItem[];
 
-const bookingHref = "#journey";
+const bookingHref = "#flight-search";
 
 export { bookingHref, navigationItems };
 export type { NavigationItem };
