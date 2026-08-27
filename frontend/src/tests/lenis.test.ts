@@ -1,6 +1,6 @@
 import type Lenis from "lenis";
 
-import { connectLenisToGsap } from "@/lib/motion/lenis";
+import { connectLenisToGsap, scrollToLocationHash } from "@/lib/motion/lenis";
 
 describe("connectLenisToGsap", () => {
   it("synchronizes scroll and ticker work and releases every owned resource", () => {
@@ -41,5 +41,52 @@ describe("connectLenisToGsap", () => {
     expect(off).toHaveBeenCalledWith("scroll", scrollHandler);
     expect(ticker.remove).toHaveBeenCalledWith(tickerHandler);
     expect(destroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("scrollToLocationHash", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("uses the existing Lenis instance with the target scroll margin as an offset", () => {
+    window.history.replaceState(null, "", "/?from=DXB#flight-search");
+    const target = document.createElement("section");
+    target.id = "flight-search";
+    target.style.scrollMarginTop = "76px";
+    document.body.append(target);
+    const scrollTo = jest.fn();
+
+    expect(scrollToLocationHash({ scrollTo } as unknown as Lenis)).toBe(true);
+    expect(scrollTo).toHaveBeenCalledWith(target, {
+      immediate: true,
+      offset: -76,
+    });
+
+    target.remove();
+  });
+
+  it("uses native target scrolling when Lenis is disabled", () => {
+    window.history.replaceState(null, "", "/#flight-search");
+    const target = document.createElement("section");
+    target.id = "flight-search";
+    document.body.append(target);
+
+    expect(scrollToLocationHash(null)).toBe(true);
+    expect(target.scrollIntoView).toHaveBeenCalledWith({
+      behavior: "auto",
+      block: "start",
+    });
+
+    target.remove();
+  });
+
+  it("does nothing for a normal homepage visit or an unknown target", () => {
+    expect(scrollToLocationHash(null)).toBe(false);
+
+    window.history.replaceState(null, "", "/#missing-section");
+    expect(scrollToLocationHash(null)).toBe(false);
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   });
 });

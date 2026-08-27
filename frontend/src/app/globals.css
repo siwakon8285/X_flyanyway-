@@ -147,6 +147,10 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+html[data-initial-hash-positioning] body {
+  visibility: hidden;
+}
+
 .site-header {
   border-bottom: 1px solid transparent;
   background-color: transparent;

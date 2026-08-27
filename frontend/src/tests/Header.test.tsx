@@ -28,7 +28,7 @@ describe("Header", () => {
     );
     expect(screen.getByRole("link", { name: "Book a Flight" })).toHaveAttribute(
       "href",
-      "#flight-search",
+      "/#flight-search",
     );
     expect(screen.getByRole("link", { name: "Explore" })).toHaveAttribute(
       "href",
