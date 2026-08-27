@@ -1007,6 +1007,115 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
     },
   );
 
+  useGSAP(
+    () => {
+      const element = root.current;
+      if (!element || reducedMotion) return;
+
+      const moonStory = element.querySelector<HTMLElement>(
+        "[data-moon-story]",
+      );
+      if (!moonStory) return;
+
+      const mediaQueries = gsap.matchMedia();
+
+      mediaQueries.add(motionMediaQueries.parallax, () => {
+        const eyebrowLine = moonStory.querySelector<HTMLElement>(
+          "[data-moon-eyebrow-line]",
+        );
+        const label = moonStory.querySelector<HTMLElement>(
+          "[data-moon-label]",
+        );
+        const headline = moonStory.querySelector<HTMLElement>(
+          "[data-moon-headline]",
+        );
+        const body = moonStory.querySelector<HTMLElement>(
+          "[data-moon-body]",
+        );
+        const badge = moonStory.querySelector<HTMLElement>(
+          "[data-moon-badge]",
+        );
+        const moonSphere = moonStory.querySelector<HTMLElement>(
+          "[data-moon-sphere]",
+        );
+        const moonTrajectory = moonStory.querySelector<SVGPathElement>(
+          "[data-moon-trajectory]",
+        );
+        const moonGlow = moonStory.querySelector<HTMLElement>(
+          "[data-moon-glow]",
+        );
+        const starfield = moonStory.querySelector<HTMLElement>(
+          "[data-moon-starfield]",
+        );
+
+        if (eyebrowLine) gsap.set(eyebrowLine, { scaleX: 0, transformOrigin: "left center" });
+        if (label) gsap.set(label, { opacity: 0, y: 8 });
+        if (headline) gsap.set(headline, { opacity: 0, y: 24 });
+        if (body) gsap.set(body, { opacity: 0, y: 14 });
+        if (badge) gsap.set(badge, { opacity: 0, y: 12, scale: 0.95 });
+        if (moonSphere) gsap.set(moonSphere, { scale: 0.93 });
+        if (moonTrajectory) gsap.set(moonTrajectory, { opacity: 0 });
+
+        const moonTl = gsap.timeline({
+          defaults: { ease: "power2.out" },
+          scrollTrigger: {
+            end: "bottom 40%",
+            invalidateOnRefresh: true,
+            scrub: 0.6,
+            start: "top 80%",
+            trigger: moonStory,
+          },
+        });
+
+        if (eyebrowLine) moonTl.to(eyebrowLine, { duration: 0.25, scaleX: 1 }, 0);
+        if (label) moonTl.to(label, { duration: 0.22, opacity: 1, y: 0 }, 0.05);
+        if (headline) moonTl.to(headline, { duration: 0.45, opacity: 1, y: 0 }, 0.1);
+        if (body) moonTl.to(body, { duration: 0.35, opacity: 1, y: 0 }, 0.2);
+        if (badge) moonTl.to(badge, { duration: 0.35, opacity: 1, y: 0, scale: 1 }, 0.28);
+
+        if (moonSphere) {
+          moonTl.to(
+            moonSphere,
+            { duration: 0.8, scale: 1 },
+            0.08,
+          );
+        }
+        if (moonGlow) {
+          moonTl.fromTo(
+            moonGlow,
+            { opacity: 0.3, scale: 0.88 },
+            { duration: 0.8, opacity: 1, scale: 1 },
+            0.12,
+          );
+        }
+        if (moonTrajectory) {
+          moonTl.to(
+            moonTrajectory,
+            { duration: 0.6, opacity: 1 },
+            0.18,
+          );
+        }
+        if (starfield) {
+          moonTl.fromTo(
+            starfield,
+            { y: 15 },
+            { duration: 1.0, y: -15 },
+            0,
+          );
+        }
+
+        return undefined;
+      });
+
+      return () => mediaQueries.revert();
+    },
+    {
+      dependencies: [reducedMotion],
+      revertOnUpdate: true,
+      scope: root,
+    },
+  );
+
   return (
     <div className="relative bg-background" id="journey" ref={root}>
       {children}

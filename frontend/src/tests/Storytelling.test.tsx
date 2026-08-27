@@ -123,6 +123,7 @@ describe("scroll storytelling", () => {
       container.querySelector("#cabins"),
       container.querySelector("#service-story"),
       container.querySelector("#journey-path"),
+      container.querySelector("#future-moon"),
       container.querySelector("#journey-experience"),
     ];
 
@@ -157,11 +158,19 @@ describe("scroll storytelling", () => {
     expect(
       screen.getByRole("heading", {
         level: 2,
+        name: /NEXT:\s+THE MOON\./i,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
         name: "Designed around the journey.",
       }),
     ).toBeInTheDocument();
     expect(screen.queryByText("The journey continues.")).not.toBeInTheDocument();
+
   });
+
 
   it("renders four spatial milestones inside the continuous aircraft corridor", () => {
     const { container } = render(<Home />);
