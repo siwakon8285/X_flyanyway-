@@ -18,12 +18,18 @@ describe("cinematic hero", () => {
 
     expect(
       within(hero).getByRole("link", { name: "Book a Flight" }),
-    ).toHaveAttribute("href", "#journey");
+    ).toHaveAttribute("href", "#flight-search");
     expect(within(hero).getByRole("link", { name: "Explore X-Fly" })).toHaveAttribute(
       "href",
       "#journey",
     );
     expect(container.querySelector("#journey")).toBeInTheDocument();
+    expect(container.querySelector("#flight-search")).toBeInTheDocument();
+    expect(
+      container.querySelector("#global-reach")?.compareDocumentPosition(
+        container.querySelector("#flight-search") as Node,
+      ),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     const mediaLayer = container.querySelector("[data-hero-media]");
     expect(mediaLayer).toBeInTheDocument();

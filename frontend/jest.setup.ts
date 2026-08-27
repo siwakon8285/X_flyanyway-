@@ -21,6 +21,12 @@ Object.defineProperty(window, "scrollTo", {
   writable: true,
 });
 
+Object.defineProperty(Element.prototype, "scrollIntoView", {
+  configurable: true,
+  value: jest.fn(),
+  writable: true,
+});
+
 class MockIntersectionObserver implements IntersectionObserver {
   readonly root: Element | Document | null = null;
   readonly rootMargin: string = "";

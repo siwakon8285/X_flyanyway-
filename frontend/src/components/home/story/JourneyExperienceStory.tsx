@@ -1,8 +1,4 @@
-import { ArrowRight } from "lucide-react";
-
 import { Container } from "@/components/layout/Container";
-import { buttonVariants } from "@/components/ui/Button";
-import { cn } from "@/lib/utils/cn";
 
 const journeyValues = ["Comfort", "Control", "Choice"] as const;
 
@@ -47,35 +43,6 @@ const JourneyExperienceStory = () => (
         </ol>
       </div>
 
-      <div
-        className="mt-16 grid gap-7 border-t border-border-strong/80 pt-8 md:grid-cols-[minmax(0,1fr)_auto] md:items-end md:gap-10 lg:mt-24"
-        data-journey-cta
-      >
-        <div>
-          <p className="text-label text-brand">Your next horizon</p>
-          <h3 className="mt-3 max-w-xl text-h2 uppercase text-balance">
-            Ready to go anywhere?
-          </h3>
-          <p className="mt-3 text-body text-muted-foreground">
-            Your next journey starts here.
-          </p>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <a className={buttonVariants({ size: "lg" })} href="#journey">
-            Book a Flight
-            <ArrowRight aria-hidden="true" />
-          </a>
-          <a
-            className={cn(
-              buttonVariants({ size: "lg", variant: "outline" }),
-              "bg-background/25",
-            )}
-            href="#cabins"
-          >
-            Explore Cabins
-          </a>
-        </div>
-      </div>
     </Container>
   </section>
 );
