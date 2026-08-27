@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 
 import { SiteShell } from "@/components/layout/SiteShell";
 import { SmoothScrollProvider } from "@/components/motion/SmoothScrollProvider";
+import { INITIAL_HASH_BOOTSTRAP_SCRIPT } from "@/lib/motion/initialHash";
 
 import "lenis/dist/lenis.css";
 import "./globals.css";
@@ -28,7 +29,14 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{ __html: INITIAL_HASH_BOOTSTRAP_SCRIPT }}
+          id="initial-hash-bootstrap"
+        />
+      </head>
       <body className="flex min-h-full flex-col">
         <SmoothScrollProvider>
           <SiteShell>{children}</SiteShell>

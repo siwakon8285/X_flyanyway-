@@ -6,6 +6,12 @@ import { FlightSearchSection } from "@/components/booking/search/FlightSearchSec
 import { createDefaultFlightSearchValues } from "@/components/booking/search/searchState";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
 
+const mockPush = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
 const createValidValues = (): FlightSearchFormValues => ({
   cabin: "economy",
   departure: "2099-05-10",
@@ -18,6 +24,7 @@ const createValidValues = (): FlightSearchFormValues => ({
 
 describe("FlightSearchForm", () => {
   beforeEach(() => {
+    mockPush.mockClear();
     window.history.replaceState(null, "", "/");
   });
 
@@ -249,7 +256,7 @@ describe("FlightSearchForm", () => {
     expect(screen.queryByText(/moon/i)).not.toBeInTheDocument();
   });
 
-  it("hydrates supported URL criteria and replaces the URL after a local submit", async () => {
+  it("hydrates supported URL criteria and navigates to the results route after submit", async () => {
     window.history.replaceState(
       null,
       "",
@@ -269,9 +276,8 @@ describe("FlightSearchForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Swap origin and destination" }));
     fireEvent.click(screen.getByRole("button", { name: "Search Flights" }));
 
-    expect(window.location.search).toBe(
-      "?from=LHR&to=BKK&departure=2099-05-10&adults=1&children=2&infants=0&cabin=first&trip=one-way",
+    expect(mockPush).toHaveBeenCalledWith(
+      "/flights?from=LHR&to=BKK&departure=2099-05-10&adults=1&children=2&infants=0&cabin=first&trip=one-way",
     );
-    expect(window.location.hash).toBe("#flight-search");
   });
 });

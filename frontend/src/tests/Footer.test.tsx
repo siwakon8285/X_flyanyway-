@@ -22,7 +22,7 @@ describe("Footer", () => {
     );
     expect(screen.getByRole("link", { name: "Book a Flight" })).toHaveAttribute(
       "href",
-      "#flight-search",
+      "/#flight-search",
     );
     expect(screen.getByRole("link", { name: "About X-Fly" })).toHaveAttribute(
       "href",

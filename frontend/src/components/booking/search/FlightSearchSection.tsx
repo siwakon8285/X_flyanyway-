@@ -1,6 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 
 import { FlightSearchForm } from "@/components/booking/search/FlightSearchForm";
 import {
@@ -18,6 +19,7 @@ const getLocationSearch = () => window.location.search;
 const getServerLocationSearch = () => "";
 
 const FlightSearchSection = () => {
+  const router = useRouter();
   const locationSearch = useSyncExternalStore(
     subscribeToLocation,
     getLocationSearch,
@@ -57,11 +59,7 @@ const FlightSearchSection = () => {
               key={locationSearch}
               onValidSubmit={(values) => {
                 const query = serializeFlightSearch(values);
-                window.history.replaceState(
-                  null,
-                  "",
-                  `/?${query}#flight-search`,
-                );
+                router.push(`/flights?${query}`);
               }}
             />
           </div>

@@ -31,5 +31,38 @@ const connectLenisToGsap = (
   };
 };
 
-export { connectLenisToGsap };
+const scrollToLocationHash = (lenis: Lenis | null) => {
+  const encodedTargetId = window.location.hash.slice(1);
+  if (!encodedTargetId) return false;
+
+  let targetId: string;
+  try {
+    targetId = decodeURIComponent(encodedTargetId);
+  } catch {
+    return false;
+  }
+
+  const target = document.getElementById(targetId);
+  if (!target) return false;
+
+  if (lenis) {
+    const computedScrollMargin = Number.parseFloat(
+      window.getComputedStyle(target).scrollMarginTop,
+    );
+    const headerOffset = Number.isFinite(computedScrollMargin)
+      ? -computedScrollMargin
+      : 0;
+
+    lenis.scrollTo(target, {
+      immediate: true,
+      offset: headerOffset,
+    });
+  } else {
+    target.scrollIntoView({ behavior: "auto", block: "start" });
+  }
+
+  return true;
+};
+
+export { connectLenisToGsap, scrollToLocationHash };
 export type { GsapTickerBridge, ScrollTriggerBridge };

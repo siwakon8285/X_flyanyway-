@@ -1,6 +1,7 @@
 import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import {
   createDefaultFlightSearchValues,
+  isCompleteFlightSearchQuery,
   parseFlightSearch,
   serializeFlightSearch,
   validateFlightSearch,
@@ -52,6 +53,31 @@ describe("flight search state", () => {
       to: null,
       trip: "one-way",
     });
+  });
+
+  it("accepts only complete supported result-page criteria", () => {
+    expect(
+      isCompleteFlightSearchQuery(
+        new URLSearchParams(
+          "from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=1&children=0&infants=0&cabin=business&trip=round-trip",
+        ),
+      ),
+    ).toBe(true);
+
+    expect(
+      isCompleteFlightSearchQuery(
+        new URLSearchParams(
+          "from=BKK&to=MOON&departure=2099-05-10&adults=1&children=0&infants=0&cabin=spaceship&trip=one-way",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      isCompleteFlightSearchQuery(
+        new URLSearchParams(
+          "from=BKK&to=LHR&departure=2099-05-10&adults=1&children=0&infants=0&cabin=economy&trip=round-trip",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("rejects an identical origin and destination", () => {

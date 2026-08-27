@@ -88,6 +88,30 @@ const parseFlightSearch = (params: URLSearchParams): FlightSearchFormValues => {
   };
 };
 
+const isCompleteFlightSearchQuery = (params: URLSearchParams) => {
+  const values = parseFlightSearch(params);
+  const hasCanonicalPassengers = (
+    ["adults", "children", "infants"] as const
+  ).every(
+    (key) => params.get(key) === String(values.passengers[key]),
+  );
+  const hasCanonicalCriteria =
+    params.get("from") === values.from?.code &&
+    params.get("to") === values.to?.code &&
+    params.get("departure") === values.departure &&
+    params.get("cabin") === values.cabin &&
+    params.get("trip") === values.trip &&
+    hasCanonicalPassengers;
+  const hasRequiredReturn =
+    values.trip === "one-way" || params.get("return") === values.returnDate;
+
+  return (
+    hasCanonicalCriteria &&
+    hasRequiredReturn &&
+    Object.keys(validateFlightSearch(values)).length === 0
+  );
+};
+
 const serializeFlightSearch = (values: FlightSearchFormValues) => {
   const params = new URLSearchParams();
 
@@ -155,6 +179,7 @@ export {
   PASSENGER_UI_SAFETY_LIMIT,
   createDefaultFlightSearchValues,
   getTodayDateInputValue,
+  isCompleteFlightSearchQuery,
   parseFlightSearch,
   serializeFlightSearch,
   validateFlightSearch,

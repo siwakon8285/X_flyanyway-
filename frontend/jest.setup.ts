@@ -1,5 +1,17 @@
 import "@testing-library/jest-dom";
 
+jest.mock("next/navigation", () => ({
+  ...jest.requireActual("next/navigation"),
+  useRouter: () => ({
+    back: jest.fn(),
+    forward: jest.fn(),
+    prefetch: jest.fn(),
+    push: jest.fn(),
+    refresh: jest.fn(),
+    replace: jest.fn(),
+  }),
+}));
+
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   value: jest.fn().mockImplementation((query: string) => ({
