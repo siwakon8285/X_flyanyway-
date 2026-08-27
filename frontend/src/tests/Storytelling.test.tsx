@@ -122,6 +122,7 @@ describe("scroll storytelling", () => {
       container.querySelector("#aircraft-story"),
       container.querySelector("#cabins"),
       container.querySelector("#service-story"),
+      container.querySelector("#journey-path"),
       container.querySelector("#journey-experience"),
     ];
 
@@ -145,6 +146,12 @@ describe("scroll storytelling", () => {
       screen.getByRole("heading", {
         level: 2,
         name: "A journey considered in every detail.",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "From first thought to final step.",
       }),
     ).toBeInTheDocument();
     expect(
@@ -243,26 +250,25 @@ describe("scroll storytelling", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("uses a geographic world SVG while preserving the 156-country message", () => {
+  it("uses photographic Global Reach visual while preserving the 156-country message", () => {
     const { container } = render(<Home />);
     const globalReach = container.querySelector("#global-reach");
 
     expect(globalReach).not.toBeNull();
     expect(
       globalReach?.querySelector("svg[data-world-map]"),
-    ).toBeInTheDocument();
-    expect(
-      globalReach?.querySelectorAll("[data-world-region]").length,
-    ).toBeGreaterThanOrEqual(5);
-    expect(
-      globalReach?.querySelectorAll("[data-route-path]").length,
-    ).toBeGreaterThanOrEqual(3);
-    expect(
-      globalReach?.querySelectorAll("[data-route-node]").length,
-    ).toBeGreaterThanOrEqual(5);
+    ).not.toBeInTheDocument();
+
+    const globalImgs = globalReach?.querySelectorAll("img");
+    expect(globalImgs?.length).toBeGreaterThanOrEqual(1);
+    expect(globalImgs?.[0]).toHaveAttribute(
+      "src",
+      expect.stringContaining("x-fly-global-reach-bg-v1.jpg"),
+    );
+
     expect(within(globalReach as HTMLElement).getByText("156")).toBeInTheDocument();
     expect(
-      within(globalReach as HTMLElement).getByText("Countries"),
+      within(globalReach as HTMLElement).getByText("COUNTRIES"),
     ).toBeInTheDocument();
     expect(
       within(globalReach as HTMLElement).queryByRole("button"),
@@ -367,7 +373,7 @@ describe("scroll storytelling", () => {
     ).toHaveAttribute("href", "#cabins");
   });
 
-  it("communicates global scale and keeps every cabin stage available without controls", () => {
+  it("communicates global scale and presents 4 dedicated cabin tiers with photography and without interactive controls", () => {
     const { container } = render(<Home />);
     const globalReach = container.querySelector("#global-reach");
     const cabins = container.querySelector("#cabins");
@@ -376,19 +382,23 @@ describe("scroll storytelling", () => {
     expect(cabins).not.toBeNull();
     expect(within(globalReach as HTMLElement).getByText("156")).toBeInTheDocument();
 
-    for (const cabin of ["Economy", "Premium Economy", "Business", "First"]) {
-      expect(
-        within(cabins as HTMLElement).getByRole("heading", {
-          level: 3,
-          name: cabin,
-        }),
-      ).toBeInTheDocument();
+    const stages = Array.from(cabins?.querySelectorAll("[data-cabin-stage]") ?? []);
+    expect(stages).toHaveLength(4);
+
+    for (const stage of stages) {
+      expect(within(stage as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
+      expect(within(stage as HTMLElement).queryByRole("radio")).not.toBeInTheDocument();
     }
 
-    expect(within(cabins as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
-    expect(within(cabins as HTMLElement).queryByRole("radio")).not.toBeInTheDocument();
+    const cabinLabels = ["Economy", "Premium Economy", "Business", "First"];
+    cabinLabels.forEach((label) => {
+      expect(within(cabins as HTMLElement).getByRole("heading", { level: 3, name: label })).toBeInTheDocument();
+    });
+
+    const cabinImages = cabins?.querySelectorAll("img");
+    expect(cabinImages?.length).toBeGreaterThanOrEqual(4);
     expect(cabins?.querySelectorAll("[data-cabin-atmosphere]")).toHaveLength(4);
-    expect(cabins?.querySelector("img")).not.toBeInTheDocument();
+    expect(cabins?.querySelector("[data-cabin-media-frame]")).toBeInTheDocument();
   });
 
   it("keeps reduced-motion storytelling visible in normal document flow", () => {
@@ -439,7 +449,7 @@ describe("scroll storytelling", () => {
         ),
       );
 
-      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(1);
+      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(2);
       expect(
         container.querySelectorAll(
           '[data-aircraft-beat][style*="position: absolute"]',
@@ -466,7 +476,7 @@ describe("scroll storytelling", () => {
       mediaEventTime += 10;
       act(() => media.setViewportWidth(1280));
 
-      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(1);
+      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(2);
       expect(serviceParallaxLayers[0]?.style.transform).not.toBe(
         tabletParallaxTransform,
       );
@@ -505,7 +515,7 @@ describe("scroll storytelling", () => {
 
       mediaEventTime += 10;
       act(() => media.setViewportWidth(1280));
-      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(1);
+      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(2);
       expect(
         container.querySelectorAll(
           '[data-aircraft-beat][style*="position: absolute"]',
@@ -525,7 +535,7 @@ describe("scroll storytelling", () => {
 
       mediaEventTime += 10;
       act(() => media.setViewportHeight(900));
-      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(1);
+      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(2);
 
       mediaEventTime += 10;
       act(() => media.setReducedMotion(true));

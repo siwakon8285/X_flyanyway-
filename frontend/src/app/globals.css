@@ -198,3 +198,118 @@ body {
     will-change: auto;
   }
 }
+
+/* Horizontal Journey — layout & track styles */
+
+[data-journey-route-svg],
+[data-journey-node] {
+  display: none;
+}
+
+/* Mobile & Small Tablet: Horizontal Native Swipe Carousel */
+@media (max-width: 63.999rem), (max-height: 51.999rem) {
+  [data-journey-track] {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: clamp(1rem, 3.5vw, 1.5rem);
+    padding-inline: var(--page-gutter);
+    scroll-padding-inline: var(--page-gutter);
+  }
+
+  [data-journey-track]::-webkit-scrollbar {
+    display: none;
+  }
+
+  [data-journey-stages] {
+    display: flex;
+    gap: inherit;
+  }
+
+  [data-journey-stage] {
+    flex: 0 0 clamp(18.5rem, 86vw, 28rem);
+    scroll-snap-align: start;
+    scroll-snap-stop: normal;
+  }
+
+  @media (min-width: 48rem) and (max-width: 63.999rem) {
+    [data-journey-stage] {
+      flex: 0 0 clamp(22rem, 78vw, 36rem);
+    }
+  }
+}
+
+/* Desktop Pinned Horizontal Track */
+@media (min-width: 64rem) and (min-height: 52rem) and (prefers-reduced-motion: no-preference) {
+  [data-journey-viewport] {
+    height: 100svh;
+    overflow: hidden;
+  }
+
+  [data-journey-track] {
+    display: flex;
+    width: max-content;
+    height: 100%;
+    align-items: stretch;
+    will-change: transform;
+    overflow-x: visible;
+    padding-inline: 0;
+  }
+
+  [data-journey-stages] {
+    display: contents;
+  }
+
+  [data-journey-stage] {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: 100vw;
+    padding-top: calc(var(--header-height) + clamp(2.5rem, 5vh, 5rem));
+    padding-bottom: clamp(2rem, 4vh, 4rem);
+    padding-left: clamp(4rem, 8vw, 10rem);
+    padding-right: clamp(4rem, 8vw, 10rem);
+    overflow: hidden;
+    position: relative;
+  }
+
+  [data-journey-stage="discover"],
+  [data-journey-stage="book"],
+  [data-journey-stage="fly"],
+  [data-journey-stage="arrive"],
+  [data-journey-stage="beyond"] {
+    width: 100vw;
+  }
+
+  [data-journey-route-svg] {
+    display: block;
+  }
+
+  [data-journey-node] {
+    display: flex;
+  }
+}
+
+/* Mobile Swipe Tracks: Scrollbar Hiding & Overflow Containment */
+@media (max-width: 63.999rem), (max-height: 51.999rem) {
+  [data-aircraft-milestone-canvas] {
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  [data-aircraft-milestone-canvas]::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@media (max-width: 47.999rem) {
+  [data-cabin-stage-stack] {
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  [data-cabin-stage-stack]::-webkit-scrollbar {
+    display: none;
+  }
+}
