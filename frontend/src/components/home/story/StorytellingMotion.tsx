@@ -39,80 +39,111 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
           "[data-cabin-stage]",
           element,
         );
+        const cabinImages = gsap.utils.toArray<HTMLElement>(
+          "[data-cabin-image]",
+          element,
+        );
         const journeyStory = element.querySelector<HTMLElement>("[data-journey-story]");
         if (globalStory) {
-          const globalCopy = globalStory.querySelector<HTMLElement>("[data-global-copy]");
+          const globalLine = globalStory.querySelector<HTMLElement>("[data-global-line]");
+          const globalEyebrowText = globalStory.querySelector<HTMLElement>(
+            "[data-global-eyebrow-text]",
+          );
+          const globalHeadingLines = gsap.utils.toArray<HTMLElement>(
+            "[data-global-heading-line]",
+            globalStory,
+          );
+          const globalBody = globalStory.querySelector<HTMLElement>(
+            "[data-global-body]",
+          );
           const globalMetric = globalStory.querySelector<HTMLElement>(
             "[data-global-metric]",
           );
           const globalVisual = globalStory.querySelector<HTMLElement>(
             "[data-global-visual]",
           );
-          const routePaths = gsap.utils.toArray<SVGPathElement>(
+          const globalImage = globalStory.querySelector<HTMLElement>(
+            "[data-global-image]",
+          );
+          const routePath = globalStory.querySelector<SVGPathElement>(
             "[data-route-path]",
-            globalStory,
           );
-          const worldRegions = gsap.utils.toArray<SVGPathElement>(
-            "[data-world-region]",
-            globalStory,
-          );
-          const routeNodes = gsap.utils.toArray<SVGGElement>(
-            "[data-route-node]",
-            globalStory,
-          );
-          const regionLabels = gsap.utils.toArray<HTMLElement>(
-            "[data-global-regions] li",
-            globalStory,
+          const hubsPill = globalStory.querySelector<HTMLElement>(
+            "[data-global-hubs-pill]",
           );
 
-          gsap
-            .timeline({
-              defaults: { ease: "none" },
-              scrollTrigger: {
-                end: "bottom 34%",
-                invalidateOnRefresh: true,
-                scrub: 0.65,
-                start: "top 76%",
-                trigger: globalStory,
-              },
-            })
-            .fromTo(globalCopy, { opacity: 0.42, y: 36 }, { opacity: 1, y: 0 }, 0)
-            .fromTo(
-              globalVisual,
-              { opacity: 0.58, scale: 0.96, y: 32 },
-              { opacity: 1, scale: 1, y: 0 },
-              0,
-            )
-            .fromTo(
-              globalMetric,
-              { opacity: 0.35, scale: 0.92, y: 18 },
-              { opacity: 1, scale: 1, y: 0 },
+          if (globalLine) gsap.set(globalLine, { scaleX: 0, transformOrigin: "left center" });
+          if (globalEyebrowText) gsap.set(globalEyebrowText, { opacity: 0, y: 6 });
+          if (globalHeadingLines.length > 0) {
+            gsap.set(globalHeadingLines, { opacity: 0, y: 24 });
+          }
+          if (globalBody) gsap.set(globalBody, { opacity: 0, y: 14 });
+          if (hubsPill) gsap.set(hubsPill, { opacity: 0, y: 12 });
+          if (globalMetric) gsap.set(globalMetric, { opacity: 0, y: 18 });
+
+          const globalTl = gsap.timeline({
+            defaults: { ease: "power2.out" },
+            scrollTrigger: {
+              end: "bottom 30%",
+              invalidateOnRefresh: true,
+              scrub: 0.7,
+              start: "top 80%",
+              trigger: globalStory,
+            },
+          });
+
+          if (globalLine) {
+            globalTl.to(globalLine, { duration: 0.25, scaleX: 1 }, 0);
+          }
+          if (globalEyebrowText) {
+            globalTl.to(globalEyebrowText, { duration: 0.22, opacity: 1, y: 0 }, 0.05);
+          }
+
+          if (globalHeadingLines.length > 0) {
+            globalTl.to(
+              globalHeadingLines,
+              { duration: 0.45, opacity: 1, stagger: 0.1, y: 0 },
               0.08,
-            )
-            .fromTo(
-              worldRegions,
-              { opacity: 0.12, scale: 0.97, transformOrigin: "center" },
-              { opacity: 1, scale: 1, stagger: 0.045 },
-              0.04,
-            )
-            .fromTo(
-              routePaths,
-              { strokeDasharray: 1, strokeDashoffset: 1 },
-              { stagger: 0.08, strokeDashoffset: 0 },
-              0.08,
-            )
-            .fromTo(
-              routeNodes,
-              { opacity: 0, scale: 0, transformOrigin: "center" },
-              { opacity: 1, scale: 1, stagger: 0.055 },
-              0.26,
-            )
-            .fromTo(
-              regionLabels,
-              { opacity: 0.3, y: 10 },
-              { opacity: 1, stagger: 0.05, y: 0 },
-              0.38,
             );
+          }
+
+          if (globalBody) {
+            globalTl.to(globalBody, { duration: 0.4, opacity: 1, y: 0 }, 0.2);
+          }
+
+          if (hubsPill) {
+            globalTl.to(hubsPill, { duration: 0.35, opacity: 1, y: 0 }, 0.28);
+          }
+
+          // Visual Container & Photographic Image Settle
+          globalTl.fromTo(
+            globalVisual,
+            { opacity: 0.65, y: 26 },
+            { duration: 0.8, opacity: 1, y: 0 },
+            0,
+          );
+
+          if (globalImage) {
+            globalTl.fromTo(
+              globalImage,
+              { scale: 1.06, y: 14 },
+              { duration: 1.0, ease: "none", scale: 1.0, y: -8 },
+              0,
+            );
+          }
+
+          if (globalMetric) {
+            globalTl.to(globalMetric, { duration: 0.45, opacity: 1, y: 0 }, 0.32);
+          }
+
+          if (routePath) {
+            globalTl.fromTo(
+              routePath,
+              { opacity: 0 },
+              { duration: 0.4, opacity: 0.85 },
+              0.36,
+            );
+          }
         }
 
         if (cabinStory && cabinFrame && cabinStack && cabinStages.length === 4) {
@@ -140,7 +171,15 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
             minHeight: 0,
             position: "absolute",
           });
-          gsap.set(cabinStages.slice(1), { opacity: 0, y: 40 });
+          gsap.set(cabinStages[0], { opacity: 1, y: 0 });
+          gsap.set(cabinStages.slice(1), { opacity: 0, y: 32 });
+
+          // Initialize desktop media overlapping layers
+          if (cabinImages.length === 4) {
+            gsap.set(cabinImages[0], { opacity: 1, scale: 1 });
+            gsap.set(cabinImages.slice(1), { opacity: 0, scale: 1.03 });
+          }
+
           gsap.set(cabinProgress, { display: "flex" });
           gsap.set(progressLine, { scaleX: 0 });
           gsap.set(cabinLight, { opacity: 0.48, xPercent: 5 });
@@ -175,19 +214,42 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
             const previousStage = cabinStages[index];
             const previousAtmosphere = cabinAtmospheres[index];
             const nextAtmosphere = cabinAtmospheres[index + 1];
+            const previousImage = cabinImages[index];
+            const nextImage = cabinImages[index + 1];
             const transitionStart = index + 0.72;
 
             cabinTimeline
               .to(
                 previousStage,
-                { duration: 0.34, opacity: 0, y: -32 },
+                { duration: 0.32, opacity: 0, y: -24 },
                 transitionStart,
-              )
+              );
+
+            if (previousImage) {
+              cabinTimeline.to(
+                previousImage,
+                { duration: 0.38, opacity: 0, scale: 1.015 },
+                transitionStart,
+              );
+            }
+
+            cabinTimeline
               .to(
                 stage,
-                { duration: 0.42, opacity: 1, y: 0 },
-                transitionStart + 0.18,
-              )
+                { duration: 0.40, opacity: 1, y: 0 },
+                transitionStart + 0.14,
+              );
+
+            if (nextImage) {
+              cabinTimeline.fromTo(
+                nextImage,
+                { opacity: 0, scale: 1.035 },
+                { duration: 0.44, opacity: 1, scale: 1, ease: "power2.out" },
+                transitionStart + 0.08,
+              );
+            }
+
+            cabinTimeline
               .to(
                 cabinAperture,
                 {
@@ -626,6 +688,317 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
       );
 
       return () => serviceMediaQueries.revert();
+    },
+    {
+      dependencies: [reducedMotion],
+      revertOnUpdate: true,
+      scope: root,
+    },
+  );
+
+  useGSAP(
+    () => {
+      const element = root.current;
+      if (!element || reducedMotion) return;
+
+      const journeyStory = element.querySelector<HTMLElement>(
+        "[data-journey-path]",
+      );
+      const journeyViewport = journeyStory?.querySelector<HTMLElement>(
+        "[data-journey-viewport]",
+      );
+      const journeyTrack = journeyStory?.querySelector<HTMLElement>(
+        "[data-journey-track]",
+      );
+      const stages = gsap.utils.toArray<HTMLElement>(
+        "[data-journey-stage]",
+        journeyStory ?? undefined,
+      );
+      const stageNodes = gsap.utils.toArray<HTMLElement>(
+        "[data-journey-node]",
+        journeyStory ?? undefined,
+      );
+      const discoverImage = journeyStory?.querySelector<HTMLElement>(
+        "[data-journey-discover-image]",
+      );
+      const bookImage = journeyStory?.querySelector<HTMLElement>(
+        "[data-journey-book-image]",
+      );
+      const flyImage = journeyStory?.querySelector<HTMLElement>(
+        "[data-journey-fly-image]",
+      );
+      const arriveImage = journeyStory?.querySelector<HTMLElement>(
+        "[data-journey-arrive-image]",
+      );
+      const beyondImage = journeyStory?.querySelector<HTMLElement>(
+        "[data-journey-beyond-image]",
+      );
+
+      if (
+        !journeyStory ||
+        !journeyViewport ||
+        !journeyTrack ||
+        stages.length !== 5
+      ) {
+        return;
+      }
+
+      const horizontalMediaQueries = gsap.matchMedia();
+
+      horizontalMediaQueries.add(
+        motionMediaQueries.horizontalJourney,
+        () => {
+          gsap.set(journeyViewport, { height: "100svh", overflow: "hidden" });
+          gsap.set(journeyTrack, {
+            alignItems: "stretch",
+            display: "flex",
+            height: "100%",
+            width: "max-content",
+          });
+          gsap.set(stages, {
+            flex: "none",
+          });
+
+          // Stage 01 (Discover) starts fully visible and active
+          const firstStageContent = stages[0]?.querySelector<HTMLElement>("[data-journey-content]");
+          const firstEyebrowLine = stages[0]?.querySelector<HTMLElement>("[data-journey-eyebrow-line]");
+          const firstHeadlineMask = stages[0]?.querySelector<HTMLElement>("[data-journey-headline-mask]");
+          const firstHeadline = stages[0]?.querySelector<HTMLElement>("[data-journey-headline]");
+          const firstBody = stages[0]?.querySelector<HTMLElement>("[data-journey-body]");
+          const firstMeta = stages[0]?.querySelector<HTMLElement>("[data-journey-meta]");
+
+          if (firstStageContent) gsap.set(firstStageContent, { opacity: 1 });
+          if (firstEyebrowLine) gsap.set(firstEyebrowLine, { scaleX: 1, transformOrigin: "left center" });
+          if (firstHeadlineMask) gsap.set(firstHeadlineMask, { clipPath: "inset(0 0% 0 0)" });
+          if (firstHeadline) gsap.set(firstHeadline, { opacity: 1, y: 0 });
+          if (firstBody) gsap.set(firstBody, { opacity: 1, y: 0 });
+          if (firstMeta) gsap.set(firstMeta, { opacity: 1, y: 0 });
+
+          // Stages 02 to 05 start completely hidden and clipped until entering focus zone
+          stages.forEach((stage, index) => {
+            if (index === 0) return;
+            const content = stage.querySelector<HTMLElement>("[data-journey-content]");
+            const line = stage.querySelector<HTMLElement>("[data-journey-eyebrow-line]");
+            const text = stage.querySelector<HTMLElement>("[data-journey-eyebrow-text]");
+            const mask = stage.querySelector<HTMLElement>("[data-journey-headline-mask]");
+            const headline = stage.querySelector<HTMLElement>("[data-journey-headline]");
+            const body = stage.querySelector<HTMLElement>("[data-journey-body]");
+            const meta = stage.querySelector<HTMLElement>("[data-journey-meta]");
+
+            if (content) gsap.set(content, { opacity: 0 });
+            if (line) gsap.set(line, { scaleX: 0, transformOrigin: "left center" });
+            if (text) gsap.set(text, { opacity: 0, y: 6 });
+            if (mask) gsap.set(mask, { clipPath: "inset(0 100% 0 0)" });
+            if (headline) gsap.set(headline, { opacity: 0, y: 12 });
+            if (body) gsap.set(body, { opacity: 0, y: 10 });
+            if (meta) gsap.set(meta, { opacity: 0, y: 6 });
+          });
+
+          if (stageNodes.length > 0) {
+            gsap.set(stageNodes, { opacity: 0.35, scale: 0.9 });
+            gsap.set(stageNodes[0], { opacity: 1, scale: 1 });
+          }
+
+          const horizontalTimeline = gsap.timeline({
+            defaults: { ease: "none" },
+            scrollTrigger: {
+              end: () => {
+                const distance =
+                  journeyTrack.scrollWidth - window.innerWidth;
+                return `+=${Math.max(distance, window.innerHeight * 1.8)}`;
+              },
+              invalidateOnRefresh: true,
+              pin: journeyViewport,
+              scrub: 0.8,
+              start: "top top",
+              trigger: journeyStory,
+            },
+          });
+
+          // Horizontal track translation
+          horizontalTimeline.to(
+            journeyTrack,
+            {
+              duration: 4,
+              ease: "none",
+              x: () => -(journeyTrack.scrollWidth - window.innerWidth),
+            },
+            0,
+          );
+
+          // HUD Node progression
+          stageNodes.forEach((node, index) => {
+            if (index === 0) return;
+            const startTime = index * 0.85;
+            horizontalTimeline.to(
+              node,
+              {
+                duration: 0.2,
+                ease: "power2.out",
+                opacity: 1,
+                scale: 1,
+              },
+              startTime,
+            );
+          });
+
+          // Staged Focus Isolation and Earlier Left-to-Right Unmasking
+          stages.forEach((stage, index) => {
+            if (index === 0) {
+              // Dim Discover when scrolling away
+              const content = stage.querySelector<HTMLElement>("[data-journey-content]");
+              if (content) {
+                horizontalTimeline.to(
+                  content,
+                  { duration: 0.35, ease: "power1.out", opacity: 0.2 },
+                  0.40,
+                );
+              }
+              return;
+            }
+
+            const stageContent = stage.querySelector<HTMLElement>("[data-journey-content]");
+            const stageEyebrowLine = stage.querySelector<HTMLElement>("[data-journey-eyebrow-line]");
+            const stageEyebrowText = stage.querySelector<HTMLElement>("[data-journey-eyebrow-text]");
+            const stageHeadlineMask = stage.querySelector<HTMLElement>("[data-journey-headline-mask]");
+            const stageHeadline = stage.querySelector<HTMLElement>("[data-journey-headline]");
+            const stageBody = stage.querySelector<HTMLElement>("[data-journey-body]");
+            const stageMeta = stage.querySelector<HTMLElement>("[data-journey-meta]");
+
+            // Dim previous stage as current stage approaches
+            const prevContent = stages[index - 1]?.querySelector<HTMLElement>("[data-journey-content]");
+            if (prevContent && index > 1) {
+              horizontalTimeline.to(
+                prevContent,
+                { duration: 0.35, ease: "power1.out", opacity: 0.2 },
+                (index - 1) * 0.85 + 0.40,
+              );
+            }
+
+            // Current stage enters reading zone earlier (synced with panel entry)
+            const enterTime = index * 0.85 - 0.40;
+
+            if (stageContent) {
+              horizontalTimeline.to(
+                stageContent,
+                { duration: 0.32, ease: "power2.out", opacity: 1 },
+                enterTime,
+              );
+            }
+
+            // Step A: Eyebrow line draws left -> right
+            if (stageEyebrowLine) {
+              horizontalTimeline.to(
+                stageEyebrowLine,
+                { duration: 0.28, ease: "power2.out", scaleX: 1 },
+                enterTime,
+              );
+            }
+
+            // Step B: Eyebrow label fades in
+            if (stageEyebrowText) {
+              horizontalTimeline.to(
+                stageEyebrowText,
+                { duration: 0.22, ease: "power2.out", opacity: 1, y: 0 },
+                enterTime + 0.06,
+              );
+            }
+
+            // Step C: Headline true left-to-right mask reveal (inset) + subtle vertical settle
+            if (stageHeadlineMask) {
+              horizontalTimeline.to(
+                stageHeadlineMask,
+                {
+                  clipPath: "inset(0 0% 0 0)",
+                  duration: 0.46,
+                  ease: "power2.out",
+                },
+                enterTime + 0.12,
+              );
+            }
+
+            if (stageHeadline) {
+              horizontalTimeline.to(
+                stageHeadline,
+                { duration: 0.4, ease: "power2.out", opacity: 1, y: 0 },
+                enterTime + 0.12,
+              );
+            }
+
+            // Step D: Body copy arrives quietly
+            if (stageBody) {
+              horizontalTimeline.to(
+                stageBody,
+                { duration: 0.34, ease: "power2.out", opacity: 1, y: 0 },
+                enterTime + 0.26,
+              );
+            }
+
+            // Step E: Metadata settles last
+            if (stageMeta) {
+              horizontalTimeline.to(
+                stageMeta,
+                { duration: 0.28, ease: "power2.out", opacity: 1, y: 0 },
+                enterTime + 0.36,
+              );
+            }
+          });
+
+          // Stage 01 Discover image subtle parallax
+          if (discoverImage) {
+            horizontalTimeline.fromTo(
+              discoverImage,
+              { scale: 1.04, xPercent: 2 },
+              { duration: 1.2, ease: "none", scale: 1, xPercent: -2 },
+              0,
+            );
+          }
+
+          // Stage 02 Book image subtle parallax
+          if (bookImage) {
+            horizontalTimeline.fromTo(
+              bookImage,
+              { scale: 1.04, xPercent: 3 },
+              { duration: 1.3, ease: "none", scale: 1, xPercent: -3 },
+              0.45,
+            );
+          }
+
+          // Stage 03 Fly image cinematic parallax
+          if (flyImage) {
+            horizontalTimeline.fromTo(
+              flyImage,
+              { scale: 1.08, xPercent: 4 },
+              { duration: 1.4, ease: "none", scale: 1, xPercent: -4 },
+              1.35,
+            );
+          }
+
+          // Stage 04 Arrive image arrival parallax
+          if (arriveImage) {
+            horizontalTimeline.fromTo(
+              arriveImage,
+              { scale: 1.05, xPercent: 3 },
+              { duration: 1.4, ease: "none", scale: 1, xPercent: -3 },
+              2.20,
+            );
+          }
+
+          // Stage 05 Beyond image forward horizon parallax
+          if (beyondImage) {
+            horizontalTimeline.fromTo(
+              beyondImage,
+              { scale: 1.06, xPercent: 3 },
+              { duration: 1.4, ease: "none", scale: 1, xPercent: -3 },
+              3.05,
+            );
+          }
+
+          return undefined;
+        },
+      );
+
+      return () => horizontalMediaQueries.revert();
     },
     {
       dependencies: [reducedMotion],

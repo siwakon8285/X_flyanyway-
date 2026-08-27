@@ -1,5 +1,6 @@
 import Image from "next/image";
 
+import { AircraftNarrativeControls } from "@/components/home/story/AircraftNarrativeControls";
 import { Container } from "@/components/layout/Container";
 
 const flythroughAircraft =
@@ -118,12 +119,12 @@ const AircraftNarrativeStory = () => (
           data-aircraft-safe-canvas
         >
           <ol
-            className="grid gap-8 motion-safe:[@media(min-height:52rem)]:lg:h-full motion-safe:[@media(min-height:52rem)]:lg:grid-cols-2 motion-safe:[@media(min-height:52rem)]:lg:grid-rows-2 motion-safe:[@media(min-height:52rem)]:lg:gap-x-12 motion-safe:[@media(min-height:52rem)]:lg:gap-y-10"
+            className="flex overflow-x-auto scrollbar-none gap-4 scroll-smooth [scroll-snap-type:x_mandatory] motion-safe:[@media(min-height:52rem)]:lg:grid motion-safe:[@media(min-height:52rem)]:lg:overflow-visible motion-safe:[@media(min-height:52rem)]:lg:h-full motion-safe:[@media(min-height:52rem)]:lg:grid-cols-2 motion-safe:[@media(min-height:52rem)]:lg:grid-rows-2 motion-safe:[@media(min-height:52rem)]:lg:gap-x-12 motion-safe:[@media(min-height:52rem)]:lg:gap-y-10"
             data-aircraft-milestone-canvas
           >
             {narrativeBeats.map((beat, index) => (
               <li
-                className={`border-t border-border-strong/75 pt-5 ${beat.position}`}
+                className={`flex-none w-[clamp(18rem,84vw,26rem)] [scroll-snap-align:start] rounded-xl border border-border/60 bg-[#0c1017]/90 p-6 backdrop-blur-sm motion-safe:[@media(min-height:52rem)]:lg:flex-auto motion-safe:[@media(min-height:52rem)]:lg:w-auto motion-safe:[@media(min-height:52rem)]:lg:rounded-none motion-safe:[@media(min-height:52rem)]:lg:border-0 motion-safe:[@media(min-height:52rem)]:lg:border-t motion-safe:[@media(min-height:52rem)]:lg:border-border-strong/75 motion-safe:[@media(min-height:52rem)]:lg:bg-transparent motion-safe:[@media(min-height:52rem)]:lg:p-0 motion-safe:[@media(min-height:52rem)]:lg:pt-5 ${beat.position}`}
                 data-aircraft-beat
                 data-aircraft-zone={beat.id}
                 key={beat.id}
@@ -132,7 +133,7 @@ const AircraftNarrativeStory = () => (
                   {String(index + 1).padStart(2, "0")} / 04 · {beat.label}
                 </p>
                 <h3
-                  className="mt-3 text-[clamp(2.15rem,3.5vw,4.25rem)] font-semibold leading-[0.9] tracking-[-0.055em]"
+                  className="mt-3 text-[clamp(2rem,3.5vw,4.25rem)] font-semibold leading-[0.9] tracking-[-0.055em]"
                   data-aircraft-beat-headline
                 >
                   {beat.headline}
@@ -146,6 +147,9 @@ const AircraftNarrativeStory = () => (
               </li>
             ))}
           </ol>
+
+          {/* Mobile dot pagination */}
+          <AircraftNarrativeControls />
         </Container>
       </div>
     </div>

@@ -20,3 +20,19 @@ Object.defineProperty(window, "scrollTo", {
   value: jest.fn(),
   writable: true,
 });
+
+class MockIntersectionObserver implements IntersectionObserver {
+  readonly root: Element | Document | null = null;
+  readonly rootMargin: string = "";
+  readonly thresholds: readonly number[] = [];
+  observe = jest.fn();
+  unobserve = jest.fn();
+  disconnect = jest.fn();
+  takeRecords = () => [];
+}
+
+Object.defineProperty(window, "IntersectionObserver", {
+  configurable: true,
+  value: MockIntersectionObserver,
+  writable: true,
+});

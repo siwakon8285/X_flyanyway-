@@ -1,161 +1,149 @@
+import Image from "next/image";
+
 import { Container } from "@/components/layout/Container";
 
-const regions = ["Americas", "Europe", "Africa", "Middle East", "Asia Pacific"] as const;
-
-const routeNodes = [
-  { id: "north-america", x: 178, y: 145 },
-  { id: "south-america", x: 229, y: 267 },
-  { id: "europe", x: 472, y: 137 },
-  { id: "africa", x: 481, y: 220 },
-  { id: "asia", x: 690, y: 145 },
-  { id: "australia", x: 748, y: 300 },
-] as const;
+const globalReachImage = "/images/hero/x-fly-global-reach-bg-v1.jpg";
 
 const GlobalReachStory = () => (
   <section
     aria-labelledby="global-reach-heading"
-    className="relative isolate flex min-h-svh items-center overflow-hidden border-t border-border/70 bg-[radial-gradient(circle_at_78%_44%,rgba(27,43,59,0.72),transparent_34rem),linear-gradient(180deg,#090909_0%,#0a1017_58%,#090909_100%)] py-section-lg md:min-h-[135svh]"
+    className="relative isolate flex min-h-svh items-center overflow-hidden border-t border-border/70 bg-[#07090c] py-section-lg md:min-h-[110svh]"
     data-global-story
     id="global-reach"
   >
+    {/* Atmospheric background lighting */}
     <div
       aria-hidden="true"
-      className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/45 to-transparent"
+      className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_80%_45%,rgba(32,52,74,0.38),transparent_48rem),radial-gradient(circle_at_65%_55%,rgba(255,212,0,0.03),transparent_36rem),linear-gradient(180deg,#07090c_0%,#090d14_50%,#07090c_100%)]"
+    />
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/70 to-transparent"
+    />
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/70 to-transparent"
     />
 
-    <Container className="relative grid items-center gap-16 md:grid-cols-[minmax(0,0.82fr)_minmax(22rem,1.18fr)] md:gap-8">
-      <div className="relative z-10" data-global-copy>
-        <div className="mb-8 flex items-center gap-4">
+    {/* Desktop Ambient Glow behind right visual */}
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute right-[10%] top-1/2 hidden h-[32rem] w-[32rem] -translate-y-1/2 rounded-full bg-[radial-gradient(circle,rgba(56,92,130,0.2),transparent_70%)] blur-3xl md:block"
+    />
+
+    <Container className="relative grid items-center gap-12 lg:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] lg:gap-16">
+      {/* Left copy column */}
+      <div className="relative z-20 w-full max-w-xl" data-global-copy>
+        <div className="mb-6 flex items-center gap-4" data-global-eyebrow>
           <span className="h-px w-10 origin-left bg-brand" data-global-line />
-          <p className="text-label text-brand">Global reach</p>
+          <p className="text-label text-brand" data-global-eyebrow-text>Global reach</p>
         </div>
-        <h2 className="max-w-3xl text-h1 text-balance" id="global-reach-heading">
-          The world, closer.
-        </h2>
-        <p className="mt-6 max-w-lg text-body-lg text-muted-foreground">
+
+        <div className="overflow-hidden" data-global-heading-wrapper>
+          <h2
+            className="text-h1 text-balance tracking-[-0.055em]"
+            id="global-reach-heading"
+          >
+            <span className="block" data-global-heading-line>The world,</span>
+            <span className="block" data-global-heading-line>closer.</span>
+          </h2>
+        </div>
+
+        <p className="mt-6 max-w-lg text-body text-muted-foreground sm:text-body-lg" data-global-body>
           Across continents and time zones, X-Fly brings every horizon into one
           connected journey.
         </p>
+
+        {/* Global Hub stats pill */}
+        <div
+          aria-hidden="true"
+          className="mt-10 inline-flex items-center gap-6 rounded-lg border border-border/60 bg-surface/40 px-5 py-3 text-caption text-muted-foreground backdrop-blur-sm sm:mt-12"
+          data-global-hubs-pill
+        >
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+            <span className="font-mono text-foreground/90">7 GLOBAL HUBS</span>
+          </div>
+          <div className="h-3 w-px bg-border/60" />
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand" />
+            <span className="font-mono text-foreground/90">24/7 OPERATIONS</span>
+          </div>
+        </div>
       </div>
 
+      {/* Right visual column: Cinematic Global Reach Photography with Left-to-Right Dissolve */}
       <div
-        className="relative min-h-[29rem] overflow-hidden md:min-h-[42rem]"
+        className="relative aspect-[16/10] w-full overflow-hidden rounded-xl md:rounded-2xl [mask-image:linear-gradient(to_right,transparent_0%,rgba(0,0,0,0.18)_6%,rgba(0,0,0,0.7)_18%,#000_32%)] [-webkit-mask-image:linear-gradient(to_right,transparent_0%,rgba(0,0,0,0.18)_6%,rgba(0,0,0,0.7)_18%,#000_32%)]"
         data-global-visual
       >
-        <svg
-          aria-hidden="true"
-          className="absolute inset-x-0 top-1/2 h-auto w-full -translate-y-1/2"
-          data-world-map
-          fill="none"
-          viewBox="0 0 880 460"
-        >
-          <g className="fill-[#152231] stroke-[#526171]/55" strokeWidth="1">
-            <path
-              d="M83 132L112 94L171 73L233 80L276 110L263 139L231 148L214 182L177 198L146 174L119 179L100 151Z"
-              data-world-region="north-america"
-            />
-            <path
-              d="M220 215L257 225L276 258L264 302L245 326L238 365L219 395L203 362L198 324L181 286L188 247Z"
-              data-world-region="south-america"
-            />
-            <path
-              d="M429 128L455 110L493 114L512 132L494 148L462 145L448 160L422 151Z"
-              data-world-region="europe"
-            />
-            <path
-              d="M447 168L500 163L536 194L527 244L503 290L479 320L456 284L439 238L416 201Z"
-              data-world-region="africa"
-            />
-            <path
-              d="M513 124L563 92L637 80L717 101L773 137L754 167L709 174L675 202L626 190L591 166L544 172L505 147Z"
-              data-world-region="asia"
-            />
-            <path
-              d="M697 287L735 269L781 283L798 315L774 337L724 333L695 312Z"
-              data-world-region="australia"
-            />
-            <path d="M323 64L354 41L385 49L373 78L340 88Z" opacity="0.66" />
-          </g>
-
-          <g fill="none" strokeLinecap="round">
-            <path
-              className="stroke-brand/85"
-              d="M178 145Q326 38 472 137"
-              data-route-path
-              pathLength="1"
-              strokeWidth="2"
-            />
-            <path
-              className="stroke-border-strong"
-              d="M472 137Q596 46 690 145"
-              data-route-path
-              pathLength="1"
-              strokeWidth="1.25"
-            />
-            <path
-              className="stroke-brand/70"
-              d="M690 145Q772 211 748 300"
-              data-route-path
-              pathLength="1"
-              strokeWidth="1.5"
-            />
-            <path
-              className="stroke-border-strong/85"
-              d="M229 267Q348 196 481 220"
-              data-route-path
-              pathLength="1"
-              strokeWidth="1.25"
-            />
-            <path
-              className="stroke-border/75"
-              d="M178 145Q439 -42 690 145"
-              data-route-path
-              pathLength="1"
-              strokeWidth="1"
-            />
-          </g>
-
-          <g>
-            {routeNodes.map((node) => (
-              <g data-route-node key={node.id}>
-                <circle
-                  className="fill-background/80 stroke-brand/70"
-                  cx={node.x}
-                  cy={node.y}
-                  r="7"
-                  strokeWidth="1"
-                />
-                <circle className="fill-brand" cx={node.x} cy={node.y} r="2.5" />
-              </g>
-            ))}
-          </g>
-        </svg>
-
+        {/* Photographic Visual Layer */}
         <div
-          className="absolute bottom-[10%] left-[4%] border-l border-brand/70 pl-4 sm:bottom-[8%] sm:left-[8%]"
-          data-global-metric
+          className="absolute inset-0 brightness-[1.03] contrast-[1.02]"
+          data-global-image
         >
-          <p className="text-[clamp(4.75rem,10vw,8.5rem)] font-semibold leading-[0.72] tracking-[-0.075em] text-foreground">
-            156
-          </p>
-          <p className="mt-4 text-label text-brand">Countries</p>
-          <p className="mt-1 text-body-sm text-muted-foreground">
-            One connected journey
-          </p>
+          <Image
+            alt="Global destination view representing X-Fly's international network"
+            className="object-cover object-[52%_48%]"
+            fill
+            priority={false}
+            sizes="(min-width: 1280px) 58vw, (min-width: 768px) 52vw, 100vw"
+            src={globalReachImage}
+          />
         </div>
 
-        <ul
-          aria-label="Global regions"
-          className="absolute inset-x-2 bottom-0 flex flex-wrap justify-end gap-x-5 gap-y-2 text-caption text-muted-foreground md:inset-x-4"
-          data-global-regions
+        {/* Atmospheric Left-to-Right Dark Blending Overlay — gentle dissolve into stage base */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(to_right,rgba(7,9,12,0.96)_0%,rgba(7,9,12,0.72)_8%,rgba(7,9,12,0.28)_20%,transparent_36%)]"
+        />
+
+        {/* Top & Bottom Atmosphere Vignettes */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(to_bottom,rgba(7,9,12,0.35)_0%,transparent_16%,transparent_80%,rgba(7,9,12,0.75)_100%)]"
+        />
+
+        {/* Subtle Brand Route Motif Accent */}
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 h-full w-full select-none opacity-85"
+          data-global-route
+          fill="none"
+          viewBox="0 0 700 420"
         >
-          {regions.map((region) => (
-            <li key={region}>{region}</li>
-          ))}
-        </ul>
+          <path
+            className="stroke-brand/80"
+            d="M 90 280 Q 260 110 470 145 T 640 190"
+            data-route-path
+            strokeDasharray="4 4"
+            strokeWidth="1.75"
+          />
+          <circle cx="90" cy="280" fill="#FFD400" r="3.5" />
+          <circle cx="470" cy="145" fill="#FFD400" r="4" />
+          <circle cx="640" cy="190" fill="#FFD400" r="3.5" />
+        </svg>
+
+        {/* 156 Countries Integrated Editorial Metric Overlay */}
+        <div
+          className="absolute bottom-4 left-4 z-20 sm:bottom-6 sm:left-6"
+          data-global-metric
+        >
+          <div className="flex items-baseline gap-2.5">
+            <p className="text-[clamp(3.5rem,7vw,5.75rem)] font-semibold leading-[0.8] tracking-[-0.075em] text-foreground drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
+              156
+            </p>
+            <span className="font-mono text-xs font-bold uppercase tracking-widest text-brand drop-shadow-sm">
+              COUNTRIES
+            </span>
+          </div>
+          <p className="mt-1 font-mono text-[0.6875rem] tracking-wider text-muted-foreground/95 drop-shadow-sm">
+            ONE CONNECTED JOURNEY
+          </p>
+        </div>
       </div>
     </Container>
   </section>
 );
 
-export { GlobalReachStory };
+export { GlobalReachStory, globalReachImage };
