@@ -8,6 +8,7 @@ import { Reveal } from "@/components/motion/Reveal";
 const FlightDetailPage = ({
   criteria,
   flight,
+  previewCabin,
   query,
 }: FlightDetailRequest) => (
   <main className="relative min-h-screen overflow-hidden pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]">
@@ -22,6 +23,7 @@ const FlightDetailPage = ({
       <AircraftSummary aircraft={flight.aircraft} />
       <CabinExperience
         flight={flight}
+        initialCabin={previewCabin}
         query={query}
         searchedCabin={criteria.cabin}
       />

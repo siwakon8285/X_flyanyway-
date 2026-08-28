@@ -17,8 +17,8 @@ describe("cinematic hero", () => {
     });
 
     expect(
-      within(hero).getByRole("link", { name: "Book a Flight" }),
-    ).toHaveAttribute("href", "/#flight-search");
+      within(hero).queryByRole("link", { name: "Book a Flight" }),
+    ).not.toBeInTheDocument();
     expect(within(hero).getByRole("link", { name: "Explore X-Fly" })).toHaveAttribute(
       "href",
       "#journey",

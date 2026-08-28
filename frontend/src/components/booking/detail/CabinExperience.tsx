@@ -29,14 +29,16 @@ const isCabinClass = (value: string): value is CabinClass =>
 
 const CabinExperience = ({
   flight,
+  initialCabin,
   query,
   searchedCabin,
 }: {
   flight: FlightResult;
+  initialCabin: CabinClass;
   query: string;
   searchedCabin: CabinClass;
 }) => {
-  const [activeCabin, setActiveCabin] = useState<CabinClass>(searchedCabin);
+  const [activeCabin, setActiveCabin] = useState<CabinClass>(initialCabin);
   const reducedMotion = useReducedMotion();
   const cabin = CABIN_PRESENTATION_BY_ID[activeCabin];
   const price = getCabinPrice(flight, activeCabin);
@@ -61,6 +63,7 @@ const CabinExperience = ({
     <section
       aria-label="Cabin experience"
       className="relative isolate overflow-hidden py-section-md"
+      id="cabin-experience"
     >
       <AnimatePresence initial={false}>
         <motion.div
@@ -269,7 +272,7 @@ const CabinExperience = ({
                     cabin.imagePosition,
                   )}
                   fill
-                  priority={activeCabin === searchedCabin}
+                  priority={activeCabin === initialCabin}
                   sizes="(min-width: 1024px) 58vw, 100vw"
                   src={cabin.image}
                 />

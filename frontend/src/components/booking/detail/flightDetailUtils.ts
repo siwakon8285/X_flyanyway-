@@ -16,6 +16,7 @@ type RouteQuery = Record<string, string | string[] | undefined>;
 type FlightDetailRequest = {
   criteria: FlightSearchFormValues;
   flight: FlightResult;
+  previewCabin: CabinClass;
   query: string;
 };
 
@@ -62,11 +63,34 @@ const resolveFlightDetailRequest = (
     return null;
   }
 
+  const selectedCabinValue = params.get("selectedCabin");
+  const previewCabin =
+    isCabinClass(selectedCabinValue) &&
+    getCabinPrice(flight, selectedCabinValue) !== null
+      ? selectedCabinValue
+      : criteria.cabin;
+
   return {
     criteria,
     flight,
+    previewCabin,
     query: serializeFlightSearch(criteria),
   };
+};
+
+const buildFlightDetailHref = ({
+  flightId,
+  query,
+  selectedCabin,
+}: {
+  flightId: string;
+  query: string;
+  selectedCabin: CabinClass;
+}) => {
+  const params = new URLSearchParams(query);
+  params.set("selectedCabin", selectedCabin);
+
+  return `/flights/${flightId}?${params.toString()}#cabin-experience`;
 };
 
 const buildSeatSelectionHref = ({
@@ -103,6 +127,7 @@ const resolveSeatSelectionRequest = (
 };
 
 export {
+  buildFlightDetailHref,
   buildSeatSelectionHref,
   resolveFlightDetailRequest,
   resolveSeatSelectionRequest,
