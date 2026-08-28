@@ -46,4 +46,27 @@ const formatDuration = (durationMinutes: number) => {
   return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
 };
 
-export { filterFlightResults, formatDuration, getCabinPrice, sortFlightResults };
+const formatPrice = (amount: number) =>
+  `THB ${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(amount)}`;
+
+const formatSearchDate = (value: string) => {
+  const [year, month, day] = value.split("-").map(Number);
+
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric",
+  })
+    .format(new Date(Date.UTC(year, month - 1, day)))
+    .toUpperCase();
+};
+
+export {
+  filterFlightResults,
+  formatDuration,
+  formatPrice,
+  formatSearchDate,
+  getCabinPrice,
+  sortFlightResults,
+};

@@ -51,7 +51,7 @@ const AirportSelector = ({ error, label, onSelect, value }: AirportSelectorProps
             aria-describedby={error ? errorId : undefined}
             aria-label={triggerLabel}
             className={cn(
-              "group flex min-h-40 w-full cursor-pointer flex-col justify-between rounded-surface border border-border bg-surface/65 px-5 py-5 text-left shadow-[inset_0_1px_0_rgb(255_255_255/0.025),0_10px_28px_rgb(0_0_0/0.18)] outline-none transition-[background-color,border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface/90 hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.04),0_14px_34px_rgb(0_0_0/0.26)] focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-focus/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transform-none motion-reduce:transition-none sm:px-6",
+              "group flex min-h-40 w-full cursor-pointer flex-col justify-between rounded-surface border border-border bg-surface/65 px-5 py-5 text-left shadow-[inset_0_1px_0_rgb(255_255_255/0.025),0_10px_28px_rgb(0_0_0/0.18)] outline-none transition-[background-color,border-color,box-shadow,transform] duration-200 hover:border-brand/45 hover:bg-surface/90 hover:shadow-[inset_0_1px_0_rgb(255_255_255/0.04),0_14px_34px_rgb(0_0_0/0.26),0_0_24px_rgb(255_212_0/0.045)] motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.01] motion-safe:active:translate-y-0 motion-safe:active:scale-[0.99] focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-focus/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none sm:px-6",
               error && "border-destructive",
             )}
             data-invalid={Boolean(error)}

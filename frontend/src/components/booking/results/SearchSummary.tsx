@@ -1,26 +1,9 @@
 import { CalendarDays, UsersRound } from "lucide-react";
 
+import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
+import { formatSearchDate } from "@/components/booking/results/flightResultUtils";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
 import { buttonVariants } from "@/components/ui/Button";
-
-const cabinLabels: Record<FlightSearchFormValues["cabin"], string> = {
-  business: "Business",
-  economy: "Economy",
-  first: "First",
-  "premium-economy": "Premium Economy",
-};
-
-const formatSearchDate = (value: string) => {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    timeZone: "UTC",
-    year: "numeric",
-  })
-    .format(new Date(Date.UTC(year, month - 1, day)))
-    .toUpperCase();
-};
 
 const SearchSummary = ({
   criteria,
@@ -52,7 +35,7 @@ const SearchSummary = ({
           </p>
         </div>
         <a
-          className={buttonVariants({ size: "md", variant: "outline" })}
+          className={`${buttonVariants({ size: "md", variant: "outline" })} transition-[border-color,background-color,box-shadow,transform] duration-200 hover:border-brand/35 hover:shadow-[0_8px_22px_rgb(0_0_0/0.2)] motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.985] motion-reduce:transition-none`}
           href={`/?${query}#flight-search`}
         >
           Modify Search
@@ -80,4 +63,4 @@ const SearchSummary = ({
   );
 };
 
-export { cabinLabels, formatSearchDate, SearchSummary };
+export { SearchSummary };

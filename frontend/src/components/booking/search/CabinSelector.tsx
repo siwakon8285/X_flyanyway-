@@ -30,7 +30,7 @@ const CabinSelector = ({ onChange, value }: CabinSelectorProps) => {
   };
 
   return (
-    <div className="group min-h-24 min-w-0 rounded-control border border-border bg-surface/45 px-4 py-4 shadow-[inset_0_1px_0_rgb(255_255_255/0.02)] transition-[background-color,border-color,box-shadow] duration-150 hover:border-border-strong hover:bg-surface/75 focus-within:border-focus focus-within:bg-surface/75 focus-within:ring-2 focus-within:ring-focus/35 focus-within:ring-offset-2 focus-within:ring-offset-background motion-reduce:transition-none">
+    <div className="group min-h-24 min-w-0 rounded-control border border-border bg-surface/45 px-4 py-4 shadow-[inset_0_1px_0_rgb(255_255_255/0.02)] transition-[background-color,border-color,box-shadow,transform] duration-200 hover:border-brand/40 hover:bg-surface/75 hover:shadow-[0_8px_24px_rgb(255_212_0/0.045)] motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.01] focus-within:border-focus focus-within:bg-surface/75 focus-within:ring-2 focus-within:ring-focus/35 focus-within:ring-offset-2 focus-within:ring-offset-background motion-reduce:transition-none">
       <span className="flex items-center justify-between gap-3 text-label text-muted-foreground">
         Cabin
         <Armchair

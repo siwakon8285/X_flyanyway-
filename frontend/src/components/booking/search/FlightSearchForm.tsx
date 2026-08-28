@@ -21,6 +21,7 @@ import type {
 } from "@/components/booking/search/searchTypes";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
+import { Reveal } from "@/components/motion/Reveal";
 import { cn } from "@/lib/utils/cn";
 
 type FlightSearchFormProps = {
@@ -92,34 +93,35 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
       onSubmit={handleSubmit}
       ref={form}
     >
-      <fieldset>
-        <legend className="sr-only">Trip type</legend>
-        <div
-          className="inline-flex rounded-control border border-border bg-background/55 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.025)]"
-          role="presentation"
-        >
-          {tripTypes.map((tripType) => (
-            <label className="relative cursor-pointer" key={tripType.value}>
-              <input
-                checked={values.trip === tripType.value}
-                className="peer sr-only"
-                name="trip-type"
-                onChange={() => {
-                  clearError("returnDate");
-                  setValues((current) => ({ ...current, trip: tripType.value }));
-                }}
-                type="radio"
-                value={tripType.value}
-              />
-              <span className="inline-flex min-h-10 items-center rounded-[calc(var(--radius-control)-0.2rem)] border border-transparent px-4 text-sm font-medium text-muted-foreground outline-none transition-[color,background-color,border-color,box-shadow] duration-150 hover:bg-surface/70 hover:text-foreground peer-checked:border-brand/45 peer-checked:bg-surface-elevated peer-checked:text-foreground peer-checked:shadow-[inset_0_-2px_0_var(--brand),0_4px_14px_rgb(0_0_0/0.2)] peer-focus-visible:ring-2 peer-focus-visible:ring-focus peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background motion-reduce:transition-none">
-                {tripType.label}
-              </span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <Reveal as="div" stagger={0.06}>
+        <fieldset>
+          <legend className="sr-only">Trip type</legend>
+          <div
+            className="inline-flex rounded-control border border-border bg-background/55 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.025)]"
+            role="presentation"
+          >
+            {tripTypes.map((tripType) => (
+              <label className="relative cursor-pointer" key={tripType.value}>
+                <input
+                  checked={values.trip === tripType.value}
+                  className="peer sr-only"
+                  name="trip-type"
+                  onChange={() => {
+                    clearError("returnDate");
+                    setValues((current) => ({ ...current, trip: tripType.value }));
+                  }}
+                  type="radio"
+                  value={tripType.value}
+                />
+                <span className="inline-flex min-h-10 items-center rounded-[calc(var(--radius-control)-0.2rem)] border border-transparent px-4 text-sm font-medium text-muted-foreground outline-none transition-[color,background-color,border-color,box-shadow,transform] duration-200 hover:bg-surface/70 hover:text-foreground motion-safe:active:scale-[0.985] peer-checked:border-brand/45 peer-checked:bg-surface-elevated peer-checked:text-foreground peer-checked:shadow-[inset_0_-2px_0_var(--brand),0_4px_14px_rgb(0_0_0/0.2)] peer-focus-visible:ring-2 peer-focus-visible:ring-focus peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background motion-reduce:transition-none">
+                  {tripType.label}
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
-      <div className="mt-7 grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] md:gap-5">
+        <div className="mt-7 grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] md:gap-5">
         <AirportSelector
           error={errors.from}
           label="From"
@@ -128,7 +130,7 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
         />
         <div className="flex h-12 items-center justify-center md:h-full">
           <IconButton
-            className="size-11 rounded-full border-border-strong bg-surface-elevated text-muted-foreground shadow-[0_6px_18px_rgb(0_0_0/0.24)] transition-[color,background-color,border-color,transform,box-shadow] duration-150 hover:border-brand/70 hover:bg-surface-highlight hover:text-brand hover:shadow-[0_8px_22px_rgb(0_0_0/0.32)] active:rotate-180 focus-visible:border-brand motion-reduce:transition-none"
+            className="size-11 rounded-full border-border-strong bg-surface-elevated text-muted-foreground shadow-[0_6px_18px_rgb(0_0_0/0.24)] transition-[color,background-color,border-color,transform,box-shadow] duration-150 hover:border-brand/70 hover:bg-surface-highlight hover:text-brand hover:shadow-[0_8px_22px_rgb(0_0_0/0.32)] motion-safe:active:rotate-180 focus-visible:border-brand motion-reduce:transition-none"
             label="Swap origin and destination"
             onClick={() => {
               clearError("from");
@@ -146,14 +148,14 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
           onSelect={(airport) => setAirport("to", airport)}
           value={values.to}
         />
-      </div>
+        </div>
 
-      <div
-        className={cn(
-          "mt-8 grid gap-x-5 gap-y-5 sm:grid-cols-2 lg:grid-cols-4",
-          values.trip === "one-way" && "lg:grid-cols-3",
-        )}
-      >
+        <div
+          className={cn(
+            "mt-8 grid gap-x-5 gap-y-5 sm:grid-cols-2 lg:grid-cols-4",
+            values.trip === "one-way" && "lg:grid-cols-3",
+          )}
+        >
         <DateSelector
           error={errors.departure}
           id="departure-date"
@@ -192,18 +194,19 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
           value={values.passengers}
         />
         <CabinSelector onChange={setCabin} value={values.cabin} />
-      </div>
+        </div>
 
-      <div className="mt-8 flex justify-end border-t border-border pt-6">
-        <Button
-          className="h-14 w-full px-8 text-base shadow-[0_10px_30px_rgb(255_212_0/0.12)] transition-[background-color,transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-[0_14px_36px_rgb(255_212_0/0.2)] sm:w-auto motion-reduce:transform-none motion-reduce:transition-none"
-          size="lg"
-          type="submit"
-        >
-          Search Flights
-          <ArrowRight aria-hidden="true" />
-        </Button>
-      </div>
+        <div className="mt-8 flex justify-end border-t border-border pt-6">
+          <Button
+            className="h-14 w-full px-8 text-base shadow-[0_10px_30px_rgb(255_212_0/0.12)] transition-[background-color,transform,box-shadow] duration-200 hover:shadow-[0_14px_36px_rgb(255_212_0/0.22)] motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.02] motion-safe:active:translate-y-0 motion-safe:active:scale-[0.985] sm:w-auto motion-reduce:transition-none [&_svg]:transition-transform [&_svg]:duration-200 motion-safe:hover:[&_svg]:translate-x-1.5"
+            size="lg"
+            type="submit"
+          >
+            Search Flights
+            <ArrowRight aria-hidden="true" />
+          </Button>
+        </div>
+      </Reveal>
       {Object.keys(errors).length > 0 ? (
         <p className="mt-5 text-body-sm text-destructive" role="alert">
           Review the highlighted fields before searching.

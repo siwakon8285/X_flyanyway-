@@ -9,6 +9,7 @@ import type {
   FlightSortOption,
 } from "@/components/booking/results/flightResultTypes";
 import { sortFlightResults } from "@/components/booking/results/flightResultUtils";
+import { Reveal } from "@/components/motion/Reveal";
 
 const sortOptions = [
   { label: "Recommended", value: "recommended" },
@@ -44,7 +45,7 @@ const FlightResultsList = ({
             Sort flights
           </label>
           <select
-            className="h-12 w-full cursor-pointer rounded-control border border-border bg-surface px-4 text-sm text-foreground outline-none transition-colors hover:border-border-strong focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-focus/25"
+            className="h-12 w-full cursor-pointer rounded-control border border-border bg-surface px-4 text-sm text-foreground outline-none transition-[border-color,background-color,box-shadow] duration-200 hover:border-brand/35 hover:bg-surface-elevated hover:shadow-[0_6px_18px_rgb(0_0_0/0.18)] focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-focus/25 motion-reduce:transition-none"
             id="flight-sort"
             onChange={(event) => {
               const nextSort = sortOptions.find(
@@ -62,13 +63,18 @@ const FlightResultsList = ({
           </select>
         </div>
       </div>
-      <ol className="space-y-4" aria-label="Available outbound flights">
+      <Reveal
+        aria-label="Available outbound flights"
+        as="ol"
+        className="space-y-4"
+        stagger={0.07}
+      >
         {sortedFlights.map((flight) => (
           <li key={flight.id}>
             <FlightResultCard cabin={cabin} flight={flight} query={query} />
           </li>
         ))}
-      </ol>
+      </Reveal>
       <p className="mt-6 text-body-sm text-muted-foreground">
         All times shown in local airport time.
       </p>
