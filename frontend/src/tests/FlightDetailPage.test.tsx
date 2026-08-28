@@ -15,8 +15,11 @@ const businessQuery = {
   trip: "round-trip",
 } as const;
 
-const renderDetail = (flightId = "xf-201") => {
-  const request = resolveFlightDetailRequest(flightId, businessQuery);
+const renderDetail = (
+  flightId = "xf-201",
+  query: Record<string, string> = businessQuery,
+) => {
+  const request = resolveFlightDetailRequest(flightId, query);
   if (!request) throw new Error("Expected a valid detail fixture");
 
   return render(<FlightDetailPage {...request} />);
@@ -95,6 +98,19 @@ describe("FlightDetailPage", () => {
       "href",
       "/flights/xf-201/seats?from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=1&children=1&infants=0&cabin=business&trip=round-trip&selectedCabin=economy",
     );
+  });
+
+  it("restores the active preview cabin while retaining the searched-cabin marker", () => {
+    renderDetail("xf-201", { ...businessQuery, selectedCabin: "first" });
+
+    expect(screen.getByRole("tab", { name: /^first$/i })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(
+      screen.getByRole("tab", { name: /business.*your searched cabin/i }),
+    ).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByText("THB 114,900")).toBeInTheDocument();
   });
 
   it("supports keyboard cabin navigation", async () => {

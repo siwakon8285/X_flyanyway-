@@ -1,5 +1,5 @@
-import { CalendarDays, UsersRound } from "lucide-react";
-
+import { ArrowLeft, CalendarDays, UsersRound } from "lucide-react";
+import Link from "next/link";
 import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
 import { formatSearchDate } from "@/components/booking/results/flightResultUtils";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
@@ -19,7 +19,14 @@ const SearchSummary = ({
 
   return (
     <header className="border-b border-border pb-8 lg:pb-10">
-      <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+      <Link
+        className={`${buttonVariants({ size: "sm", variant: "ghost" })} transition-[background-color,color,transform] duration-200 hover:text-brand motion-safe:hover:-translate-x-0.5 motion-safe:active:translate-x-0 motion-safe:active:scale-[0.985] motion-reduce:transition-none [&_svg]:transition-transform [&_svg]:duration-200 motion-safe:hover:[&_svg]:-translate-x-1`}
+        href={`/?${query}#flight-search`}
+      >
+        <ArrowLeft aria-hidden="true" />
+        Modify Search
+      </Link>
+      <div className="mt-9">
         <div>
           <p className="text-label text-brand">Flight results</p>
           <h1 className="mt-4 text-h1 uppercase">
@@ -34,12 +41,6 @@ const SearchSummary = ({
             {criteria.from?.city} to {criteria.to?.city}
           </p>
         </div>
-        <a
-          className={`${buttonVariants({ size: "md", variant: "outline" })} transition-[border-color,background-color,box-shadow,transform] duration-200 hover:border-brand/35 hover:shadow-[0_8px_22px_rgb(0_0_0/0.2)] motion-safe:hover:-translate-y-0.5 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.985] motion-reduce:transition-none`}
-          href={`/?${query}#flight-search`}
-        >
-          Modify Search
-        </a>
       </div>
       <div className="mt-8 flex flex-wrap gap-x-7 gap-y-4 text-label text-foreground">
         <span className="inline-flex items-center gap-2">

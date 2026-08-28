@@ -1,4 +1,5 @@
 import {
+  buildFlightDetailHref,
   buildSeatSelectionHref,
   resolveFlightDetailRequest,
   resolveSeatSelectionRequest,
@@ -22,9 +23,36 @@ describe("flight detail request utilities", () => {
 
     expect(result?.flight.id).toBe("xf-201");
     expect(result?.criteria.cabin).toBe("business");
+    expect(result?.previewCabin).toBe("business");
     expect(result?.query).toBe(
       "from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=1&children=0&infants=0&cabin=business&trip=round-trip",
     );
+  });
+
+  it("restores an available selected cabin without mutating the original searched cabin", () => {
+    const result = resolveFlightDetailRequest("xf-201", {
+      ...validQuery,
+      selectedCabin: "first",
+    });
+
+    expect(result?.criteria.cabin).toBe("business");
+    expect(result?.previewCabin).toBe("first");
+    expect(result?.query).not.toContain("selectedCabin");
+  });
+
+  it("ignores invalid or unavailable detail-preview cabins safely", () => {
+    expect(
+      resolveFlightDetailRequest("xf-201", {
+        ...validQuery,
+        selectedCabin: "spaceship",
+      })?.previewCabin,
+    ).toBe("business");
+    expect(
+      resolveFlightDetailRequest("xf-315", {
+        ...validQuery,
+        selectedCabin: "first",
+      })?.previewCabin,
+    ).toBe("business");
   });
 
   it("rejects unknown flights, malformed criteria, route mismatches, and unavailable searched cabins", () => {
@@ -50,6 +78,19 @@ describe("flight detail request utilities", () => {
       }),
     ).toBe(
       "/flights/xf-201/seats?from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=1&children=0&infants=0&cabin=business&trip=round-trip&selectedCabin=first",
+    );
+  });
+
+  it("builds a detail return that restores the active cabin context", () => {
+    expect(
+      buildFlightDetailHref({
+        flightId: "xf-201",
+        query:
+          "from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=1&children=0&infants=0&cabin=business&trip=round-trip",
+        selectedCabin: "first",
+      }),
+    ).toBe(
+      "/flights/xf-201?from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=1&children=0&infants=0&cabin=business&trip=round-trip&selectedCabin=first#cabin-experience",
     );
   });
 

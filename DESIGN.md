@@ -362,6 +362,8 @@ prefers-reduced-motion: reduce
 
 # 8. Website Experience Map
 
+Customer booking lifecycle:
+
 ```txt
 Landing
   ↓
@@ -369,21 +371,27 @@ Immersive Flight Search
   ↓
 Flight Results
   ↓
-Flight Detail
-  ↓
-Cabin Selection
+Flight Detail + Cabin + Fare Conditions
   ↓
 Seat Experience
   ↓
-Passenger Details
+Passenger Details + Travel Documents
+  ↓
+Travel Extras
   ↓
 Booking Review
   ↓
 Mock Payment
   ↓
-E-Ticket Reveal
+Booking Confirmed
+  ↓
+E-Ticket Issued
   ↓
 Manage Booking
+  ↓
+Online Check-in (eligible window)
+  ↓
+Boarding Pass
 ```
 
 Admin:
@@ -401,6 +409,59 @@ Ticket Management
   ↓
 External API Clients
 ```
+
+## 8.1 Realism Boundary
+
+X-Fly Anyway must model the customer journey and state transitions of a real airline booking system while remaining an academic MVP.
+
+Include realistic concepts such as:
+
+- passenger identity and passport/travel-document details
+- baggage allowance and optional extras
+- fare conditions and cancellation rules
+- fare / taxes / fees breakdown
+- booking, payment, and ticket states as separate concepts
+- booking reference and ticket number as separate identifiers
+- online check-in and boarding pass after ticketing
+
+Do not attempt to implement a real GDS, DCS, government APIS transmission, visa eligibility engine, interline/codeshare, or real payment gateway in the MVP.
+
+## 8.2 Booking / Payment / Ticket Lifecycle
+
+These states must not be collapsed into a single generic status.
+
+```txt
+Booking Status
+PENDING
+CONFIRMED
+CANCELLED
+
+Payment Status
+PENDING
+PAID
+FAILED
+REFUNDED
+
+Ticket Status
+NOT_ISSUED
+ISSUED
+CANCELLED
+```
+
+Conceptual lifecycle:
+
+```txt
+Booking created
+  ↓
+Payment processing
+  ↓
+Payment confirmed
+  ↓
+Ticket issued
+```
+
+A failed payment must not imply an issued ticket.
+A cancelled booking must propagate appropriately to seat, payment/refund, and ticket state in later backend work.
 
 ---
 
@@ -637,16 +698,20 @@ Motion:
 
 # 16. Flight Detail
 
-ต้องรู้สึกเหมือน product showcase
+ต้องรู้สึกเหมือน product showcase และเป็นจุดที่ผู้ใช้เข้าใจว่า “กำลังซื้ออะไร” ก่อนเลือกที่นั่ง
 
 ใช้:
 
 - route timeline
-- aircraft image
-- cabin cards
+- aircraft identity
+- cabin imagery / cabin selector
 - amenities
-- seat availability
-- fare breakdown
+- seat availability context
+- cabin price
+- baggage allowance summary
+- fare conditions summary
+- cancellation/refund policy summary
+- fare breakdown preview where useful
 
 Cabin tabs:
 
@@ -657,7 +722,18 @@ Business
 First
 ```
 
-ใช้ GSAP Flip ตอนเปลี่ยน cabin
+Fare context ต่อ cabin ควรอธิบายอย่างน้อย:
+
+- sample fare per passenger
+- checked baggage allowance
+- cabin baggage allowance
+- seat-selection inclusion / availability
+- changeability
+- refundability / cancellation policy
+
+ห้ามสร้าง fare engine จริงใน frontend; ใช้ typed fixture/presentation metadata จนกว่า backend จะเป็น source of truth.
+
+Cabin switching ใช้ Motion/GSAP ตาม architecture เดิม แต่ booking UX ต้องเร็วและ user-controlled.
 
 ---
 
@@ -681,32 +757,48 @@ Legend
 Seat Map
 Mini Flight Summary
 Selection Summary
-Countdown Hold
 ```
 
-Seat States:
+Branch 11 local UI states:
 
 ```txt
 Available
 Selected
-Held
 Booked
 Unavailable
 ```
 
+`Held` belongs to Branch 12 and must not be simulated in Branch 11.
+
 Motion:
 
-- seat hover scale
+- seat hover scale / lift
 - selected seat glow
+- short pop + settle
 - row stagger reveal
-- cabin filter morph
-- aisle motion
-- selected seat flies/morphs into summary panel
+- selected-seat summary transition
+- no playful bounce or random shake
+
+Seat geometry must differ visibly by cabin, not only by color:
+
+- Economy — compact conventional seat, denser 3–aisle–3 style
+- Premium Economy — wider upgraded seat with increased spacing
+- Business — large pod/privacy-shell seat with much lower density
+- First — private-suite visual with the largest footprint and fewest seats
 
 Optional:
 
 - subtle aircraft cabin background
 - ambient lighting effect
+
+Accessibility:
+
+- native semantic seat buttons preferred
+- visible seat code / row number
+- available / selected / booked / unavailable conveyed without color alone
+- keyboard Enter/Space support
+- visible focus ring
+- clear accessible seat names
 
 ---
 
@@ -737,47 +829,217 @@ Countdown visible
 
 # 19. Passenger Form
 
-หลัง cinematic sections ต้องกลับมาเป็น UX ที่นิ่ง
+หลัง cinematic sections ต้องกลับมาเป็น UX ที่นิ่ง ชัด และเหมือน airline passenger-information flow จริง
 
 ใช้:
 
 - large step labels
-- floating summary
+- floating / sticky booking summary where appropriate
 - clear validation
 - progressive disclosure
-- animated error feedback
-- autosave temporary state in browser where appropriate
+- animated error feedbackแบบ restrained
+- temporary browser state only where safe and appropriate
 
-Stepper:
+## Passenger Identity
+
+สำหรับผู้โดยสารแต่ละคน รองรับอย่างน้อย:
+
+- Title: Mr / Ms / Mrs / Mx
+- Given name
+- Middle name (optional)
+- Family name / Surname
+- Date of birth
+- Gender where required by the project model
+- Nationality
+
+ต้องมีข้อความชัดเจน:
+
+```txt
+Passenger name must match the travel document exactly.
+```
+
+## Travel Document / Passport
+
+สำหรับ international booking ให้รองรับ:
+
+- Passport number
+- Issuing country
+- Expiry date
+- Issue date optional if useful
+
+ระบบ academic MVP สามารถกำหนดให้ passport information ถูกกรอกใน Passenger Details เพื่อให้ booking flow สมบูรณ์และตรวจสอบได้ แม้สายการบินจริงบางแห่งจะอนุญาตให้เพิ่มเอกสารภายหลัง.
+
+Do not implement government APIS transmission, visa checking, or Timatic.
+
+## Contact Details
+
+Primary booking contact:
+
+- Email
+- Phone country code
+- Phone number
+
+Optional Emergency Contact:
+
+- Name
+- Relationship
+- Phone country code
+- Phone number
+
+## Multi-passenger
+
+- รองรับผู้โดยสารหลายคน
+- seat assignment ต้อง map ไปยัง passenger ได้ใน later booking state
+- infant seat rules ต้องเป็น business rule ที่ชัดเจน; current UI may treat under-2 infants as lap infants only where explicitly approved
+
+## Stepper
 
 ```txt
 01 Flight
 02 Seat
 03 Passenger
-04 Payment
-05 Ticket
+04 Extras
+05 Review
+06 Payment
+07 Ticket
 ```
+
+## Validation
+
+- required fields
+- date consistency
+- passport expiry validity against travel date at the level defined by project rules
+- duplicate/malformed passenger data
+- accessible error summary / field messages
+
+Do not store raw sensitive travel-document data in insecure client persistence.
+
+---
+
+# 19A. Travel Extras
+
+เพิ่มขั้นตอนบริการเสริมเพื่อให้ booking flow ใกล้ airline retailing จริงขึ้น โดยยังคุม scope ให้เป็น MVP.
+
+ขั้นต่ำให้รองรับ:
+
+## Baggage
+
+แสดง allowance ตาม cabin fixture เช่น:
+
+```txt
+Cabin baggage
+1 × 7 kg
+
+Checked baggage
+Economy         23 kg
+Premium Economy 30 kg
+Business        40 kg
+First           50 kg
+```
+
+ตัวเลขเหล่านี้เป็น X-Fly fixture policy ไม่ใช่มาตรฐานสากล.
+
+Optional extra baggage สามารถมีตัวเลือก เช่น:
+
+- +20 kg
+- +30 kg
+
+## Meal
+
+Optional meal preference เช่น:
+
+- Standard
+- Vegetarian
+- Vegan
+- Halal
+- Child meal
+
+ไม่ต้อง implement airline SSR code จริงใน MVP.
+
+## Special Assistance
+
+Optional request เช่น:
+
+- Wheelchair assistance
+- Hearing assistance
+- Visual assistance
+- Medical assistance request
+
+ต้องมีข้อความว่าบางคำขออาจต้องได้รับการยืนยันจากสายการบินในระบบ production จริง.
+
+## Scope
+
+Travel Extras เป็น typed booking state / fixture ใน frontend จนกว่า backend จะรองรับ.
+
+Do not implement:
+
+- real ancillary pricing engine
+- external airline service inventory
+- SSR/GDS integration
+- insurance sales
+- lounge partner integrationจริง
 
 ---
 
 # 20. Booking Review
 
-ใช้ large editorial summary
+ใช้ large editorial summary และทำหน้าที่เป็นจุดตรวจสอบครั้งสุดท้ายก่อน payment
 
 ซ้าย:
 
-- passenger
-- route
-- seat
+- itinerary / route
+- date / time
+- aircraft
 - cabin
-- date/time
+- passengers
+- passenger travel-document completeness/status summary
+- seats
+- baggage
+- meals / special assistance if selected
 
 ขวา:
 
-- fare
-- taxes/mock fee
+- base fare
+- taxes
+- airport / passenger charges (fixture)
+- optional extras
+- seat fee if any
 - total
 - cancellation policy
+- fare conditions
+
+ตัวอย่าง fare breakdown:
+
+```txt
+Fare                         THB 52,000
+Airport / passenger charges  THB 4,800
+Taxes                        THB 6,400
+Seat                         Included
+Baggage                      Included
+--------------------------------------
+TOTAL                        THB 63,200
+```
+
+ข้อมูล tax/fee ใน MVP ต้องระบุว่าเป็น demo fixture หากไม่ได้มาจาก backend/live pricing.
+
+## Fare Conditions
+
+ต้องมี summary อย่างน้อย:
+
+- refundable / cancellation eligibility
+- change allowed or not
+- change fee if modeled
+- baggage allowance
+- seat-selection inclusion
+
+## Final Acknowledgements
+
+ก่อน payment ให้ผู้ใช้ยืนยันอย่างน้อย:
+
+```txt
+[ ] I confirm that passenger names match their travel documents.
+[ ] I have reviewed the fare conditions and cancellation policy.
+```
 
 CTA:
 
@@ -785,11 +1047,13 @@ CTA:
 CONTINUE TO PAYMENT
 ```
 
+ต้องไม่อนุญาตให้ไป payment หาก acknowledgement ที่ required ยังไม่ครบ.
+
 ---
 
 # 21. Mock Payment Experience
 
-3 cards:
+3 methods:
 
 ```txt
 Credit Card
@@ -799,22 +1063,36 @@ Bitcoin
 
 เมื่อเลือก provider:
 
-GSAP Flip / Motion expand card
+GSAP Flip / Motion expand card แบบ restrained
 
 ## Card Mock
 
 มี:
 
-- Cardholder
+- Cardholder Name
 - Card Number
 - Expiry
 - CVV
+- Billing Country
+- Billing Postal Code
+
+Payment state สำหรับ demo:
+
+```txt
+PENDING
+PROCESSING
+SUCCESS
+DECLINED
+FAILED
+```
+
+ต้องสามารถทดสอบ success และ failure/declined paths ได้โดยไม่เรียกเก็บเงินจริง.
 
 ## Bitcoin Mock
 
 มี:
 
-- Mock wallet
+- Mock wallet / address
 - Mock amount
 - Simulate Payment
 
@@ -824,6 +1102,13 @@ GSAP Flip / Motion expand card
 DEMO / MOCK PAYMENT
 NO REAL CHARGE
 ```
+
+Security rules:
+
+- ห้าม persist card number / CVV ลง localStorage หรือ client logs
+- ห้ามส่งข้อมูลจริงไป third party
+- mock data only
+- backend later must separate payment status from booking/ticket status
 
 ---
 
@@ -836,29 +1121,72 @@ NO REAL CHARGE
 1. processing state
 2. yellow line travels across screen
 3. confirmation pulse
-4. booking reference reveal
-5. ticket slides/folds in
-6. QR code appears
-7. CTA Print / Download / Manage Booking
+4. booking confirmation
+5. booking reference reveal
+6. ticket issuance state
+7. ticket slides/folds in
+8. QR code appears
+9. CTA Print / Download / Manage Booking
+
+Conceptual state transition:
+
+```txt
+Booking: PENDING
+Payment: PROCESSING
+Ticket: NOT_ISSUED
+        ↓
+Payment: PAID
+        ↓
+Booking: CONFIRMED
+        ↓
+Ticket: ISSUED
+```
+
+Failure path:
+
+```txt
+Payment: FAILED / DECLINED
+Booking: remains pending or failed according to backend policy
+Ticket: NOT_ISSUED
+```
+
+Do not imply that payment success and ticket issuance are the same state.
 
 ---
 
 # 23. E-Ticket Design
 
-E-Ticket ต้องเป็น signature visual
+E-Ticket ต้องเป็น signature visual แต่ต้องแยก concept ของ booking reference กับ ticket number อย่างชัดเจน
 
 ส่วนประกอบ:
 
 - X-Fly branding
 - Booking Reference
+- Ticket Number
+- Ticket Status
 - Passenger
 - Flight
 - Route
-- Gate placeholder
+- Gate placeholder where relevant
 - Cabin
 - Seat
 - Date
+- Baggage summary
 - QR Code
+
+Example conceptual identifiers:
+
+```txt
+Booking Reference
+XF8K2P
+
+Ticket Number
+999-1234567890
+```
+
+Booking Reference ใช้ค้นหา/จัดการ booking ส่วน Ticket Number แทน issued e-ticket record ในระบบจำลอง.
+
+QR should encode a signed verification token/URL where possible, not raw passenger PII.
 
 Motion:
 
@@ -867,6 +1195,8 @@ Motion:
 - QR fade
 - subtle floating effect
 - print mode clean
+
+Print/PDF output ต้องอ่านง่ายแม้ไม่มี animation.
 
 ---
 
@@ -882,12 +1212,19 @@ Optional Email
 
 หลังเจอ booking:
 
-- animated ticket reveal
+- booking status
+- payment status
+- ticket status
+- animated ticket preview
 - flight status
+- passenger names
+- travel-document completion summary (mask sensitive values)
 - seat
-- payment
+- cabin
+- baggage / selected extras
 - cancellation eligibility
 - refund status
+- online check-in eligibility when within the project check-in window
 
 Cancellation CTA ต้องแสดง:
 
@@ -895,6 +1232,14 @@ Cancellation CTA ต้องแสดง:
 Free cancellation available until:
 DD MMM YYYY HH:mm
 ```
+
+ห้ามแสดง passport number แบบเต็มโดยไม่จำเป็นใน Manage Booking UI.
+
+เมื่อ booking มีสถานะ CANCELLED:
+
+- ticket must visibly show cancelled status
+- seat must not appear active
+- payment/refund state must remain separately understandable
 
 ---
 
@@ -918,6 +1263,104 @@ Eligible for 100% refund
 ถ้า < 24 ชั่วโมง:
 
 CTA disabled พร้อม explanation
+
+---
+
+# 25A. Online Check-in Experience
+
+เพิ่ม customer lifecycle หลัง ticket issuance เพื่อให้ระบบจบถึงขั้นก่อนขึ้นเครื่อง.
+
+## Eligibility
+
+ใช้ mock/project-defined check-in window เช่นเปิดภายใน 24 ชั่วโมงก่อน departure.
+
+Check-in ต้องใช้ booking/ticket ที่ valid และไม่ cancelled.
+
+## Flow
+
+```txt
+Manage Booking
+  ↓
+CHECK IN
+  ↓
+Confirm Passenger
+  ↓
+Confirm Travel Document
+  ↓
+Confirm Seat
+  ↓
+Dangerous Goods Acknowledgement (demo)
+  ↓
+CHECK IN
+  ↓
+Boarding Pass
+```
+
+## Required UI
+
+- passenger confirmation
+- masked passport/travel-document summary
+- flight / route / departure summary
+- seat confirmation
+- cabin
+- baggage summary
+- simple dangerous-goods acknowledgement
+- check-in success state
+
+## Scope
+
+Do not implement:
+
+- real airport Departure Control System (DCS)
+- government APIS submission
+- real document verification
+- real airport gate assignment
+- baggage tag issuance
+
+---
+
+# 25B. Boarding Pass Experience
+
+หลัง online check-in สำเร็จ ให้สร้าง mock Boarding Pass ที่แยกจาก E-Ticket.
+
+Boarding Pass fields:
+
+- X-Fly branding
+- Passenger Name
+- Flight Number
+- Route
+- Departure Date
+- Boarding Time
+- Departure Time
+- Gate
+- Seat
+- Cabin
+- Boarding Group / Zone
+- Booking Reference
+- QR / barcode-style verification visual
+
+Gate, boarding time, and boarding group may be fixture values unless backend later provides them.
+
+Boarding Pass ต้อง:
+
+- print cleanly
+- work on mobile
+- distinguish itself visually from the E-Ticket
+- avoid embedding raw PII in QR payload
+
+Conceptually:
+
+```txt
+BOOKING
+↓
+PAYMENT
+↓
+E-TICKET ISSUED
+↓
+ONLINE CHECK-IN
+↓
+BOARDING PASS
+```
 
 ---
 
@@ -1171,6 +1614,9 @@ components/
   seat/
   ticket/
   payment/
+  extras/
+  check-in/
+  boarding-pass/
   admin/
   analytics/
 
@@ -1181,6 +1627,9 @@ features/
   booking/
   payment/
   manage-booking/
+  travel-extras/
+  check-in/
+  boarding-pass/
   admin-auth/
   admin-flights/
   analytics/
@@ -1792,18 +2241,73 @@ Frontend selection ไม่ถือว่า booked จน server confirm
 feat/13-passenger-flow
 ```
 
+## Goal
+
+สร้าง passenger/travel-document flow ที่ใกล้ airline international booking จริง โดยยังไม่เชื่อม government systems.
+
 ## Tasks
 
 - passenger form
-- contact form
-- validation
 - multi-passenger support
-- nationality
-- passport
+- Title
+- Given / Middle / Family name
 - DOB
+- Gender where modeled
+- Nationality
+- Passport number
+- Passport issuing country
+- Passport expiry
+- optional passport issue date
+- contact email
+- phone country code + phone
+- optional emergency contact
+- validation
+- travel-document-name warning
 - error motion
 - progress stepper
 - booking summary sidebar
+- protect sensitive document data from unsafe browser persistence
+
+## Important
+
+- Passenger names must match travel documents.
+- International booking should collect travel-document details in this academic flow.
+- No APIS/government transmission.
+- No Timatic/visa eligibility engine.
+
+---
+
+# 53A. BRANCH 13A — Travel Extras
+
+## Branch
+
+```txt
+feat/13a-travel-extras
+```
+
+## Goal
+
+เพิ่ม realistic ancillary step ก่อน Booking Review.
+
+## Tasks
+
+- cabin baggage allowance
+- checked baggage allowance
+- optional extra baggage
+- meal preference
+- special meal options
+- special assistance request
+- per-passenger applicability where relevant
+- typed pricing fixtures
+- summary integration
+- accessible optional-service controls
+
+## Out of Scope
+
+- real ancillary inventory
+- GDS/SSR integration
+- insurance sale
+- external lounge inventory
 
 ---
 
@@ -1819,13 +2323,28 @@ feat/14-booking-review
 
 - complete itinerary
 - passengers
-- seat
+- travel-document completeness summary
+- seat assignment
 - cabin
-- fare
+- baggage
+- meal / assistance extras
+- base fare
+- taxes fixture
+- airport/passenger charges fixture
+- ancillary fees
+- total
+- fare conditions
+- baggage conditions
 - cancellation policy
 - edit links
+- travel-document-name acknowledgement
+- fare/cancellation acknowledgement
 - final confirmation
 - responsive summary
+
+## Important
+
+Do not claim demo taxes/fees are live government/airport values unless they come from a real backend source.
 
 ---
 
@@ -1843,8 +2362,14 @@ feat/15-mock-payment-ui
 - credit card mock
 - debit card mock
 - bitcoin mock
+- cardholder name
+- billing country
+- billing postal code
 - processing state
-- success/failure simulation
+- success simulation
+- declined simulation
+- failure simulation
+- booking/payment/ticket state separation in UI state model
 - no-real-charge disclosure
 - prevent accidental sensitive-data retention
 
@@ -1853,6 +2378,12 @@ feat/15-mock-payment-ui
 - method card Flip
 - payment processing
 - success line animation
+
+## Security
+
+- never persist CVV
+- never persist raw card number
+- no real charge or third-party transmission
 
 ---
 
@@ -1868,19 +2399,31 @@ feat/16-ticket-qr-experience
 
 - success scene
 - booking reference reveal
+- ticket number generation/display boundary
+- booking status
+- payment status
+- ticket status
 - e-ticket
-- QR code
+- signed verification QR/token strategy
 - ticket verification state
 - print CSS
 - PDF/download strategy
 - copy booking reference
+- copy ticket number where appropriate
 - manage booking CTA
 
 ## Motion
 
+- booking confirmation reveal
+- ticket issuance transition
 - ticket reveal
 - QR fade
 - confirmation animation
+
+## Important
+
+Booking Reference and Ticket Number are separate identifiers.
+Ticket must not become ISSUED on failed payment.
 
 ---
 
@@ -1898,11 +2441,22 @@ feat/17-manage-booking-ui
 - Last Name
 - optional Email
 - lookup result
+- booking status
+- payment status
+- ticket status
 - ticket preview
-- payment state
 - flight state
+- passenger summary
+- masked travel-document summary
 - seat state
+- baggage / extras summary
 - cancellation eligibility
+- refund status
+- online check-in eligibility / CTA boundary
+
+## Privacy
+
+Do not display full passport numbers or unnecessary sensitive data.
 
 ---
 
@@ -1924,6 +2478,66 @@ feat/18-cancellation-refund-ui
 - ticket cancel state
 - seat release state
 - receipt/status
+
+---
+
+# 58A. BRANCH 18A — Online Check-in
+
+## Branch
+
+```txt
+feat/18a-online-check-in
+```
+
+## Goal
+
+Extend the customer lifecycle from ticketing to pre-boarding.
+
+## Tasks
+
+- check-in eligibility window
+- confirm passenger
+- masked travel-document confirmation
+- confirm flight
+- confirm seat
+- baggage summary
+- dangerous-goods acknowledgement (demo)
+- check-in success state
+- invalid/cancelled/ineligible states
+- responsive/mobile check-in flow
+
+## Out of Scope
+
+- real DCS
+- government APIS submission
+- airport operational integration
+
+---
+
+# 58B. BRANCH 18B — Boarding Pass
+
+## Branch
+
+```txt
+feat/18b-boarding-pass
+```
+
+## Tasks
+
+- boarding pass UI
+- passenger
+- flight / route
+- boarding time fixture
+- departure time
+- gate fixture
+- seat
+- cabin
+- boarding group / zone fixture
+- QR/barcode verification visual
+- print CSS
+- mobile wallet-style presentation direction
+- download/print strategy
+- clear distinction from E-Ticket
 
 ---
 
@@ -2221,18 +2835,31 @@ Search Flight
 → Select Flight
 → Select Cabin
 → Hold Seat
-→ Passenger
-→ Payment
-→ Ticket
+→ Passenger + Passport
+→ Travel Extras
+→ Booking Review
+→ Mock Payment
+→ Booking Confirmed
+→ E-Ticket
+→ Manage Booking
+→ Online Check-in
+→ Boarding Pass
 ```
 
 รวม:
 
 - seat conflict
 - expired hold
+- payment declined
 - payment failed
+- ticket not issued on payment failure
 - cancellation
+- refund status
 - manage booking
+- check-in ineligible
+- check-in eligible
+- boarding pass generation
+- passport/travel-document validation edge cases
 
 ---
 
@@ -2393,17 +3020,23 @@ Presentation assets:
 ↓
 12 Seat Concurrency
 ↓
-13 Passenger
+13 Passenger + Travel Documents
 ↓
-14 Review
+13A Travel Extras
 ↓
-15 Payment
+14 Review + Fare Conditions
 ↓
-16 Ticket QR
+15 Mock Payment
+↓
+16 Booking Success + E-Ticket
 ↓
 17 Manage Booking
 ↓
 18 Cancellation
+↓
+18A Online Check-in
+↓
+18B Boarding Pass
 ↓
 19 Admin Shell
 ↓
@@ -2435,6 +3068,8 @@ Presentation assets:
 ↓
 33 Documentation
 ```
+
+The alphanumeric branches (`13A`, `18A`, `18B`) extend the roadmap without renumbering existing completed/planned numeric branches.
 
 ---
 
@@ -2553,7 +3188,10 @@ WebGL
 10. E-Ticket reveal
 11. QR ticket
 12. Dark + Yellow identity
-13. Analytics ที่ดูเหมือน production dashboard
+13. Realistic passenger/passport and fare-review flow
+14. Online check-in
+15. Boarding Pass
+16. Analytics ที่ดูเหมือน production dashboard
 
 ไม่ใช่แค่ “ใส่ animation เยอะ”
 
@@ -2650,6 +3288,10 @@ Managed PostgreSQL
 
 หน้า Ticket ต้องน่าจดจำ
 
+หน้า Check-in ต้องชัดและมั่นใจ
+
+หน้า Boarding Pass ต้องรู้สึกเหมือนพร้อมเดินทางจริง
+
 หน้า Admin ต้องดูเป็นระบบจริง
 
 และ Motion ทุกจุดต้องสนับสนุน UX ไม่ใช่แย่งความสนใจจาก UX
@@ -2714,11 +3356,19 @@ Review:
 
 ## Checkpoint D
 
-หลัง Branch 18
+หลัง Branch 18B
 
 Review:
 
-- Complete customer booking journey
+- Complete customer booking lifecycle
+- Passenger + Passport
+- Travel Extras
+- Review + Fare Conditions
+- Payment → Ticket state separation
+- Manage Booking
+- Cancellation
+- Online Check-in
+- Boarding Pass
 
 ## Checkpoint E
 
@@ -2743,7 +3393,11 @@ X-Fly Anyway ถือว่าประสบความสำเร็จเ�
 - Landing page มี wow factor
 - Motion ลื่นและไม่รบกวน UX
 - User จองได้โดยไม่ Login
-- Search → Ticket flow ต่อเนื่อง
+- Search → Ticket → Check-in → Boarding Pass flow ต่อเนื่อง
+- Passenger / passport / contact flow สมจริง
+- Baggage / travel extras / fare conditions ครบใน booking journey
+- Booking / Payment / Ticket statuses แยกกันชัดเจน
+- Booking Reference และ Ticket Number เป็นคนละ identifier
 - Seat concurrency ปลอดภัย
 - Payment เป็น mock อย่างชัดเจน
 - Ticket มี QR
@@ -2770,11 +3424,14 @@ X-Fly Anyway ถือว่าประสบความสำเร็จเ�
 | `feat/11-seat-map-ui`             | **Sol**        | Medium     | state/layout/accessibility ซับซ้อน             |
 | `feat/12-seat-concurrency-ui`     | **Sol**        | High       | frontend ↔ backend concurrency behavior        |
 | `feat/13-passenger-flow`          | **Terra**      | Medium     | forms/validation                               |
+| `feat/13a-travel-extras`          | **Terra**      | Medium     | ancillary state + forms                        |
 | `feat/14-booking-review`          | **Luna/Terra** | Low        | summary UI ค่อนข้างง่าย                        |
 | `feat/15-mock-payment-ui`         | **Terra**      | Medium     | state/payment UX                               |
 | `feat/16-ticket-qr-experience`    | **Terra**      | Medium     | QR + print/ticket UI                           |
 | `feat/17-manage-booking-ui`       | **Terra**      | Medium     | lookup/detail                                  |
 | `feat/18-cancellation-refund-ui`  | **Terra**      | Medium     | business-state UI                              |
+| `feat/18a-online-check-in`        | **Terra**      | Medium     | post-ticket state + forms                      |
+| `feat/18b-boarding-pass`          | **Sol**        | Medium     | signature ticket-like visual + print/QR        |
 | `feat/19-admin-shell`             | **Terra**      | Medium     | dashboard shell/auth states                    |
 | `feat/20-admin-flight-management` | **Terra**      | Medium     | CRUD/forms                                     |
 | `feat/21-admin-booking-ticketing` | **Terra**      | Medium     | CRUD/table/detail                              |

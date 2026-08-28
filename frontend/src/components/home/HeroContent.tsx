@@ -1,7 +1,7 @@
-import { ArrowDown, ArrowRight } from "lucide-react";
+import { ArrowDown } from "lucide-react";
 
 import { Container } from "@/components/layout/Container";
-import { bookingHref } from "@/components/layout/navigationItems";
+
 import { SplitText } from "@/components/motion/SplitText";
 import { buttonVariants } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
@@ -38,14 +38,10 @@ const HeroContent = () => (
           limits.
         </p>
         <div className="flex shrink-0 flex-col gap-3 sm:flex-row" data-hero-actions>
-          <a className={buttonVariants({ size: "lg" })} href={bookingHref}>
-            Book a Flight
-            <ArrowRight aria-hidden="true" />
-          </a>
           <a
             className={cn(
-              buttonVariants({ size: "lg", variant: "ghost" }),
-              "justify-start px-2 sm:justify-center sm:px-5",
+              buttonVariants({ size: "lg", variant: "outline" }),
+              "justify-start sm:justify-center",
             )}
             href="#journey"
           >
