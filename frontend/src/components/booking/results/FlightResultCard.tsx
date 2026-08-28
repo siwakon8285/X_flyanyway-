@@ -5,13 +5,11 @@ import type { FlightSearchFormValues } from "@/components/booking/search/searchT
 import type { FlightResult } from "@/components/booking/results/flightResultTypes";
 import {
   formatDuration,
+  formatPrice,
   getCabinPrice,
 } from "@/components/booking/results/flightResultUtils";
-import { cabinLabels } from "@/components/booking/results/SearchSummary";
+import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
 import { buttonVariants } from "@/components/ui/Button";
-
-const formatPrice = (amount: number) =>
-  `THB ${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(amount)}`;
 
 const FlightResultCard = ({
   cabin,
@@ -34,7 +32,7 @@ const FlightResultCard = ({
   return (
     <article
       aria-labelledby={titleId}
-      className="group rounded-surface border border-border bg-surface/75 p-5 transition-[border-color,background-color,box-shadow] duration-200 hover:border-border-strong hover:bg-surface focus-within:border-focus focus-within:ring-2 focus-within:ring-focus/20 sm:p-7 lg:p-8"
+      className="group rounded-surface border border-border bg-surface/75 p-5 transition-[border-color,background-color,box-shadow,transform] duration-300 hover:border-brand/30 hover:bg-surface hover:shadow-[0_18px_48px_rgb(0_0_0/0.28),0_0_30px_rgb(255_212_0/0.035)] motion-safe:hover:-translate-y-1 motion-safe:hover:scale-[1.005] focus-within:border-focus focus-within:ring-2 focus-within:ring-focus/20 motion-reduce:transition-none sm:p-7 lg:p-8"
     >
       <div className="grid gap-7 xl:grid-cols-[minmax(0,1fr)_minmax(14rem,0.28fr)] xl:items-stretch xl:gap-10">
         <div>
@@ -42,8 +40,11 @@ const FlightResultCard = ({
             <h3 className="text-label text-foreground" id={titleId}>
               {flight.flightNumber}
             </h3>
-            <span className="inline-flex items-center gap-2 text-body-sm text-muted-foreground">
-              <Plane aria-hidden="true" className="size-4" />
+            <span className="inline-flex items-center gap-2 text-body-sm text-muted-foreground transition-colors duration-200 group-hover:text-foreground">
+              <Plane
+                aria-hidden="true"
+                className="size-4 transition-colors duration-200 group-hover:text-brand"
+              />
               {flight.aircraft}
             </span>
           </div>
@@ -63,8 +64,8 @@ const FlightResultCard = ({
                 {formatDuration(flight.durationMinutes)}
               </p>
               <div aria-hidden="true" className="my-3 flex w-full items-center">
-                <span className="h-px flex-1 bg-border-strong transition-colors group-hover:bg-brand/50" />
-                <ArrowRight className="size-4 -translate-x-px text-brand" />
+                <span className="h-px flex-1 bg-border-strong transition-colors duration-200 group-hover:bg-brand/60" />
+                <ArrowRight className="size-4 -translate-x-px text-brand transition-transform duration-200 motion-safe:group-hover:translate-x-1 motion-reduce:transition-none" />
               </div>
               <p className="text-caption text-muted-foreground">
                 {flight.stops === "direct" ? "Direct" : "1 stop"}
@@ -89,7 +90,7 @@ const FlightResultCard = ({
         <div className="flex flex-col justify-between gap-5 border-t border-border pt-6 xl:border-l xl:border-t-0 xl:pl-9 xl:pt-0">
           <div>
             <p className="text-caption text-muted-foreground">{cabinLabels[cabin]}</p>
-            <p className="mt-2 text-2xl font-semibold tracking-[-0.035em] sm:text-3xl">
+            <p className="mt-2 text-2xl font-semibold tracking-[-0.035em] transition-[color,text-shadow] duration-200 group-hover:text-white group-hover:[text-shadow:0_0_20px_rgb(255_255_255/0.08)] sm:text-3xl motion-reduce:transition-none">
               {formatPrice(price)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -98,7 +99,7 @@ const FlightResultCard = ({
           </div>
           <a
             aria-label={`Select flight ${flight.flightNumber}`}
-            className={buttonVariants({ size: "lg" })}
+            className={`${buttonVariants({ size: "lg" })} transition-[background-color,box-shadow,transform] duration-200 hover:shadow-[0_12px_30px_rgb(255_212_0/0.2)] motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.02] motion-safe:active:translate-y-0 motion-safe:active:scale-[0.985] motion-reduce:transition-none [&_svg]:transition-transform [&_svg]:duration-200 motion-safe:hover:[&_svg]:translate-x-1.5`}
             href={`/flights/${flight.id}?${query}`}
           >
             Select Flight

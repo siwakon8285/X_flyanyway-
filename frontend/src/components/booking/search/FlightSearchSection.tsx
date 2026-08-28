@@ -53,6 +53,8 @@ const FlightSearchSection = () => {
               Choose your route and shape the journey in a few precise steps.
             </p>
           </div>
+        </Reveal>
+        <div>
           <div className="pt-8 lg:pt-10">
             <FlightSearchForm
               initialValues={initialValues}
@@ -63,7 +65,7 @@ const FlightSearchSection = () => {
               }}
             />
           </div>
-        </Reveal>
+        </div>
       </Container>
     </section>
   );

@@ -39,7 +39,7 @@ const PassengerSelector = ({ error, onChange, value }: PassengerSelectorProps) =
             aria-describedby={error ? errorId : undefined}
             aria-label={`Passengers, ${total} total`}
             className={cn(
-              "group flex min-h-24 w-full cursor-pointer flex-col justify-between rounded-control border border-border bg-surface/45 px-4 py-4 text-left shadow-[inset_0_1px_0_rgb(255_255_255/0.02)] outline-none transition-[background-color,border-color,box-shadow] duration-150 hover:border-border-strong hover:bg-surface/75 focus-visible:border-focus focus-visible:bg-surface/75 focus-visible:ring-2 focus-visible:ring-focus/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none",
+              "group flex min-h-24 w-full cursor-pointer flex-col justify-between rounded-control border border-border bg-surface/45 px-4 py-4 text-left shadow-[inset_0_1px_0_rgb(255_255_255/0.02)] outline-none transition-[background-color,border-color,box-shadow,transform] duration-200 hover:border-brand/40 hover:bg-surface/75 hover:shadow-[0_8px_24px_rgb(255_212_0/0.045)] motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.01] motion-safe:active:translate-y-0 motion-safe:active:scale-[0.99] focus-visible:border-focus focus-visible:bg-surface/75 focus-visible:ring-2 focus-visible:ring-focus/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none",
               error && "border-destructive",
             )}
             data-invalid={Boolean(error)}

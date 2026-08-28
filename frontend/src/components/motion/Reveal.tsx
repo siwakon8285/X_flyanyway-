@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import type { ElementType, HTMLAttributes, ReactNode } from "react";
 import { useRef } from "react";
 
 import { motionDurations } from "@/lib/motion/durations";
@@ -8,10 +8,10 @@ import { gsapEasings } from "@/lib/motion/easing";
 import { gsap, useGSAP } from "@/lib/motion/gsap";
 import { useReducedMotion } from "@/lib/motion/reducedMotion";
 
-type RevealElement = "article" | "div" | "section";
+type RevealElement = "article" | "div" | "ol" | "section";
 type RevealVariant = "fade" | "fade-up";
 
-type RevealProps = Omit<ComponentPropsWithoutRef<"div">, "children"> & {
+type RevealProps = Omit<HTMLAttributes<HTMLElement>, "children"> & {
   as?: RevealElement;
   children: ReactNode;
   delay?: number;
@@ -20,13 +20,14 @@ type RevealProps = Omit<ComponentPropsWithoutRef<"div">, "children"> & {
 };
 
 const Reveal = ({
-  as: Component = "div",
+  as: element = "div",
   children,
   delay = 0,
   stagger = 0,
   variant = "fade-up",
   ...props
 }: RevealProps) => {
+  const Component: ElementType = element;
   const container = useRef<HTMLElement>(null);
   const reducedMotion = useReducedMotion();
 
@@ -65,7 +66,7 @@ const Reveal = ({
 
   return (
     <Component
-      ref={(node) => {
+      ref={(node: HTMLElement | null) => {
         container.current = node;
       }}
       {...props}
