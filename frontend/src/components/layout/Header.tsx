@@ -6,6 +6,7 @@ import { useRef } from "react";
 import { BrandWordmark } from "@/components/brand/BrandWordmark";
 import { Container } from "@/components/layout/Container";
 import { DesktopNavigation } from "@/components/layout/DesktopNavigation";
+import { LanguageToggle } from "@/components/layout/LanguageToggle";
 import { MobileNavigation } from "@/components/layout/MobileNavigation";
 import { bookingHref } from "@/components/layout/navigationItems";
 import { buttonVariants } from "@/components/ui/Button";
@@ -14,10 +15,12 @@ import { gsapEasings } from "@/lib/motion/easing";
 import { ScrollTrigger, gsap, useGSAP } from "@/lib/motion/gsap";
 import { useReducedMotion } from "@/lib/motion/reducedMotion";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const Header = () => {
   const header = useRef<HTMLElement>(null);
   const reducedMotion = useReducedMotion();
+  const { t } = useLanguage();
 
   useGSAP(
     () => {
@@ -55,7 +58,7 @@ const Header = () => {
         data-header-content
       >
         <a
-          aria-label="X-Fly Anyway home"
+          aria-label={t("navigation.home")}
           className="rounded-control outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-4 focus-visible:ring-offset-background"
           href="#top"
         >
@@ -69,9 +72,10 @@ const Header = () => {
             className={cn(buttonVariants({ size: "sm" }), "hidden lg:inline-flex")}
             href={bookingHref}
           >
-            Book a Flight
+            {t("navigation.bookFlight")}
             <ArrowUpRight aria-hidden="true" />
           </a>
+          <LanguageToggle />
           <MobileNavigation />
         </div>
       </Container>

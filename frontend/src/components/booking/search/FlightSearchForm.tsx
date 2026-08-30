@@ -23,6 +23,8 @@ import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
 import { Reveal } from "@/components/motion/Reveal";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/types";
 
 type FlightSearchFormProps = {
   initialValues: FlightSearchFormValues;
@@ -30,9 +32,9 @@ type FlightSearchFormProps = {
 };
 
 const tripTypes = [
-  { label: "Round Trip", value: "round-trip" },
-  { label: "One Way", value: "one-way" },
-] as const satisfies readonly { label: string; value: TripType }[];
+  { labelKey: "flightSearch.trip.roundTrip", value: "round-trip" },
+  { labelKey: "flightSearch.trip.oneWay", value: "one-way" },
+] as const satisfies readonly { labelKey: TranslationKey; value: TripType }[];
 
 const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProps) => {
   const form = useRef<HTMLFormElement>(null);
@@ -43,6 +45,7 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
     passengers: { ...initialValues.passengers },
   }));
   const today = getTodayDateInputValue();
+  const { t } = useLanguage();
 
   const clearError = (field: keyof FlightSearchErrors) => {
     setErrors((current) => {
@@ -88,14 +91,14 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
 
   return (
     <form
-      aria-label="Search Earth flights"
+      aria-label={t("flightSearch.formLabel")}
       noValidate
       onSubmit={handleSubmit}
       ref={form}
     >
       <Reveal as="div" stagger={0.06}>
         <fieldset>
-          <legend className="sr-only">Trip type</legend>
+          <legend className="sr-only">{t("flightSearch.trip.legend")}</legend>
           <div
             className="inline-flex rounded-control border border-border bg-background/55 p-1 shadow-[inset_0_1px_0_rgb(255_255_255/0.025)]"
             role="presentation"
@@ -114,7 +117,7 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
                   value={tripType.value}
                 />
                 <span className="inline-flex min-h-10 items-center rounded-[calc(var(--radius-control)-0.2rem)] border border-transparent px-4 text-sm font-medium text-muted-foreground outline-none transition-[color,background-color,border-color,box-shadow,transform] duration-200 hover:bg-surface/70 hover:text-foreground motion-safe:active:scale-[0.985] peer-checked:border-brand/45 peer-checked:bg-surface-elevated peer-checked:text-foreground peer-checked:shadow-[inset_0_-2px_0_var(--brand),0_4px_14px_rgb(0_0_0/0.2)] peer-focus-visible:ring-2 peer-focus-visible:ring-focus peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background motion-reduce:transition-none">
-                  {tripType.label}
+                  {t(tripType.labelKey)}
                 </span>
               </label>
             ))}
@@ -123,15 +126,15 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
 
         <div className="mt-7 grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] md:gap-5">
         <AirportSelector
-          error={errors.from}
-          label="From"
+          error={errors.from ? t(errors.from) : undefined}
+          kind="from"
           onSelect={(airport) => setAirport("from", airport)}
           value={values.from}
         />
         <div className="flex h-12 items-center justify-center md:h-full">
           <IconButton
             className="size-11 rounded-full border-border-strong bg-surface-elevated text-muted-foreground shadow-[0_6px_18px_rgb(0_0_0/0.24)] transition-[color,background-color,border-color,transform,box-shadow] duration-150 hover:border-brand/70 hover:bg-surface-highlight hover:text-brand hover:shadow-[0_8px_22px_rgb(0_0_0/0.32)] motion-safe:active:rotate-180 focus-visible:border-brand motion-reduce:transition-none"
-            label="Swap origin and destination"
+            label={t("flightSearch.swap")}
             onClick={() => {
               clearError("from");
               clearError("to");
@@ -143,8 +146,8 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
           </IconButton>
         </div>
         <AirportSelector
-          error={errors.to}
-          label="To"
+          error={errors.to ? t(errors.to) : undefined}
+          kind="to"
           onSelect={(airport) => setAirport("to", airport)}
           value={values.to}
         />
@@ -157,9 +160,9 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
           )}
         >
         <DateSelector
-          error={errors.departure}
+          error={errors.departure ? t(errors.departure) : undefined}
           id="departure-date"
-          label="Departure date"
+          label={t("flightSearch.departureDate")}
           min={today}
           onChange={(departure) => {
             clearError("departure");
@@ -177,9 +180,9 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
         />
         {values.trip === "round-trip" ? (
           <DateSelector
-            error={errors.returnDate}
+            error={errors.returnDate ? t(errors.returnDate) : undefined}
             id="return-date"
-            label="Return date"
+            label={t("flightSearch.returnDate")}
             min={values.departure || today}
             onChange={(returnDate) => {
               clearError("returnDate");
@@ -189,7 +192,7 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
           />
         ) : null}
         <PassengerSelector
-          error={errors.passengers}
+          error={errors.passengers ? t(errors.passengers) : undefined}
           onChange={setPassengers}
           value={values.passengers}
         />
@@ -202,19 +205,19 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
             size="lg"
             type="submit"
           >
-            Search Flights
+            {t("flightSearch.search")}
             <ArrowRight aria-hidden="true" />
           </Button>
         </div>
       </Reveal>
       {Object.keys(errors).length > 0 ? (
         <p className="mt-5 text-body-sm text-destructive" role="alert">
-          Review the highlighted fields before searching.
+          {t("flightSearch.reviewErrors")}
         </p>
       ) : null}
       {submitted ? (
         <p className="mt-5 text-body-sm text-muted-foreground" role="status">
-          Search criteria ready. Flight results will be available in the next step.
+          {t("flightSearch.searchReady")}
         </p>
       ) : null}
     </form>

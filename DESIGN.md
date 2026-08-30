@@ -2863,6 +2863,24 @@ Search Flight
 
 ---
 
+## Nginx Deployment Policy
+
+สำหรับ deployment ของ X-Fly ให้ถือว่า **Nginx เป็นมาตรฐานหลักของโปรเจกต์**
+
+Agent ต้อง:
+- ใช้ Nginx เป็น reverse proxy / web edge หลัก
+- ห้ามเปลี่ยนไปใช้ reverse proxy ตัวอื่นโดยพลการ
+- validate ด้วย `nginx -t` ก่อน reload ทุกครั้ง
+- ใช้ Docker DNS/service names สำหรับ upstream
+- ไม่ expose PostgreSQL ผ่าน Nginx
+- ไม่ expose frontend/backend host ports โดยไม่จำเป็น
+- รองรับการเพิ่ม `upstream` สำหรับ load balancing ในอนาคต
+- ใช้ Nginx เป็น gateway หน้า backend หลาย service เมื่อ architecture แตก service เพิ่ม
+- คง Cloudflare Tunnel เป็น public ingress สำหรับ self-hosted server นี้
+- คง PostgreSQL เป็น private database หลัง backend เท่านั้น
+
+---
+
 # 70. BRANCH 30 — Deployment Preparation
 
 ## Branch
@@ -2882,7 +2900,7 @@ Ubuntu Server
 ├── Docker Engine + Docker Compose
 ├── External Docker network: web
 ├── PostgreSQL 18
-├── Caddy reverse proxy
+├── Nginx reverse proxy / web server / load balancer / gateway
 ├── UFW
 ├── SSH key authentication
 ├── PostgreSQL daily backup
@@ -2902,7 +2920,7 @@ Cloudflare Quick Tunnel
         ↓
 127.0.0.1:8080
         ↓
-Caddy
+Nginx
         ↓
 Docker network: web
    ┌──────┴──────┐
@@ -2914,7 +2932,7 @@ Next.js        Rust + Axum
              PostgreSQL 18
 ```
 
-Frontend และ Backend ไม่ควร publish public host ports หาก Caddy สามารถเข้าถึงผ่าน Docker network `web` ได้.
+Frontend และ Backend ไม่ควร publish public host ports หาก Nginx สามารถเข้าถึงผ่าน Docker network `web` ได้.
 
 Browser ต้องไม่เชื่อม PostgreSQL โดยตรง.
 
@@ -3075,7 +3093,36 @@ Servers
 
 ## Reverse Proxy / Routing Preparation
 
-Caddy จะเป็น entry point ของ application ภายใน server.
+**Nginx เป็น Primary Web Edge / Reverse Proxy ของ application ภายใน server**
+
+Nginx มีหน้าที่หลักสำหรับ X-Fly deployment:
+
+1. **Reverse Proxy** — รับ request จาก Cloudflare แล้วส่งต่อไป Frontend / Backend
+2. **Load Balancer** — รองรับการกระจาย request ไป backend หลาย instance ในอนาคต
+3. **Web Server** — รับและตอบ HTTP request และสามารถ serve static content ได้
+4. **TLS Termination** — สามารถเป็นจุด terminate TLS ได้เมื่อ architecture ใช้ TLS ที่ Nginx โดยตรง
+5. **Serve Static Files** — สามารถส่ง static assets โดยตรงเมื่อเหมาะสม
+6. **Gateway หน้า backend หลาย service** — route เช่น `/api/auth`, `/api/booking`, `/api/payment` ไป service ที่เหมาะสม
+
+สำหรับ architecture ปัจจุบัน Cloudflare Quick Tunnel เป็น public HTTPS edge และส่ง traffic เข้ามายัง Nginx บน loopback ของ Ubuntu Server.
+
+Target request flow:
+
+```txt
+Internet
+  ↓
+Cloudflare Quick Tunnel
+  ↓
+Nginx
+  ↓
+Docker network: web
+  ├── Frontend
+  └── Backend / API services
+       ↓
+   PostgreSQL
+```
+
+Nginx จะเป็น entry point ของ application ภายใน server.
 
 Target routing concept:
 
@@ -3101,7 +3148,7 @@ Config จริงต้องตรวจ route ของ Next.js และ Ax
 - Git contains only `.env.example`
 - SSH remains key-only
 - UFW remains deny-incoming by default
-- public traffic enters through Cloudflare Tunnel → Caddy only
+- public traffic enters through Cloudflare Tunnel → Nginx only
 - verify admin/security restrictions before public demo
 
 ## Backup / Data Preparation
@@ -3147,7 +3194,7 @@ CI/CD is optional future work and is not a blocker for the university submission
 - document real server `.env` values without committing secrets
 - configure same-origin `/api` strategy where appropriate
 - verify CORS requirements after proxy routing
-- prepare Caddy route for X-Fly
+- prepare Nginx reverse-proxy / gateway routes for X-Fly
 - define migration + seed commands
 - add frontend/backend health checks
 - verify restart policy
@@ -3171,7 +3218,7 @@ CI/CD is optional future work and is not a blocker for the university submission
 - project Compose config validates
 - services can join expected Docker networks
 - backend can resolve PostgreSQL internally
-- Caddy target names/ports are documented
+- Nginx upstream service names, internal ports, and routes are documented
 - `.env.example` contains no secrets
 - production build passes
 - pgAdmin can inspect Local X-Fly PostgreSQL directly through the local host port
@@ -3207,7 +3254,7 @@ cloudflared on Ubuntu Server
         ↓
 127.0.0.1:8080
         ↓
-Caddy
+Nginx
         ↓
 Docker network: web
    ┌──────┴──────┐
@@ -3260,7 +3307,7 @@ curl http://127.0.0.1:8080
 
 - Docker daemon
 - PostgreSQL
-- Caddy
+- Nginx
 - free disk space
 - current backups
 - expected Docker network `web`
@@ -3353,13 +3400,13 @@ docker compose logs
 
 Application containers ต้องใช้ restart policy ที่เหมาะสม เช่น `unless-stopped`.
 
-### 6. Caddy Integration
+### 6. Nginx Integration
 
-- update `/srv/apps/proxy/Caddyfile`
+- update `/srv/apps/proxy/Nginxfile`
 - route frontend to the X-Fly frontend service
 - route `/api/*` to the Rust backend where applicable
 - validate config
-- reload Caddy
+- reload Nginx
 - verify from Ubuntu host through `127.0.0.1:8080`
 
 ### 7. Local Smoke Test
@@ -3399,7 +3446,7 @@ https://xxxxx.trycloudflare.com
 
 - HTTPS works through Cloudflare
 - frontend loads from external network
-- API requests work through Caddy
+- API requests work through Nginx
 - no mixed-content errors
 - QR / verification URLs use the correct public base where required
 - admin access restrictions behave as designed
@@ -3428,9 +3475,10 @@ https://xxxxx.trycloudflare.com
 - run migrations
 - run demo seed if required
 - manual pre-release database backup
-- integrate Caddy routes
-- validate/reload Caddy
-- local smoke test through Caddy
+- integrate Nginx routes
+- validate Nginx with `nginx -t`
+- reload Nginx only after validation succeeds
+- local smoke test through Nginx
 - launch Cloudflare Quick Tunnel
 - external Internet smoke test
 - verify QR/public URLs
@@ -3453,7 +3501,7 @@ Internet
 ↓
 Cloudflare Quick Tunnel
 ↓
-Caddy
+Nginx
 ↓
 Frontend / Backend
 ↓
@@ -3820,7 +3868,7 @@ Frontend + Rust/Axum Backend
       ↓
 PostgreSQL 18
       ↓
-Caddy
+Nginx
       ↓
 Cloudflare Quick Tunnel
       ↓
@@ -3842,7 +3890,7 @@ PostgreSQL 18 / x_fly
 Deployment principles:
 
 - existing Ubuntu infrastructure is reused, not rebuilt from zero
-- Caddy is the reverse-proxy entry point
+- Nginx is the reverse-proxy entry point
 - frontend/backend communicate through Docker networking and approved internal service names
 - PostgreSQL remains private for application traffic and is accessed by the backend
 - pgAdmin Local inspects the local PostgreSQL instance directly
@@ -3994,7 +4042,7 @@ X-Fly Anyway ถือว่าประสบความสำเร็จเ�
 - Mobile ใช้งานได้ดี
 - Reduced motion รองรับ
 - Production build เร็วและเสถียร
-- Self-hosted deployment ผ่าน Caddy + Cloudflare Quick Tunnel ใช้งานจาก Internet จริงได้
+- Self-hosted deployment ผ่าน Nginx + Cloudflare Quick Tunnel ใช้งานจาก Internet จริงได้
 - Frontend / Backend รันเป็น production containers และไม่มี unnecessary public ports
 - PostgreSQL ไม่เปิดสู่ Internet และ backup/migration workflow ผ่าน
 - pgAdmin บน Mac ดู `X-Fly - LOCAL` ได้จาก Local PostgreSQL
@@ -4036,7 +4084,7 @@ X-Fly Anyway ถือว่าประสบความสำเร็จเ�
 | `perf/27-frontend-performance`    | **Sol**        | High       | profiling/optimization reasoning               |
 | `test/28-cross-browser-qa`        | **Terra**      | Low/Medium | mostly fixes from QA                           |
 | `test/29-booking-e2e`             | **Terra**      | Medium     | Playwright flow                                |
-| `chore/30-deployment-prep`        | **Terra**      | Medium     | Dockerfiles/Compose/env/Caddy integration prep |
-| `chore/31-production-deploy`      | **Sol**        | Medium     | self-host/Caddy/Cloudflare deploy issues can be subtle |
+| `chore/30-deployment-prep`        | **Terra**      | Medium     | Dockerfiles/Compose/env/Nginx reverse-proxy integration prep |
+| `chore/31-production-deploy`      | **Sol**        | Medium     | self-host/Nginx/Cloudflare routing and deployment issues can be subtle |
 | `feat/32-final-polish`            | **Terra**      | Medium     | mostly visual refinements                      |
 | `docs/33-final-documentation`     | **Luna**       | Low        | docs/summarization                             |

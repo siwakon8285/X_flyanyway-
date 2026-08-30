@@ -4,6 +4,7 @@ import { SeatButton } from "@/components/booking/seats/SeatButton";
 import { SEAT_MAP_PRESENTATION } from "@/components/booking/seats/seatMapPresentation";
 import type { SeatRow as SeatRowData } from "@/components/booking/seats/seatMapTypes";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const SeatRow = ({
   onToggle,
@@ -14,13 +15,14 @@ const SeatRow = ({
   row: SeatRowData;
   selectedSeatIds: ReadonlySet<string>;
 }) => {
+  const { t } = useLanguage();
   const cabin = row.groups[0]?.[0]?.cabin;
   if (!cabin) return null;
   const presentation = SEAT_MAP_PRESENTATION[cabin];
 
   return (
     <li
-      aria-label={`Row ${row.row}`}
+      aria-label={t("seatMap.rowAria", { row: row.row })}
       className={cn(
         "flex items-center justify-center gap-1",
         cabin === "economy"

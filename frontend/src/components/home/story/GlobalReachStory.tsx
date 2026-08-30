@@ -1,10 +1,16 @@
+"use client";
+
 import Image from "next/image";
 
 import { Container } from "@/components/layout/Container";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const globalReachImage = "/images/hero/x-fly-global-reach-luxury.jpg";
 
-const GlobalReachStory = () => (
+const GlobalReachStory = () => {
+  const { t } = useLanguage();
+
+  return (
   <section
     aria-labelledby="global-reach-heading"
     className="relative isolate flex min-h-[90svh] items-center overflow-hidden border-t border-border/70 bg-[#07090c] py-section-lg md:min-h-[100svh]"
@@ -18,7 +24,7 @@ const GlobalReachStory = () => (
     >
       <div className="absolute -inset-[12%]" data-global-image>
         <Image
-          alt="Dark world map connecting international cities with illuminated airline routes"
+          alt={t("home.globalReach.alt")}
           className="object-cover object-center"
           fill
           loading="lazy"
@@ -45,7 +51,7 @@ const GlobalReachStory = () => (
       <div className="w-full max-w-2xl" data-global-copy>
         <div className="mb-6 flex items-center gap-4" data-global-eyebrow>
           <span className="h-px w-10 origin-left bg-brand" data-global-line />
-          <p className="text-label text-brand" data-global-eyebrow-text>Global network</p>
+          <p className="text-label text-brand" data-global-eyebrow-text>{t("home.globalReach.label")}</p>
         </div>
 
         <div className="overflow-hidden" data-global-heading-wrapper>
@@ -53,14 +59,13 @@ const GlobalReachStory = () => (
             className="text-[clamp(3.5rem,6vw,5.5rem)] font-semibold leading-[0.9] tracking-[-0.055em] text-foreground text-balance"
             id="global-reach-heading"
           >
-            <span className="block" data-global-heading-line>The world,</span>
-            <span className="block" data-global-heading-line>within reach.</span>
+            <span className="block" data-global-heading-line>{t("home.globalReach.headingFirst")}</span>
+            <span className="block" data-global-heading-line>{t("home.globalReach.headingSecond")}</span>
           </h2>
         </div>
 
         <p className="mt-6 max-w-lg text-body text-muted-foreground sm:text-body-lg" data-global-body>
-          Connected across every horizon. Iconic destinations, global hubs,
-          and one considered journey between them.
+          {t("home.globalReach.body")}
         </p>
 
         <div
@@ -69,12 +74,12 @@ const GlobalReachStory = () => (
         >
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_8px_rgba(255,212,0,0.6)]" />
-            <span className="font-mono text-foreground/90">7 GLOBAL HUBS</span>
+            <span className="font-mono text-foreground/90">{t("home.globalReach.hubs")}</span>
           </div>
           <div className="h-3 w-px bg-border/60" />
           <div className="flex items-center gap-2">
             <span className="h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_8px_rgba(255,212,0,0.6)]" />
-            <span className="font-mono text-foreground/90">24/7 OPERATIONS</span>
+            <span className="font-mono text-foreground/90">{t("home.globalReach.operations")}</span>
           </div>
         </div>
       </div>
@@ -86,17 +91,18 @@ const GlobalReachStory = () => (
     >
       <div className="flex items-baseline justify-end gap-3">
         <span className="font-mono text-xs font-bold uppercase tracking-widest text-brand drop-shadow-sm">
-          COUNTRIES
+          {t("home.globalReach.countries")}
         </span>
         <p className="text-[clamp(4rem,8vw,7rem)] font-semibold leading-[0.8] tracking-[-0.075em] text-foreground drop-shadow-[0_4px_16px_rgba(0,0,0,0.8)]">
           156
         </p>
       </div>
       <p className="mt-2 font-mono text-[0.6875rem] tracking-wider text-muted-foreground/95 drop-shadow-sm">
-        ONE CONNECTED JOURNEY
+        {t("home.globalReach.journey")}
       </p>
     </div>
   </section>
-);
+  );
+};
 
 export { GlobalReachStory, globalReachImage };

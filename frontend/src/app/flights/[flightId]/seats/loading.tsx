@@ -1,15 +1,20 @@
+"use client";
+
 import { Container } from "@/components/layout/Container";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 export default function SeatMapLoading() {
+  const { t } = useLanguage();
+
   return (
     <Container>
       <main
-        aria-label="Loading seat map"
+        aria-label={t("loading.seatMap")}
         className="min-h-screen py-section-sm pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]"
         role="status"
       >
-        <span className="sr-only">Loading seat map</span>
+        <span className="sr-only">{t("loading.seatMap")}</span>
         <header data-seat-map-skeleton>
           <Skeleton className="h-11 w-36" />
           <Skeleton className="mt-8 h-5 w-24" />

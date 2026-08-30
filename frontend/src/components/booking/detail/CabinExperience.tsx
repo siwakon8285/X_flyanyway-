@@ -11,10 +11,7 @@ import {
   CABIN_PRESENTATIONS,
 } from "@/components/booking/cabin/cabinPresentation";
 import { buildSeatSelectionHref } from "@/components/booking/detail/flightDetailUtils";
-import {
-  formatPrice,
-  getCabinPrice,
-} from "@/components/booking/results/flightResultUtils";
+import { getCabinPrice } from "@/components/booking/results/flightResultUtils";
 import type { FlightResult } from "@/components/booking/results/flightResultTypes";
 import type { CabinClass } from "@/components/booking/search/searchTypes";
 import { Button, buttonVariants } from "@/components/ui/Button";
@@ -23,6 +20,8 @@ import { motionDurations } from "@/lib/motion/durations";
 import { motionEasings } from "@/lib/motion/easing";
 import { useReducedMotion } from "@/lib/motion/reducedMotion";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatPrice } from "@/i18n/formatters";
 
 const isCabinClass = (value: string): value is CabinClass =>
   CABIN_PRESENTATIONS.some((cabin) => cabin.id === value);
@@ -40,6 +39,7 @@ const CabinExperience = ({
 }) => {
   const [activeCabin, setActiveCabin] = useState<CabinClass>(initialCabin);
   const reducedMotion = useReducedMotion();
+  const { locale, t } = useLanguage();
   const cabin = CABIN_PRESENTATION_BY_ID[activeCabin];
   const price = getCabinPrice(flight, activeCabin);
   const seatHref = buildSeatSelectionHref({
@@ -61,7 +61,7 @@ const CabinExperience = ({
 
   return (
     <section
-      aria-label="Cabin experience"
+      aria-label={t("flightDetail.cabin.experienceLabel")}
       className="relative isolate overflow-hidden py-section-md"
       id="cabin-experience"
     >
@@ -80,10 +80,10 @@ const CabinExperience = ({
         />
       </AnimatePresence>
       <div className="max-w-3xl">
-        <p className="text-label text-brand">Cabin</p>
-        <h2 className="mt-3 text-h2">Choose how you want to fly.</h2>
+        <p className="text-label text-brand">{t("flightDetail.cabin.label")}</p>
+        <h2 className="mt-3 text-h2">{t("flightDetail.cabin.heading")}</h2>
         <p className="mt-4 text-body-lg text-muted-foreground">
-          Explore four distinct cabin experiences before choosing your seat.
+          {t("flightDetail.cabin.description")}
         </p>
       </div>
 
@@ -95,21 +95,22 @@ const CabinExperience = ({
         value={activeCabin}
       >
         <TabsList
-          aria-label="Cabin classes"
+          aria-label={t("flightSearch.cabinClass")}
           className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 sm:grid-cols-4"
         >
           {CABIN_PRESENTATIONS.map((option) => {
             const isSearchedCabin = option.id === searchedCabin;
             const isAvailable = getCabinPrice(flight, option.id) !== null;
             const stateLabel = isSearchedCabin
-              ? "your searched cabin"
+              ? t("flightDetail.cabin.searched")
               : isAvailable
                 ? ""
-                : "unavailable";
+                : t("flightDetail.cabin.unavailableLower");
+            const label = t(option.labelKey);
 
             return (
               <TabsTrigger
-                aria-label={`${option.label}${stateLabel ? `, ${stateLabel}` : ""}`}
+                aria-label={`${label}${stateLabel ? `, ${stateLabel}` : ""}`}
                 className={cn(
                   "min-h-14 min-w-0 flex-col gap-1 border border-border bg-surface/65 px-3 transition-[border-color,background-color,box-shadow,color,transform] duration-200 hover:bg-surface-elevated motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.01] motion-safe:active:translate-y-0 motion-safe:active:scale-[0.985] data-[state=active]:border-current data-[state=active]:bg-surface-elevated motion-reduce:transition-none",
                   option.accentClass,
@@ -119,16 +120,16 @@ const CabinExperience = ({
                 value={option.id}
               >
                 <span className="text-sm text-foreground sm:text-base">
-                  <span className="sm:hidden">{option.shortLabel}</span>
-                  <span className="hidden sm:inline">{option.label}</span>
+                  <span className="sm:hidden">{t(option.shortLabelKey)}</span>
+                  <span className="hidden sm:inline">{label}</span>
                 </span>
                 {isSearchedCabin ? (
                   <span className="text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    Your search
+                    {t("flightDetail.cabin.yourSearch")}
                   </span>
                 ) : !isAvailable ? (
                   <span className="text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    Unavailable
+                    {t("flightDetail.cabin.unavailable")}
                   </span>
                 ) : null}
               </TabsTrigger>
@@ -173,25 +174,25 @@ const CabinExperience = ({
                     className={cn("text-caption", cabin.accentClass)}
                     variants={contentItemVariants}
                   >
-                    {cabin.label}
+                    {t(cabin.labelKey)}
                   </motion.p>
                   <motion.h3
                     className="mt-3 text-h2"
                     variants={contentItemVariants}
                   >
-                    {cabin.label}
+                    {t(cabin.labelKey)}
                   </motion.h3>
                   <motion.p
                     className="mt-4 max-w-md text-body text-muted-foreground"
                     variants={contentItemVariants}
                   >
-                    {cabin.description}
+                    {t(cabin.descriptionKey)}
                   </motion.p>
                   <ul className="mt-7 space-y-3">
-                    {cabin.features.map((feature) => (
+                    {cabin.featureKeys.map((featureKey) => (
                       <motion.li
                         className="group/feature flex items-center gap-3 border-l border-transparent text-body-sm transition-[border-color,color,transform] duration-200 hover:border-current motion-safe:hover:translate-x-1 motion-reduce:transition-none"
-                        key={feature}
+                        key={featureKey}
                         variants={contentItemVariants}
                       >
                         <Check
@@ -201,7 +202,7 @@ const CabinExperience = ({
                             cabin.accentClass,
                           )}
                         />
-                        <span>{feature}</span>
+                        <span>{t(featureKey)}</span>
                       </motion.li>
                     ))}
                   </ul>
@@ -218,37 +219,37 @@ const CabinExperience = ({
                 >
                   {price === null ? (
                     <>
-                      <p className="text-lg font-semibold">Not available on this flight</p>
+                      <p className="text-lg font-semibold">{t("flightDetail.cabin.notAvailable")}</p>
                       <p className="mt-2 text-body-sm text-muted-foreground">
-                        Preview another cabin to continue.
+                        {t("flightDetail.cabin.previewAnother")}
                       </p>
                       <Button
-                        aria-label={`Choose your seat in ${cabin.label} on flight ${flight.flightNumber}, unavailable`}
+                        aria-label={t("flightDetail.chooseSeatUnavailableAria", { cabin: t(cabin.labelKey), flight: flight.flightNumber })}
                         className="mt-6 w-full sm:w-auto"
                         disabled
                         size="lg"
                       >
-                        Choose Your Seat
+                        {t("flightDetail.cabin.chooseSeat")}
                         <ArrowRight aria-hidden="true" />
                       </Button>
                     </>
                   ) : (
                     <>
                       <p className="text-2xl font-semibold tracking-[-0.035em]">
-                        {formatPrice(price)}
+                        {formatPrice(price, locale)}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Sample fare · per passenger
+                        {t("common.farePerPassenger")}
                       </p>
                       <Link
-                        aria-label={`Choose your seat in ${cabin.label} on flight ${flight.flightNumber}`}
+                        aria-label={t("flightDetail.chooseSeatAria", { cabin: t(cabin.labelKey), flight: flight.flightNumber })}
                         className={cn(
                           buttonVariants({ size: "lg" }),
                           "mt-6 w-full transition-[background-color,box-shadow,transform] duration-200 hover:shadow-[0_12px_30px_rgb(255_212_0/0.22)] motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.02] motion-safe:active:translate-y-0 motion-safe:active:scale-[0.985] sm:w-auto motion-reduce:transition-none [&_svg]:transition-transform [&_svg]:duration-200 motion-safe:hover:[&_svg]:translate-x-1.5",
                         )}
                         href={seatHref}
                       >
-                        Choose Your Seat
+                        {t("flightDetail.cabin.chooseSeat")}
                         <ArrowRight aria-hidden="true" />
                       </Link>
                     </>
@@ -266,7 +267,7 @@ const CabinExperience = ({
                 }}
               >
                 <Image
-                  alt={cabin.alt}
+                  alt={t(cabin.altKey)}
                   className={cn(
                     "object-cover transition-transform duration-[650ms] ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none motion-safe:[@media(hover:hover)_and_(pointer:fine)]:group-hover/image:scale-[1.025] motion-safe:[@media(hover:hover)_and_(pointer:fine)]:group-hover/image:duration-[550ms] motion-safe:[@media(hover:hover)_and_(pointer:fine)]:group-hover/image:ease-[cubic-bezier(0.22,1,0.36,1)]",
                     cabin.imagePosition,

@@ -1,3 +1,5 @@
+"use client";
+
 import Image from "next/image";
 import type { CSSProperties } from "react";
 
@@ -10,6 +12,7 @@ import {
   journeyStageCards,
   journeyStageSlots,
 } from "@/components/home/story/journeyStoryModel";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 type JourneyStageProps = {
   side: keyof typeof journeyStageCards;
@@ -32,7 +35,10 @@ const slotStyle = (
   };
 };
 
-const JourneyStage = ({ side }: JourneyStageProps) => (
+const JourneyStage = ({ side }: JourneyStageProps) => {
+  const { t } = useLanguage();
+
+  return (
   <div
     className={
       side === "left"
@@ -102,7 +108,7 @@ const JourneyStage = ({ side }: JourneyStageProps) => (
           style={slotStyle(side, role)}
         >
           <Image
-            alt={image.alt}
+            alt={t(image.altKey)}
             className="object-cover"
             fill
             loading="lazy"
@@ -121,9 +127,13 @@ const JourneyStage = ({ side }: JourneyStageProps) => (
       );
     })}
   </div>
-);
+  );
+};
 
-const LayeredJourneyStory = () => (
+const LayeredJourneyStory = () => {
+  const { t } = useLanguage();
+
+  return (
   <section
     aria-labelledby="layered-journey-heading"
     className="relative isolate overflow-hidden bg-[#07080b] py-section-md md:py-0"
@@ -141,7 +151,7 @@ const LayeredJourneyStory = () => (
         <div className="flex items-center justify-center gap-3">
           <span aria-hidden="true" className="h-px w-8 bg-brand" />
           <p className="text-label uppercase tracking-widest text-brand">
-            X-Fly Journey
+            {t("home.journey.label")}
           </p>
           <span aria-hidden="true" className="h-px w-8 bg-brand" />
         </div>
@@ -149,7 +159,7 @@ const LayeredJourneyStory = () => (
           className="mt-3 text-h3 uppercase tracking-tight text-foreground text-balance"
           id="layered-journey-heading"
         >
-          A continuous journey.
+          {t("home.journey.heading")}
         </h2>
       </Container>
 
@@ -175,12 +185,12 @@ const LayeredJourneyStory = () => (
               data-layered-copy={chapter.id}
               key={chapter.id}
             >
-              <p className="mb-3 text-caption text-brand">{chapter.label}</p>
+              <p className="mb-3 text-caption text-brand">{t(chapter.labelKey)}</p>
               <h3 className="text-h3 font-semibold text-foreground text-balance">
-                {chapter.headline}
+                {t(chapter.headlineKey)}
               </h3>
               <p className="mt-4 max-w-xs text-body-sm leading-relaxed text-muted-foreground">
-                {chapter.body}
+                {t(chapter.bodyKey)}
               </p>
             </div>
           ))}
@@ -220,12 +230,12 @@ const LayeredJourneyStory = () => (
             data-mobile-chapter={chapter.id}
             key={chapter.id}
           >
-            <p className="mb-3 text-caption text-brand">{chapter.label}</p>
+            <p className="mb-3 text-caption text-brand">{t(chapter.labelKey)}</p>
             <h3 className="text-h3 font-semibold text-foreground">
-              {chapter.headline}
+              {t(chapter.headlineKey)}
             </h3>
             <p className="mx-auto mt-4 max-w-sm text-body-sm leading-relaxed text-muted-foreground">
-              {chapter.body}
+              {t(chapter.bodyKey)}
             </p>
             <div className="mt-8 grid gap-6">
               {chapter.images.map((image, index) => (
@@ -236,7 +246,7 @@ const LayeredJourneyStory = () => (
                   key={image.src}
                 >
                   <Image
-                    alt={image.alt}
+                    alt={t(image.altKey)}
                     className="object-cover"
                     fill
                     loading="lazy"
@@ -251,6 +261,7 @@ const LayeredJourneyStory = () => (
       </div>
     </div>
   </section>
-);
+  );
+};
 
 export { LayeredJourneyStory };

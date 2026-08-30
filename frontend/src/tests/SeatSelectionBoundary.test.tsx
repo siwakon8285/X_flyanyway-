@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
+import { render } from "@/tests/renderWithLanguage";
 
 import SeatSelectionBoundary from "@/app/flights/[flightId]/seats/page";
 

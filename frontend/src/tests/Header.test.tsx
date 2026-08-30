@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { render } from "@/tests/renderWithLanguage";
 
 import { Header } from "@/components/layout/Header";
 

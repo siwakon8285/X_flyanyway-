@@ -1,3 +1,5 @@
+"use client";
+
 import { ArrowLeft } from "lucide-react";
 import { buttonVariants } from "@/components/ui/Button";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
@@ -7,6 +9,7 @@ import { FlightResultsState } from "@/components/booking/results/FlightResultsSt
 import { filterFlightResults } from "@/components/booking/results/flightResultUtils";
 import { SearchSummary } from "@/components/booking/results/SearchSummary";
 import { Container } from "@/components/layout/Container";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const FlightResultsPage = ({
   criteria,
@@ -15,17 +18,19 @@ const FlightResultsPage = ({
   criteria: FlightSearchFormValues | null;
   query: string;
 }) => {
+  const { t } = useLanguage();
+
   if (!criteria) {
     return (
       <Container>
         <FlightResultsState
-          description="Return to Flight Search to choose your itinerary."
-          title="Search details required"
+          description={t("flightResults.requiredDescription")}
+          title={t("flightResults.requiredTitle")}
         >
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a className={`${buttonVariants({ size: "lg" })} mt-8`} href="/#flight-search">
             <ArrowLeft aria-hidden="true" />
-            Modify Search
+            {t("flightResults.modifySearch")}
           </a>
         </FlightResultsState>
       </Container>
@@ -47,9 +52,9 @@ const FlightResultsPage = ({
             <FlightResultsList cabin={criteria.cabin} flights={flights} query={query} />
           ) : (
             <FlightResultsState
-              description="Try adjusting your date, route, or cabin."
+              description={t("flightResults.emptyDescription")}
               headingLevel={2}
-              title="No flights found"
+              title={t("flightResults.emptyTitle")}
             />
           )}
         </div>

@@ -1,7 +1,7 @@
 # DATABASE.md
 
 > ส่งไฟล์นี้ให้ AI Agent เช่น Codex หรือ Claude อ่านก่อนเริ่มงาน Database / Data Layer
-> Agent ต้องตรวจสอบเทคโนโลยีและโครงสร้างจริงของโปรเจกต์ก่อนแก้ไขเสมอ
+> Agent ต้องตรวจสอบเทคโนโลยีและโครงสร้างจริงของโปรเจกต์ก่อนแก้ไขเสมอ และสำหรับ self-hosted deployment ให้ยึด `SERVER.md` ซึ่งกำหนด **Nginx เป็น Reverse Proxy / Web Edge หลัก**
 
 ---
 
@@ -322,7 +322,64 @@ cat backup.sql | docker compose exec -T db mysql -u ${MYSQL_USER} -p${MYSQL_PASS
 
 ---
 
+
+## 12A. Nginx / Application Gateway Boundary
+
+สำหรับ Self-Hosted deployment ให้ใช้ **Nginx เป็น Web Edge / Reverse Proxy หลัก** ของ application traffic
+
+Nginx สามารถทำหน้าที่:
+
+1. Reverse Proxy
+2. Load Balancer
+3. Web Server
+4. TLS termination
+5. Serve static files
+6. Gateway หน้า backend หลาย service
+
+Flow ที่ถูกต้อง:
+
+```text
+Internet
+   |
+Cloudflare Tunnel
+   |
+Nginx
+   |
+Backend / API
+   |
+Private Docker Network
+   |
+PostgreSQL / MySQL
+```
+
+Database **ห้าม** ถูกเปิดผ่าน Nginx โดยตรง
+
+```text
+Internet
+   |
+Nginx
+   X
+   |
+PostgreSQL :5432
+```
+
+กฎสำหรับ Agent:
+
+- Nginx route เฉพาะ HTTP/HTTPS application traffic
+- PostgreSQL / MySQL ต้องอยู่ loopback หรือ private Docker network
+- pgAdmin Production ใช้ SSH Tunnel ไม่ผ่าน Nginx
+- ห้ามใช้ Nginx `stream` เพื่อเปิด database สู่ public Internet
+- Backend หลาย instance สามารถใช้ Nginx load balancing ได้
+- Database connection pooling เป็นหน้าที่ของ application pool / PgBouncer / ProxySQL ตาม architecture
+- Cloudflare Tunnel ห้ามชี้ตรงไป PostgreSQL/MySQL
+- Production secrets ห้ามอยู่ใน `nginx.conf`
+
+---
+
 ## 13. เชื่อมต่อ GUI และตรวจสอบข้อมูลด้วย pgAdmin
+
+> ส่วนนี้เป็น **template กลางสำหรับทุกโปรเจกต์** ไม่ผูกกับชื่อ Product ใดโดยเฉพาะ
+> ให้ Agent แทน `<project-name>`, `<project_database>` และชื่อ connection ด้วยชื่อจริงของโปรเจกต์ที่กำลังทำ
 
 สำหรับโปรเจกต์ที่ใช้ PostgreSQL ต้องออกแบบให้ผู้ใช้สามารถตรวจสอบ schema และ runtime data ผ่าน **pgAdmin บน Mac** ได้ทั้ง Local และ Production โดยแยก connection ชัดเจน.
 
@@ -343,8 +400,10 @@ Backend ที่รันบน Mac และ pgAdmin ต้องเชื่�
 แนะนำตั้งชื่อ connection:
 
 ```text
-X-Fly - LOCAL
+Project - LOCAL
 ```
+
+ตัวอย่าง: หากชื่อ Product คือ `Acme Shop` สามารถใช้ `Acme Shop - LOCAL` ได้
 
 ตัวอย่างค่า:
 
@@ -374,7 +433,7 @@ db:5432
 - ตรวจ tables / columns / indexes / constraints
 - ตรวจผล migration
 - ตรวจ seed data
-- ตรวจ booking / passenger / seat hold / payment / ticket records ที่ backend เขียนจริง
+- ตรวจ runtime records ที่ backend เขียนจริง เช่น users / orders / bookings / inventory / payments ตาม domain ของโปรเจกต์
 - query/debug ระหว่าง development
 - ยืนยันว่า backend และ pgAdmin กำลังดู database instance ตัวเดียวกัน
 
@@ -382,7 +441,7 @@ db:5432
 
 Production PostgreSQL **ห้ามเปิด public Internet เพื่อให้ pgAdmin ต่อได้**.
 
-สำหรับ X-Fly self-hosted server ให้ใช้ pgAdmin บน Mac ผ่าน SSH Tunnel:
+สำหรับโปรเจกต์ที่ deploy บน self-hosted server ให้ใช้ pgAdmin บน Mac ผ่าน SSH Tunnel:
 
 ```text
 pgAdmin on Mac
@@ -399,8 +458,10 @@ PostgreSQL Container
 แนะนำตั้งชื่อ connection:
 
 ```text
-X-Fly - PRODUCTION
+Project - PRODUCTION
 ```
+
+ตัวอย่าง: หากชื่อ Product คือ `Acme Shop` สามารถใช้ `Acme Shop - PRODUCTION` ได้
 
 หลักการ connection:
 
@@ -418,7 +479,7 @@ Database Port:
 5432
 
 Database:
-X-Fly production database
+<project-production-database>
 
 Username / Password:
 production DB credentials จาก server environment
@@ -438,10 +499,10 @@ production DB credentials จาก server environment
 
 ```text
 Servers
-├── X-Fly - LOCAL
-│   └── x_fly
-└── X-Fly - PRODUCTION
-    └── x_fly
+├── Project - LOCAL
+│   └── <project_database>
+└── Project - PRODUCTION
+    └── <project_database>
 ```
 
 แม้ชื่อ database จะเหมือนกัน แต่เป็นคนละ PostgreSQL instance.
@@ -537,9 +598,10 @@ Agent ต้องรันคำสั่งตามโปรเจกต์�
 8. รัน test/lint/type-check ที่เกี่ยวข้อง โดยตรวจว่าชี้ไปที่ test database แยกจาก dev
 9. ตรวจว่า `.env` ไม่ถูก track และไม่มี secret ใหม่ใน diff
 10. ตรวจว่าไฟล์ backup (ถ้ามีจากการทดสอบ) ไม่ถูก track ใน Git
-11. สำหรับ PostgreSQL Local ให้ยืนยันว่า pgAdmin `X-Fly - LOCAL` เชื่อมและเห็น schema/data ได้
-12. สำหรับ Self-Hosted Production ให้ยืนยันแนวทาง pgAdmin `X-Fly - PRODUCTION` ผ่าน SSH Tunnel โดยไม่เปิด PostgreSQL public
-13. สรุปไฟล์ที่แก้ คำสั่ง ผลตรวจ และค่าที่ผู้ใช้ต้องตั้งเอง
+11. สำหรับ PostgreSQL Local ให้ยืนยันว่า pgAdmin `<Project> - LOCAL` เชื่อมและเห็น schema/data ได้
+12. สำหรับ Self-Hosted Production ให้ยืนยันแนวทาง pgAdmin `<Project> - PRODUCTION` ผ่าน SSH Tunnel โดยไม่เปิด PostgreSQL public
+13. ถ้าเป็น Self-Hosted deployment ให้ตรวจว่า Nginx route ไป application ได้ และ Database ไม่ถูก expose ผ่าน Nginx
+14. สรุปไฟล์ที่แก้ คำสั่ง ผลตรวจ และค่าที่ผู้ใช้ต้องตั้งเอง
 
 หาก Docker daemon ไม่ทำงาน, dependency ขาด, port ถูกใช้ หรือ permission ไม่พอ ให้รายงาน blocker ตามจริง ห้ามอ้างว่าพร้อมใช้งาน
 
@@ -565,6 +627,7 @@ Agent ต้องรันคำสั่งตามโปรเจกต์�
 - [ ] pgAdmin Local เชื่อม PostgreSQL ผ่าน host port ที่กำหนดได้
 - [ ] pgAdmin Production ใช้ SSH Tunnel เท่านั้นเมื่อเป็น self-hosted server
 - [ ] Production PostgreSQL ไม่ถูก expose สู่ public Internet
+- [ ] Nginx เป็น Web Edge หลักของ Self-Hosted deployment และไม่ได้ proxy database ออก public
 - [ ] Local / Production connections ถูกตั้งชื่อและแยกข้อมูลชัดเจน
 - [ ] Migration ทำให้ schema สอดคล้องกันโดยไม่ทำให้ runtime data auto-sync
 - [ ] Query ปลอดภัยจาก SQL injection

@@ -1,9 +1,12 @@
+"use client";
+
 import type { SeatSelectionRequest } from "@/components/booking/detail/flightDetailUtils";
 import { SeatMapExperience } from "@/components/booking/seats/SeatMapExperience";
 import { SeatMapHeader } from "@/components/booking/seats/SeatMapHeader";
 import type { CabinSeatMap } from "@/components/booking/seats/seatMapTypes";
 import { getRequiredSeatCount } from "@/components/booking/seats/seatMapUtils";
 import { Container } from "@/components/layout/Container";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const SeatMapPage = ({
   request,
@@ -12,6 +15,7 @@ const SeatMapPage = ({
   request: SeatSelectionRequest;
   seatMap: CabinSeatMap | null;
 }) => {
+  const { t } = useLanguage();
   const requiredSeatCount = getRequiredSeatCount(request.criteria.passengers);
   const availableSeatCount =
     seatMap?.rows
@@ -39,12 +43,12 @@ const SeatMapPage = ({
             className="mt-10 rounded-surface border border-border bg-surface/75 p-8"
           >
             <h2 className="text-h3" id="seat-map-unavailable-heading">
-              {seatMap ? "Not enough fixture seats" : "Seat map unavailable"}
+              {seatMap ? t("seatMap.notEnoughTitle") : t("seatMap.seatMapUnavailableTitle")}
             </h2>
             <p className="mt-3 max-w-xl text-body text-muted-foreground">
               {seatMap
-                ? `This local cabin fixture has ${availableSeatCount} selectable ${availableSeatCount === 1 ? "seat" : "seats"}, but this booking requires ${requiredSeatCount}. Return to the flight to choose another cabin.`
-                : "This cabin does not have a local seat layout. Return to the flight to choose another cabin."}
+                ? t("seatMap.notEnoughBody", { available: availableSeatCount, required: requiredSeatCount })
+                : t("seatMap.seatMapUnavailableBody")}
             </p>
           </section>
         )}

@@ -1,12 +1,15 @@
+"use client";
+
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
-import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
+import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
 import type { SeatSelectionRequest } from "@/components/booking/detail/flightDetailUtils";
 import { SeatLegend } from "@/components/booking/seats/SeatLegend";
 import { buildPassengerDetailsHref, sortSeatNumbers } from "@/components/booking/seats/seatMapUtils";
 import { Button, buttonVariants } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const SeatSelectionSummary = ({
   limitReached,
@@ -21,6 +24,7 @@ const SeatSelectionSummary = ({
 }) => {
   const selectedSeats = sortSeatNumbers([...selectedSeatIds]);
   const isComplete = selectedSeats.length === requiredSeatCount;
+  const { t } = useLanguage();
   const continueHref = buildPassengerDetailsHref({
     flightId: request.flight.id,
     query: request.query,
@@ -34,7 +38,7 @@ const SeatSelectionSummary = ({
       <div className="my-6 h-px bg-border" />
       <section aria-labelledby="selected-seats-heading">
         <p className="text-caption" id="selected-seats-heading">
-          Your seats
+          {t("seatMap.yourSeats")}
         </p>
         <div className="mt-4 flex min-h-11 flex-wrap gap-2">
           {selectedSeats.length > 0 ? (
@@ -47,38 +51,40 @@ const SeatSelectionSummary = ({
               </span>
             ))
           ) : (
-            <span className="self-center text-sm text-muted-foreground">No seats selected</span>
+            <span className="self-center text-sm text-muted-foreground">{t("seatMap.noSeats")}</span>
           )}
         </div>
         <p aria-live="polite" className="mt-4 text-sm font-medium">
-          {selectedSeats.length} of {requiredSeatCount} seats selected
+          {requiredSeatCount === 1
+            ? t("seatMap.selectedCountOne", { selected: selectedSeats.length })
+            : t("seatMap.selectedCount", { selected: selectedSeats.length, required: requiredSeatCount })}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {cabinLabels[request.selectedCabin]} · {request.flight.flightNumber}
+          {t(cabinLabelKeys[request.selectedCabin])} · {request.flight.flightNumber}
         </p>
         <p aria-live="polite" className="mt-4 min-h-5 text-xs text-brand">
-          {limitReached ? "Deselect a seat before choosing another." : ""}
+          {limitReached ? t("seatMap.deselect") : ""}
         </p>
         {isComplete ? (
           <Link
-            aria-label={`Continue with ${requiredSeatCount} ${requiredSeatCount === 1 ? "seat" : "seats"}`}
+            aria-label={requiredSeatCount === 1 ? t("seatMap.continueAriaOne") : t("seatMap.continueAria", { count: requiredSeatCount })}
             className={cn(
               buttonVariants({ size: "lg" }),
               "mt-5 w-full transition-[background-color,box-shadow,transform] duration-200 hover:shadow-[0_12px_30px_rgb(255_212_0/0.22)] motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.02] motion-safe:active:translate-y-0 motion-safe:active:scale-[0.985] motion-reduce:transition-none [&_svg]:transition-transform motion-safe:hover:[&_svg]:translate-x-1.5",
             )}
             href={continueHref}
           >
-            Continue
+            {t("seatMap.continue")}
             <ArrowRight aria-hidden="true" />
           </Link>
         ) : (
           <Button
-            aria-label={`Continue, select ${requiredSeatCount} ${requiredSeatCount === 1 ? "seat" : "seats"} to proceed`}
+            aria-label={requiredSeatCount === 1 ? t("seatMap.selectSeatToProceed") : t("seatMap.selectSeatsToProceed", { count: requiredSeatCount })}
             className="mt-5 w-full"
             disabled
             size="lg"
           >
-            Continue
+            {t("seatMap.continue")}
             <ArrowRight aria-hidden="true" />
           </Button>
         )}

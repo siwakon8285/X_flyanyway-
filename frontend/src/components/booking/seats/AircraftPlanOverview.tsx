@@ -1,9 +1,13 @@
-import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
+"use client";
+
+import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
 import { SEAT_MAP_PRESENTATION } from "@/components/booking/seats/seatMapPresentation";
 import type { CabinSeatMap } from "@/components/booking/seats/seatMapTypes";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const AircraftPlanOverview = ({ map }: { map: CabinSeatMap }) => {
+  const { t } = useLanguage();
   const presentation = SEAT_MAP_PRESENTATION[map.cabin];
   const fuselageStart = 26;
   const fuselageLength = 710;
@@ -22,29 +26,29 @@ const AircraftPlanOverview = ({ map }: { map: CabinSeatMap }) => {
       <div className="flex items-end justify-between gap-4">
         <div>
           <p className="text-[0.58rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Aircraft plan
+            {t("seatMap.aircraftPlan")}
           </p>
           <p className="mt-1 text-sm font-medium text-foreground">
-            {map.aircraftFamily.label} · {map.section.label}
+            {map.aircraftFamily.label} · {t(map.section.labelKey)}
           </p>
         </div>
         <p className={cn("text-[0.58rem] font-semibold uppercase tracking-[0.16em]", presentation.accentClass)}>
-          {cabinLabels[map.cabin]}
+          {t(cabinLabelKeys[map.cabin])}
         </p>
       </div>
 
       <div
-        aria-label={`${map.aircraftFamily.label} aircraft overview, ${map.section.label} highlighted for ${cabinLabels[map.cabin]}`}
+        aria-label={t("seatMap.aircraftOverview", { aircraft: map.aircraftFamily.label, section: t(map.section.labelKey), cabin: t(cabinLabelKeys[map.cabin]) })}
         className="mt-5"
         data-aircraft-family={map.aircraftFamily.id}
         role="img"
       >
         <div className="relative mx-auto max-w-2xl pt-4" aria-hidden="true">
           <span className="absolute left-0 top-0 text-[0.5rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Front
+            {t("seatMap.front")}
           </span>
           <span className="absolute right-0 top-0 text-[0.5rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Rear
+            {t("seatMap.rear")}
           </span>
           <svg
             className="mx-auto h-auto max-h-32 w-full overflow-visible"

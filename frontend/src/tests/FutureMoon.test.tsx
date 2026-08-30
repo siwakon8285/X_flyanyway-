@@ -1,4 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import { render } from "@/tests/renderWithLanguage";
 
 import Home from "@/app/page";
 import { FutureMoonStory } from "@/components/home/moon/FutureMoonStory";

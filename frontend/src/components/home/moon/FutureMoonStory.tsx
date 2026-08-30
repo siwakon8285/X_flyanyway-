@@ -1,7 +1,13 @@
+"use client";
+
 import { MoonVisual } from "@/components/home/moon/MoonVisual";
 import { Container } from "@/components/layout/Container";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
-const FutureMoonStory = () => (
+const FutureMoonStory = () => {
+  const { t } = useLanguage();
+
+  return (
   <section
     aria-labelledby="future-moon-heading"
     className="relative isolate overflow-hidden border-t border-border/70 bg-[#030508] py-section-lg md:py-section-lg"
@@ -49,7 +55,7 @@ const FutureMoonStory = () => (
             className="font-mono text-xs font-bold uppercase tracking-widest text-brand"
             data-moon-label
           >
-            FUTURE DESTINATION
+            {t("home.moon.label")}
           </p>
         </div>
 
@@ -58,16 +64,16 @@ const FutureMoonStory = () => (
           data-moon-headline
           id="future-moon-heading"
         >
-          NEXT:
+          {t("home.moon.headingFirst")}
           <br />
-          THE MOON.
+          {t("home.moon.headingSecond")}
         </h2>
 
         <p
           className="mt-6 max-w-md text-body text-muted-foreground sm:text-body-lg"
           data-moon-body
         >
-          A new destination is on the horizon.
+          {t("home.moon.body")}
         </p>
 
         {/* Coming Next Year Status Badge */}
@@ -81,7 +87,7 @@ const FutureMoonStory = () => (
             <span className="relative inline-flex h-2 w-2 rounded-full bg-brand" />
           </span>
           <span className="font-mono text-xs font-bold tracking-widest text-brand">
-            COMING NEXT YEAR
+            {t("home.moon.badge")}
           </span>
         </div>
       </div>
@@ -92,6 +98,7 @@ const FutureMoonStory = () => (
       </div>
     </Container>
   </section>
-);
+  );
+};
 
 export { FutureMoonStory };

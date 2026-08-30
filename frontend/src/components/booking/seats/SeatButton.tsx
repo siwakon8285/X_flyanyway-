@@ -2,12 +2,27 @@
 
 import { motion } from "motion/react";
 
-import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
+import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
 import { SeatVisual } from "@/components/booking/seats/seat-models/SeatVisual";
 import { SEAT_MAP_PRESENTATION } from "@/components/booking/seats/seatMapPresentation";
 import type { AircraftSeat } from "@/components/booking/seats/seatMapTypes";
 import { useReducedMotion } from "@/lib/motion/reducedMotion";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/types";
+
+const positionKeys = {
+  aisle: "seatMap.position.aisle",
+  middle: "seatMap.position.middle",
+  window: "seatMap.position.window",
+} as const satisfies Record<AircraftSeat["position"], TranslationKey>;
+
+const statusKeys = {
+  available: "seatMap.status.available",
+  booked: "seatMap.status.booked",
+  selected: "seatMap.status.selected",
+  unavailable: "seatMap.status.unavailable",
+} as const satisfies Record<"available" | "booked" | "selected" | "unavailable", TranslationKey>;
 
 const SeatButton = ({
   onToggle,
@@ -20,6 +35,7 @@ const SeatButton = ({
 }) => {
   const reducedMotion = useReducedMotion();
   const presentation = SEAT_MAP_PRESENTATION[seat.cabin];
+  const { t } = useLanguage();
   const disabled = seat.availability !== "available";
   const announcedStatus = selected ? "selected" : seat.availability;
 
@@ -30,7 +46,12 @@ const SeatButton = ({
           ? undefined
           : { scale: selected ? 1.03 : 1, y: selected ? -2 : 0 }
       }
-      aria-label={`Seat ${seat.seatNumber}, ${cabinLabels[seat.cabin]}, ${seat.position}, ${announcedStatus}`}
+      aria-label={t("seatMap.seatAria", {
+        cabin: t(cabinLabelKeys[seat.cabin]),
+        position: t(positionKeys[seat.position]),
+        seat: seat.seatNumber,
+        status: t(statusKeys[announcedStatus]),
+      })}
       aria-pressed={disabled ? undefined : selected}
       className={cn(
         "relative flex shrink-0 items-center justify-center rounded-xl border outline-none transition-[border-color,background-color,box-shadow,color] duration-200 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed motion-reduce:transition-colors",
