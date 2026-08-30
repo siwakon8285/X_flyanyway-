@@ -1,16 +1,15 @@
-import { ArrowLeft, SearchX } from "lucide-react";
-
-import { buttonVariants } from "@/components/ui/Button";
+import type { ReactNode } from "react";
+import { SearchX } from "lucide-react";
 
 const FlightResultsState = ({
+  children,
   description,
   headingLevel = 1,
-  modifyHref,
   title,
 }: {
+  children?: ReactNode;
   description: string;
   headingLevel?: 1 | 2;
-  modifyHref: string;
   title: string;
 }) => {
   const Heading = headingLevel === 1 ? "h1" : "h2";
@@ -26,10 +25,7 @@ const FlightResultsState = ({
         <p className="mx-auto mt-5 max-w-md text-body-lg text-muted-foreground">
           {description}
         </p>
-        <a className={`${buttonVariants({ size: "lg" })} mt-8`} href={modifyHref}>
-          <ArrowLeft aria-hidden="true" />
-          Modify Search
-        </a>
+        {children}
       </div>
     </section>
   );

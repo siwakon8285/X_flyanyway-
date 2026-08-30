@@ -1,5 +1,4 @@
 import { ArrowLeft, CalendarDays, UsersRound } from "lucide-react";
-import Link from "next/link";
 import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
 import { formatSearchDate } from "@/components/booking/results/flightResultUtils";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
@@ -19,13 +18,13 @@ const SearchSummary = ({
 
   return (
     <header className="border-b border-border pb-8 lg:pb-10">
-      <Link
+      <a
         className={`${buttonVariants({ size: "sm", variant: "ghost" })} transition-[background-color,color,transform] duration-200 hover:text-brand motion-safe:hover:-translate-x-0.5 motion-safe:active:translate-x-0 motion-safe:active:scale-[0.985] motion-reduce:transition-none [&_svg]:transition-transform [&_svg]:duration-200 motion-safe:hover:[&_svg]:-translate-x-1`}
         href={`/?${query}#flight-search`}
       >
         <ArrowLeft aria-hidden="true" />
         Modify Search
-      </Link>
+      </a>
       <div className="mt-9">
         <div>
           <p className="text-label text-brand">Flight results</p>

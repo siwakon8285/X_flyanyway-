@@ -308,7 +308,7 @@ cat backup.sql | docker compose exec -T db mysql -u ${MYSQL_USER} -p${MYSQL_PASS
 กฎ:
 
 - ไฟล์ backup (`*.sql`, `*.dump`) ห้าม commit เข้า Git เพราะอาจมีข้อมูลจริงปนอยู่ ให้เพิ่มใน `.gitignore`
-- สำหรับ production ต้องใช้ automated backup ของ managed service (เช่น Supabase point-in-time recovery) หรือ scheduled backup job แยกต่างหาก ไม่ใช่คำสั่ง manual ด้านบน
+- สำหรับ production/self-hosted ต้องใช้ scheduled backup job ตาม `SERVER.md` และทำ manual backup ก่อน migration/release สำคัญ; managed service จึงค่อยใช้ provider backup/PITR ตาม platform
 - ทดสอบ restore เป็นระยะเพื่อให้มั่นใจว่า backup ใช้งานได้จริง
 
 ---
@@ -322,19 +322,152 @@ cat backup.sql | docker compose exec -T db mysql -u ${MYSQL_USER} -p${MYSQL_PASS
 
 ---
 
-## 13. เชื่อมต่อ GUI
+## 13. เชื่อมต่อ GUI และตรวจสอบข้อมูลด้วย pgAdmin
 
-### pgAdmin → PostgreSQL Docker
+สำหรับโปรเจกต์ที่ใช้ PostgreSQL ต้องออกแบบให้ผู้ใช้สามารถตรวจสอบ schema และ runtime data ผ่าน **pgAdmin บน Mac** ได้ทั้ง Local และ Production โดยแยก connection ชัดเจน.
+
+### 13.1 Local — pgAdmin → PostgreSQL Docker
+
+Local development architecture:
+
+```text
+Mac
+├── Backend (Rust + Axum)
+├── pgAdmin
+└── Docker
+    └── PostgreSQL
+```
+
+Backend ที่รันบน Mac และ pgAdmin ต้องเชื่อม PostgreSQL local instance ตัวเดียวกันผ่าน host port.
+
+แนะนำตั้งชื่อ connection:
+
+```text
+X-Fly - LOCAL
+```
+
+ตัวอย่างค่า:
 
 ```text
 Host: localhost หรือ 127.0.0.1
-Port: 5433
+Port: POSTGRES_HOST_PORT
+      ค่า default สำหรับเครื่องนี้ = 5433
 Database: POSTGRES_DB
 Username: POSTGRES_USER
-Password: POSTGRES_PASSWORD จาก .env ของผู้ใช้
+Password: POSTGRES_PASSWORD จาก local .env
 ```
 
-### MySQL Workbench → MySQL Docker
+ตัวอย่าง backend connection เมื่อ backend รันบน host:
+
+```env
+DATABASE_URL=postgresql://<app_user>:<password>@localhost:${POSTGRES_HOST_PORT}/<database>
+```
+
+หาก backend รันใน Docker network เดียวกับ PostgreSQL ให้ใช้ Docker service hostname และ internal port แทน เช่น:
+
+```text
+db:5432
+```
+
+เป้าหมายของ Local pgAdmin:
+
+- ตรวจ tables / columns / indexes / constraints
+- ตรวจผล migration
+- ตรวจ seed data
+- ตรวจ booking / passenger / seat hold / payment / ticket records ที่ backend เขียนจริง
+- query/debug ระหว่าง development
+- ยืนยันว่า backend และ pgAdmin กำลังดู database instance ตัวเดียวกัน
+
+### 13.2 Production / Self-Hosted — pgAdmin ผ่าน SSH Tunnel
+
+Production PostgreSQL **ห้ามเปิด public Internet เพื่อให้ pgAdmin ต่อได้**.
+
+สำหรับ X-Fly self-hosted server ให้ใช้ pgAdmin บน Mac ผ่าน SSH Tunnel:
+
+```text
+pgAdmin on Mac
+      ↓
+SSH Tunnel
+      ↓
+Ubuntu Server
+      ↓
+127.0.0.1:5432
+      ↓
+PostgreSQL Container
+```
+
+แนะนำตั้งชื่อ connection:
+
+```text
+X-Fly - PRODUCTION
+```
+
+หลักการ connection:
+
+```text
+SSH Host / Alias:
+safe-host
+
+SSH Authentication:
+existing SSH key
+
+Database Host หลังผ่าน tunnel:
+127.0.0.1
+
+Database Port:
+5432
+
+Database:
+X-Fly production database
+
+Username / Password:
+production DB credentials จาก server environment
+```
+
+ข้อบังคับ:
+
+- Production PostgreSQL ต้องยัง bind เฉพาะ loopback / private Docker network ตาม `SERVER.md`
+- ห้ามเปลี่ยนเป็น `0.0.0.0:5432` เพียงเพื่อให้ pgAdmin เข้าได้
+- ห้ามเปิด UFW / router / Cloudflare public route สำหรับ PostgreSQL
+- pgAdmin เป็นเครื่องมือ admin/inspection เท่านั้น ไม่ใช่ application dependency
+- Backend production ต้องเชื่อม DB ผ่าน Docker internal hostname เช่น `postgres:5432` หรือ service name จริง ไม่ผ่าน pgAdmin/SSH tunnel
+
+### 13.3 Local และ Production เป็นคนละข้อมูล
+
+ใน pgAdmin ควรเห็นประมาณ:
+
+```text
+Servers
+├── X-Fly - LOCAL
+│   └── x_fly
+└── X-Fly - PRODUCTION
+    └── x_fly
+```
+
+แม้ชื่อ database จะเหมือนกัน แต่เป็นคนละ PostgreSQL instance.
+
+```text
+LOCAL
+- development data
+- test/demo records
+- migration experiments
+
+PRODUCTION
+- deployed/demo data บน Ubuntu Server
+- data ที่เกิดจาก public application
+```
+
+กฎ:
+
+- schema ส่งต่อผ่าน migrations
+- controlled fixture/demo data ส่งต่อผ่าน seed
+- runtime data ไม่ sync อัตโนมัติ
+- ห้าม copy local database ทั้งก้อนขึ้น production โดยไม่มี reviewed migration/restore plan
+- ก่อนใช้ Query Tool หรือแก้ข้อมูล ให้ตรวจชื่อ connection ว่า LOCAL หรือ PRODUCTION ทุกครั้ง
+
+### 13.4 MySQL Workbench → MySQL Docker
+
+สำหรับโปรเจกต์อื่นที่เลือก MySQL:
 
 ```text
 Hostname: 127.0.0.1
@@ -343,7 +476,7 @@ Username: MYSQL_USER
 Password: MYSQL_PASSWORD จาก .env ของผู้ใช้
 ```
 
-อย่าใช้ `5432` หรือ `3306` สำหรับ Docker บนเครื่องนี้ เพราะ local database ใช้อยู่แล้ว
+อย่าใช้ `5432` หรือ `3306` สำหรับ Docker local บนเครื่องนี้ถ้า port ดังกล่าวถูกใช้งานอยู่แล้ว.
 
 ---
 
@@ -404,7 +537,9 @@ Agent ต้องรันคำสั่งตามโปรเจกต์�
 8. รัน test/lint/type-check ที่เกี่ยวข้อง โดยตรวจว่าชี้ไปที่ test database แยกจาก dev
 9. ตรวจว่า `.env` ไม่ถูก track และไม่มี secret ใหม่ใน diff
 10. ตรวจว่าไฟล์ backup (ถ้ามีจากการทดสอบ) ไม่ถูก track ใน Git
-11. สรุปไฟล์ที่แก้ คำสั่ง ผลตรวจ และค่าที่ผู้ใช้ต้องตั้งเอง
+11. สำหรับ PostgreSQL Local ให้ยืนยันว่า pgAdmin `X-Fly - LOCAL` เชื่อมและเห็น schema/data ได้
+12. สำหรับ Self-Hosted Production ให้ยืนยันแนวทาง pgAdmin `X-Fly - PRODUCTION` ผ่าน SSH Tunnel โดยไม่เปิด PostgreSQL public
+13. สรุปไฟล์ที่แก้ คำสั่ง ผลตรวจ และค่าที่ผู้ใช้ต้องตั้งเอง
 
 หาก Docker daemon ไม่ทำงาน, dependency ขาด, port ถูกใช้ หรือ permission ไม่พอ ให้รายงาน blocker ตามจริง ห้ามอ้างว่าพร้อมใช้งาน
 
@@ -427,7 +562,11 @@ Agent ต้องรันคำสั่งตามโปรเจกต์�
 - [ ] มีขั้นตอน backup/restore ที่ทดสอบแล้วอย่างน้อยหนึ่งครั้ง
 - [ ] Production มี TLS/SSL และ connection pooling ตามความเหมาะสม
 - [ ] Naming convention ของตาราง/คอลัมน์สอดคล้องกันทั้ง schema
-- [ ] pgAdmin/Workbench เชื่อมผ่าน host port ที่กำหนดได้
+- [ ] pgAdmin Local เชื่อม PostgreSQL ผ่าน host port ที่กำหนดได้
+- [ ] pgAdmin Production ใช้ SSH Tunnel เท่านั้นเมื่อเป็น self-hosted server
+- [ ] Production PostgreSQL ไม่ถูก expose สู่ public Internet
+- [ ] Local / Production connections ถูกตั้งชื่อและแยกข้อมูลชัดเจน
+- [ ] Migration ทำให้ schema สอดคล้องกันโดยไม่ทำให้ runtime data auto-sync
 - [ ] Query ปลอดภัยจาก SQL injection
 - [ ] Tests/checks ผ่าน หรือรายงานข้อผิดพลาดตามจริง
 - [ ] README อธิบายขั้นตอนสำหรับสมาชิกทีมใหม่
@@ -442,7 +581,7 @@ Agent ต้องรันคำสั่งตามโปรเจกต์�
 2. ไฟล์ที่สร้างหรือแก้
 3. คำสั่งเริ่มระบบ
 4. คำสั่ง migration และ seed
-5. วิธีเชื่อม pgAdmin/MySQL Workbench
+5. วิธีเชื่อม pgAdmin Local และ (ถ้ามี self-hosted deployment) Production ผ่าน SSH Tunnel / วิธีเชื่อม MySQL Workbench
 6. ผล build, healthcheck, migration, seed และ tests
 7. blocker หรือค่าที่ผู้ใช้ต้องกำหนดเอง
 

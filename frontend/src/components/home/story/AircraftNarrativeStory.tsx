@@ -66,7 +66,7 @@ const AircraftNarrativeStory = () => (
     </Container>
 
     <div
-      className="relative mt-12 motion-safe:[@media(min-height:52rem)]:lg:min-h-[190svh]"
+      className="relative mt-12 motion-safe:[@media(min-height:52rem)]:lg:min-h-[212svh]"
       data-aircraft-flight-corridor
     >
       <div

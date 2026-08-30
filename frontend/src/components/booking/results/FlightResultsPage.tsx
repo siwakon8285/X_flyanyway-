@@ -1,3 +1,5 @@
+import { ArrowLeft } from "lucide-react";
+import { buttonVariants } from "@/components/ui/Button";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
 import { FLIGHT_RESULT_FIXTURES } from "@/components/booking/results/flightResultFixtures";
 import { FlightResultsList } from "@/components/booking/results/FlightResultsList";
@@ -18,15 +20,19 @@ const FlightResultsPage = ({
       <Container>
         <FlightResultsState
           description="Return to Flight Search to choose your itinerary."
-          modifyHref="/#flight-search"
           title="Search details required"
-        />
+        >
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a className={`${buttonVariants({ size: "lg" })} mt-8`} href="/#flight-search">
+            <ArrowLeft aria-hidden="true" />
+            Modify Search
+          </a>
+        </FlightResultsState>
       </Container>
     );
   }
 
   const flights = filterFlightResults(FLIGHT_RESULT_FIXTURES, criteria);
-  const modifyHref = `/?${query}#flight-search`;
 
   return (
     <section className="relative min-h-screen overflow-hidden py-section-sm pt-[calc(var(--header-height)+clamp(3rem,7vw,6rem))]">
@@ -43,7 +49,6 @@ const FlightResultsPage = ({
             <FlightResultsState
               description="Try adjusting your date, route, or cabin."
               headingLevel={2}
-              modifyHref={modifyHref}
               title="No flights found"
             />
           )}
