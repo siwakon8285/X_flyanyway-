@@ -6,6 +6,12 @@ import { useRef } from "react";
 import { gsap, useGSAP } from "@/lib/motion/gsap";
 import { useReducedMotion } from "@/lib/motion/reducedMotion";
 import { motionMediaQueries } from "@/lib/motion/scroll";
+import {
+  journeyDepthRoles,
+  journeyMotionTiming,
+  journeyPromotionBeats,
+  journeyStageSlots,
+} from "@/components/home/story/journeyStoryModel";
 
 type StorytellingMotionProps = {
   children: ReactNode;
@@ -692,304 +698,155 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
       const element = root.current;
       if (!element || reducedMotion) return;
 
-      const journeyStory = element.querySelector<HTMLElement>(
-        "[data-journey-path]",
+      const layeredStory = element.querySelector<HTMLElement>("[data-layered-story]");
+      if (!layeredStory) return;
+
+      const viewport = layeredStory.querySelector<HTMLElement>("[data-layered-viewport]");
+      const copies = gsap.utils.toArray<HTMLElement>("[data-layered-copy]", layeredStory);
+      const leftStage = layeredStory.querySelector<HTMLElement>(
+        '[data-journey-stage="left"]',
       );
-      const journeyViewport = journeyStory?.querySelector<HTMLElement>(
-        "[data-journey-viewport]",
+      const rightStage = layeredStory.querySelector<HTMLElement>(
+        '[data-journey-stage="right"]',
       );
-      const journeyTrack = journeyStory?.querySelector<HTMLElement>(
-        "[data-journey-track]",
-      );
-      const stages = gsap.utils.toArray<HTMLElement>(
-        "[data-journey-stage]",
-        journeyStory ?? undefined,
-      );
-      const stageNodes = gsap.utils.toArray<HTMLElement>(
-        "[data-journey-node]",
-        journeyStory ?? undefined,
-      );
-      const discoverImage = journeyStory?.querySelector<HTMLElement>(
-        "[data-journey-discover-image]",
-      );
-      const bookImage = journeyStory?.querySelector<HTMLElement>(
-        "[data-journey-book-image]",
-      );
-      const flyImage = journeyStory?.querySelector<HTMLElement>(
-        "[data-journey-fly-image]",
-      );
-      const arriveImage = journeyStory?.querySelector<HTMLElement>(
-        "[data-journey-arrive-image]",
-      );
-      const beyondImage = journeyStory?.querySelector<HTMLElement>(
-        "[data-journey-beyond-image]",
-      );
+      const stageCards = {
+        left: gsap.utils.toArray<HTMLElement>("[data-journey-card]", leftStage ?? undefined),
+        right: gsap.utils.toArray<HTMLElement>("[data-journey-card]", rightStage ?? undefined),
+      };
 
       if (
-        !journeyStory ||
-        !journeyViewport ||
-        !journeyTrack ||
-        stages.length !== 5
+        !viewport ||
+        copies.length !== 3 ||
+        stageCards.left.length !== 4 ||
+        stageCards.right.length !== 4
       ) {
         return;
       }
 
-      const horizontalMediaQueries = gsap.matchMedia();
+      const mediaQueries = gsap.matchMedia();
 
-      horizontalMediaQueries.add(
-        motionMediaQueries.horizontalJourney,
-        () => {
-          gsap.set(journeyViewport, { height: "100svh", overflow: "hidden" });
-          gsap.set(journeyTrack, {
-            alignItems: "stretch",
-            display: "flex",
-            height: "100%",
-            width: "max-content",
-          });
-          gsap.set(stages, {
-            flex: "none",
-          });
+      mediaQueries.add(motionMediaQueries.desktop, () => {
+        const slotVars = (
+          side: keyof typeof stageCards,
+          role: (typeof journeyDepthRoles)[number],
+        ) => {
+          const slot = journeyStageSlots[side][role];
+          const insetProperty = side === "left" ? "left" : "right";
 
-          // Stage 01 (Discover) starts fully visible and active
-          const firstStageContent = stages[0]?.querySelector<HTMLElement>("[data-journey-content]");
-          const firstEyebrowLine = stages[0]?.querySelector<HTMLElement>("[data-journey-eyebrow-line]");
-          const firstHeadlineMask = stages[0]?.querySelector<HTMLElement>("[data-journey-headline-mask]");
-          const firstHeadline = stages[0]?.querySelector<HTMLElement>("[data-journey-headline]");
-          const firstBody = stages[0]?.querySelector<HTMLElement>("[data-journey-body]");
-          const firstMeta = stages[0]?.querySelector<HTMLElement>("[data-journey-meta]");
+          return {
+            [insetProperty]: slot.inset,
+            filter: slot.filter,
+            height: slot.height,
+            opacity: slot.opacity,
+            top: slot.top,
+            zIndex: slot.zIndex,
+          };
+        };
 
-          if (firstStageContent) gsap.set(firstStageContent, { opacity: 1 });
-          if (firstEyebrowLine) gsap.set(firstEyebrowLine, { scaleX: 1, transformOrigin: "left center" });
-          if (firstHeadlineMask) gsap.set(firstHeadlineMask, { clipPath: "inset(0 0% 0 0)" });
-          if (firstHeadline) gsap.set(firstHeadline, { opacity: 1, y: 0 });
-          if (firstBody) gsap.set(firstBody, { opacity: 1, y: 0 });
-          if (firstMeta) gsap.set(firstMeta, { opacity: 1, y: 0 });
+        (Object.keys(stageCards) as Array<keyof typeof stageCards>).forEach(
+          (side) => {
+            const cards = stageCards[side];
 
-          // Stages 02 to 05 start completely hidden and clipped until entering focus zone
-          stages.forEach((stage, index) => {
-            if (index === 0) return;
-            const content = stage.querySelector<HTMLElement>("[data-journey-content]");
-            const line = stage.querySelector<HTMLElement>("[data-journey-eyebrow-line]");
-            const text = stage.querySelector<HTMLElement>("[data-journey-eyebrow-text]");
-            const mask = stage.querySelector<HTMLElement>("[data-journey-headline-mask]");
-            const headline = stage.querySelector<HTMLElement>("[data-journey-headline]");
-            const body = stage.querySelector<HTMLElement>("[data-journey-body]");
-            const meta = stage.querySelector<HTMLElement>("[data-journey-meta]");
+            gsap.set(cards, {
+              clearProps: "transform",
+              willChange: "top, height, left, right, opacity, filter",
+            });
+            gsap.set(cards[0], slotVars(side, "front"));
+            gsap.set(cards[1], slotVars(side, "queued"));
+            gsap.set(cards[2], slotVars(side, "deep"));
+            gsap.set(cards[3], slotVars(side, "off-deck"));
+          },
+        );
 
-            if (content) gsap.set(content, { opacity: 0 });
-            if (line) gsap.set(line, { scaleX: 0, transformOrigin: "left center" });
-            if (text) gsap.set(text, { opacity: 0, y: 6 });
-            if (mask) gsap.set(mask, { clipPath: "inset(0 100% 0 0)" });
-            if (headline) gsap.set(headline, { opacity: 0, y: 12 });
-            if (body) gsap.set(body, { opacity: 0, y: 10 });
-            if (meta) gsap.set(meta, { opacity: 0, y: 6 });
-          });
+        gsap.set(copies, { opacity: 0, y: 14 });
+        gsap.set(copies[0], { opacity: 1, y: 0 });
 
-          if (stageNodes.length > 0) {
-            gsap.set(stageNodes, { opacity: 0.35, scale: 0.9 });
-            gsap.set(stageNodes[0], { opacity: 1, scale: 1 });
-          }
+        const tl = gsap.timeline({
+          defaults: { ease: journeyMotionTiming.interpolationEase },
+          scrollTrigger: {
+            end: () =>
+              `+=${Math.round(
+                window.innerHeight * journeyMotionTiming.scrollDistanceVh,
+              )}`,
+            invalidateOnRefresh: true,
+            pin: viewport,
+            scrub: journeyMotionTiming.scrubSmoothing,
+            start: "top top",
+            trigger: layeredStory,
+          },
+        });
+        let activeCopyIndex = 0;
 
-          const horizontalTimeline = gsap.timeline({
-            defaults: { ease: "none" },
-            scrollTrigger: {
-              end: () => {
-                const distance =
-                  journeyTrack.scrollWidth - window.innerWidth;
-                return `+=${Math.max(distance, window.innerHeight * 1.8)}`;
-              },
-              invalidateOnRefresh: true,
-              pin: journeyViewport,
-              scrub: 0.8,
-              start: "top top",
-              trigger: journeyStory,
-            },
-          });
+        journeyPromotionBeats.forEach((beat, beatIndex) => {
+          const promotion = beat.promotesStackIndex;
+          const start = journeyMotionTiming.pairStarts[beatIndex];
 
-          // Horizontal track translation
-          horizontalTimeline.to(
-            journeyTrack,
-            {
-              duration: 4,
-              ease: "none",
-              x: () => -(journeyTrack.scrollWidth - window.innerWidth),
-            },
-            0,
-          );
+          (["left", "right"] as const).forEach((side) => {
+            const cards = stageCards[side];
+            const outgoing = cards[(promotion - 1 + cards.length) % cards.length];
+            const incoming = cards[promotion];
+            const queued = cards[(promotion + 1) % cards.length];
+            const deep = cards[(promotion + 2) % cards.length];
 
-          // HUD Node progression
-          stageNodes.forEach((node, index) => {
-            if (index === 0) return;
-            const startTime = index * 0.85;
-            horizontalTimeline.to(
-              node,
-              {
-                duration: 0.2,
-                ease: "power2.out",
-                opacity: 1,
-                scale: 1,
-              },
-              startTime,
-            );
-          });
-
-          // Staged Focus Isolation and Earlier Left-to-Right Unmasking
-          stages.forEach((stage, index) => {
-            if (index === 0) {
-              // Dim Discover when scrolling away
-              const content = stage.querySelector<HTMLElement>("[data-journey-content]");
-              if (content) {
-                horizontalTimeline.to(
-                  content,
-                  { duration: 0.35, ease: "power1.out", opacity: 0.2 },
-                  0.40,
-                );
-              }
-              return;
-            }
-
-            const stageContent = stage.querySelector<HTMLElement>("[data-journey-content]");
-            const stageEyebrowLine = stage.querySelector<HTMLElement>("[data-journey-eyebrow-line]");
-            const stageEyebrowText = stage.querySelector<HTMLElement>("[data-journey-eyebrow-text]");
-            const stageHeadlineMask = stage.querySelector<HTMLElement>("[data-journey-headline-mask]");
-            const stageHeadline = stage.querySelector<HTMLElement>("[data-journey-headline]");
-            const stageBody = stage.querySelector<HTMLElement>("[data-journey-body]");
-            const stageMeta = stage.querySelector<HTMLElement>("[data-journey-meta]");
-
-            // Dim previous stage as current stage approaches
-            const prevContent = stages[index - 1]?.querySelector<HTMLElement>("[data-journey-content]");
-            if (prevContent && index > 1) {
-              horizontalTimeline.to(
-                prevContent,
-                { duration: 0.35, ease: "power1.out", opacity: 0.2 },
-                (index - 1) * 0.85 + 0.40,
-              );
-            }
-
-            // Current stage enters reading zone earlier (synced with panel entry)
-            const enterTime = index * 0.85 - 0.40;
-
-            if (stageContent) {
-              horizontalTimeline.to(
-                stageContent,
-                { duration: 0.32, ease: "power2.out", opacity: 1 },
-                enterTime,
-              );
-            }
-
-            // Step A: Eyebrow line draws left -> right
-            if (stageEyebrowLine) {
-              horizontalTimeline.to(
-                stageEyebrowLine,
-                { duration: 0.28, ease: "power2.out", scaleX: 1 },
-                enterTime,
-              );
-            }
-
-            // Step B: Eyebrow label fades in
-            if (stageEyebrowText) {
-              horizontalTimeline.to(
-                stageEyebrowText,
-                { duration: 0.22, ease: "power2.out", opacity: 1, y: 0 },
-                enterTime + 0.06,
-              );
-            }
-
-            // Step C: Headline true left-to-right mask reveal (inset) + subtle vertical settle
-            if (stageHeadlineMask) {
-              horizontalTimeline.to(
-                stageHeadlineMask,
+            tl.to(
+                outgoing,
                 {
-                  clipPath: "inset(0 0% 0 0)",
-                  duration: 0.46,
-                  ease: "power2.out",
+                  duration: journeyMotionTiming.promotionDuration,
+                  ease: journeyMotionTiming.interpolationEase,
+                  ...slotVars(side, "off-deck"),
                 },
-                enterTime + 0.12,
+                start,
+              )
+              .to(
+                incoming,
+                {
+                  duration: journeyMotionTiming.promotionDuration,
+                  ease: journeyMotionTiming.interpolationEase,
+                  ...slotVars(side, "front"),
+                },
+                start,
+              )
+              .to(
+                queued,
+                {
+                  duration: journeyMotionTiming.promotionDuration,
+                  ease: journeyMotionTiming.interpolationEase,
+                  ...slotVars(side, "queued"),
+                },
+                start,
+              )
+              .to(
+                deep,
+                {
+                  duration: journeyMotionTiming.promotionDuration,
+                  ease: journeyMotionTiming.interpolationEase,
+                  ...slotVars(side, "deep"),
+                },
+                start,
               );
-            }
-
-            if (stageHeadline) {
-              horizontalTimeline.to(
-                stageHeadline,
-                { duration: 0.4, ease: "power2.out", opacity: 1, y: 0 },
-                enterTime + 0.12,
-              );
-            }
-
-            // Step D: Body copy arrives quietly
-            if (stageBody) {
-              horizontalTimeline.to(
-                stageBody,
-                { duration: 0.34, ease: "power2.out", opacity: 1, y: 0 },
-                enterTime + 0.26,
-              );
-            }
-
-            // Step E: Metadata settles last
-            if (stageMeta) {
-              horizontalTimeline.to(
-                stageMeta,
-                { duration: 0.28, ease: "power2.out", opacity: 1, y: 0 },
-                enterTime + 0.36,
-              );
-            }
           });
 
-          // Stage 01 Discover image subtle parallax
-          if (discoverImage) {
-            horizontalTimeline.fromTo(
-              discoverImage,
-              { scale: 1.04, xPercent: 2 },
-              { duration: 1.2, ease: "none", scale: 1, xPercent: -2 },
-              0,
-            );
-          }
+          const nextCopyIndex = activeCopyIndex + 1;
+          const copyStart = start + journeyMotionTiming.copyChangeOffset;
 
-          // Stage 02 Book image subtle parallax
-          if (bookImage) {
-            horizontalTimeline.fromTo(
-              bookImage,
-              { scale: 1.04, xPercent: 3 },
-              { duration: 1.3, ease: "none", scale: 1, xPercent: -3 },
-              0.45,
-            );
-          }
+          tl.to(
+            copies[activeCopyIndex],
+            { duration: 0.28, opacity: 0, y: -12 },
+            copyStart,
+          ).to(
+            copies[nextCopyIndex],
+            { duration: 0.32, ease: "power2.out", opacity: 1, y: 0 },
+            copyStart + 0.14,
+          );
+          activeCopyIndex = nextCopyIndex;
+        });
 
-          // Stage 03 Fly image cinematic parallax
-          if (flyImage) {
-            horizontalTimeline.fromTo(
-              flyImage,
-              { scale: 1.08, xPercent: 4 },
-              { duration: 1.4, ease: "none", scale: 1, xPercent: -4 },
-              1.35,
-            );
-          }
+        tl.to({}, { duration: 0.65 });
 
-          // Stage 04 Arrive image arrival parallax
-          if (arriveImage) {
-            horizontalTimeline.fromTo(
-              arriveImage,
-              { scale: 1.05, xPercent: 3 },
-              { duration: 1.4, ease: "none", scale: 1, xPercent: -3 },
-              2.20,
-            );
-          }
+        return undefined;
+      });
 
-          // Stage 05 Beyond image forward horizon parallax
-          if (beyondImage) {
-            horizontalTimeline.fromTo(
-              beyondImage,
-              { scale: 1.06, xPercent: 3 },
-              { duration: 1.4, ease: "none", scale: 1, xPercent: -3 },
-              3.05,
-            );
-          }
-
-          return undefined;
-        },
-      );
-
-      return () => horizontalMediaQueries.revert();
+      return () => mediaQueries.revert();
     },
     {
       dependencies: [reducedMotion],
@@ -997,8 +854,7 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
       scope: root,
     },
   );
-
-  useGSAP(
+useGSAP(
     () => {
       const element = root.current;
       if (!element || reducedMotion) return;

@@ -2871,30 +2871,318 @@ Search Flight
 chore/30-deployment-prep
 ```
 
-## Frontend
+## Deployment Target
 
-Vercel
+X-Fly จะ deploy เข้า **self-hosted Ubuntu Server ที่เตรียมไว้แล้ว** แทนการใช้ Vercel / Render เป็น default deployment target.
 
-## Backend
+Server foundation ที่มีอยู่แล้ว:
 
-Render Docker
+```txt
+Ubuntu Server
+├── Docker Engine + Docker Compose
+├── External Docker network: web
+├── PostgreSQL 18
+├── Caddy reverse proxy
+├── UFW
+├── SSH key authentication
+├── PostgreSQL daily backup
+└── cloudflared
+```
+
+หลักการสำคัญ:
+
+> **อย่ารื้อหรือสร้าง server infrastructure ใหม่โดยไม่จำเป็น**
+>
+> Project ต้องถูก Dockerize และปรับให้เสียบเข้ากับ infrastructure ที่ผ่านการทดสอบแล้ว.
+
+## Target Runtime Architecture
+
+```txt
+Cloudflare Quick Tunnel
+        ↓
+127.0.0.1:8080
+        ↓
+Caddy
+        ↓
+Docker network: web
+   ┌──────┴──────┐
+   ↓             ↓
+Frontend       Backend
+Next.js        Rust + Axum
+:3000          :8080
+                  ↓
+             PostgreSQL 18
+```
+
+Frontend และ Backend ไม่ควร publish public host ports หาก Caddy สามารถเข้าถึงผ่าน Docker network `web` ได้.
+
+Browser ต้องไม่เชื่อม PostgreSQL โดยตรง.
+
+## PostgreSQL Inspection / pgAdmin Strategy
+
+X-Fly ต้องสามารถตรวจสอบ schema และข้อมูลจริงผ่าน **pgAdmin บน Mac** ได้ทั้ง Local และ Self-Hosted Production โดยใช้ 2 connection แยกจากกัน.
+
+### Local Development — pgAdmin
+
+Local architecture:
+
+```txt
+Mac
+├── Next.js
+├── Rust + Axum
+├── pgAdmin
+└── Docker
+    └── PostgreSQL
+```
+
+Backend และ pgAdmin ต้องชี้เข้า PostgreSQL local instance ตัวเดียวกัน.
+
+ตัวอย่าง connection:
+
+```txt
+pgAdmin connection name:
+X-Fly - LOCAL
+
+Host:
+localhost
+
+Port:
+<POSTGRES_HOST_PORT>
+ตัวอย่าง 5433
+
+Database:
+x_fly
+
+Username / Password:
+ใช้ค่าจาก local .env
+```
+
+Backend local ใช้ host-facing connection เช่น:
+
+```txt
+DATABASE_URL=postgres://<user>:<password>@localhost:<POSTGRES_HOST_PORT>/x_fly
+```
+
+จุดประสงค์:
+
+- ดู tables / columns / constraints
+- ตรวจ migration result
+- ตรวจ seed data
+- ตรวจ seat hold / booking / passenger / payment / ticket records
+- query/debug data ระหว่าง development
+- ยืนยันว่า backend เขียนข้อมูลลง database จริง
+
+### Self-Hosted Production — pgAdmin ผ่าน SSH Tunnel
+
+Production PostgreSQL **ห้ามเปิด public Internet เพื่อให้ pgAdmin เข้า**.
+
+Mac มี SSH access ไป Ubuntu Server อยู่แล้ว ดังนั้น production inspection ต้องใช้:
+
+```txt
+pgAdmin on Mac
+      ↓
+SSH Tunnel
+      ↓
+Ubuntu Server
+      ↓
+127.0.0.1:5432
+      ↓
+PostgreSQL Container
+```
+
+Server PostgreSQL ยังคง bind เฉพาะ localhost ของ Ubuntu host:
+
+```txt
+127.0.0.1:5432
+```
+
+pgAdmin production connection ควรตั้งชื่อชัดเจน เช่น:
+
+```txt
+X-Fly - PRODUCTION
+```
+
+และใช้ SSH Tunnel:
+
+```txt
+SSH Host:
+safe-host
+หรือ hostname/address ที่ SSH config resolve ได้
+
+SSH authentication:
+existing SSH key
+
+Database Host after tunnel:
+127.0.0.1
+
+Database Port:
+5432
+
+Database:
+x_fly
+```
+
+หลักการ:
+
+- Local DB และ Production DB เป็น **คนละ PostgreSQL instance**
+- schema ควรสอดคล้องกันผ่าน migrations
+- data ไม่ sync อัตโนมัติ
+- Local ใช้สำหรับ development/test data
+- Production ใช้สำหรับ deployed/demo data
+- ห้าม copy Local database ทั้งก้อนขึ้น Production โดยไม่มี controlled migration/seed plan
+- ห้ามเปิด PostgreSQL public port เพื่อความสะดวกของ pgAdmin
+
+ใน pgAdmin ควรเห็นแยกชัด:
+
+```txt
+Servers
+├── X-Fly - LOCAL
+│   └── x_fly
+└── X-Fly - PRODUCTION
+    └── x_fly
+```
+
+ก่อนแก้ไข Production data ผ่าน pgAdmin ต้องตรวจ connection name ให้แน่ใจเพื่อลดความเสี่ยงแก้ผิด environment.
+
+## Frontend Preparation
+
+- production Next.js Dockerfile
+- production build (`npm run build`)
+- production runtime (`npm run start` หรือ standalone output ตาม implementation ที่อนุมัติ)
+- join external Docker network `web`
+- responsive/static asset optimization
+- environment-variable boundary
+- public API calls ใช้ same-origin relative `/api` เมื่อเป็นไปได้
+- production error pages
+- health/readiness strategy
+- source-map policy
+- no `npm run dev` on server
+
+## Backend Preparation
+
+- production Rust + Axum Dockerfile
+- release build
+- bind service ภายใน container ตาม configured port
+- join Docker network ที่จำเป็น
+- connect PostgreSQL ด้วย Docker DNS/service hostname ไม่ใช่ hard-coded LAN IP
+- database migrations
+- seed strategy สำหรับ academic/demo data
+- structured logging
+- health endpoint
+- graceful shutdown
+- production error handling
+- secrets via server `.env`, never committed
+
+## Reverse Proxy / Routing Preparation
+
+Caddy จะเป็น entry point ของ application ภายใน server.
+
+Target routing concept:
+
+```txt
+/
+↓
+frontend:3000
+
+/api/*
+↓
+backend:8080
+```
+
+Config จริงต้องตรวจ route ของ Next.js และ Axum ก่อนใช้ ห้าม copy config แบบ blind.
+
+## Networking & Security Rules
+
+- do not expose PostgreSQL to Internet
+- do not hard-code DHCP/LAN server IP
+- do not publish unnecessary frontend/backend ports
+- use Docker DNS/service names for container-to-container traffic
+- `.env` stays on server and is gitignored
+- Git contains only `.env.example`
+- SSH remains key-only
+- UFW remains deny-incoming by default
+- public traffic enters through Cloudflare Tunnel → Caddy only
+- verify admin/security restrictions before public demo
+
+## Backup / Data Preparation
+
+PostgreSQL infrastructure already has:
+
+- persistent storage
+- daily `pg_dump` backup at 02:00
+- tested restore workflow
+
+Before major deployment/release:
+
+- run a manual PostgreSQL backup
+- verify backup file exists
+- run migrations only after backup where existing data could be affected
+
+## Manual Deployment Workflow Preparation
+
+Initial deployment remains manual:
+
+```txt
+Developer Mac
+    ↓ git push
+GitHub
+    ↓ git pull
+Ubuntu Server
+    ↓
+docker compose build
+    ↓
+docker compose up -d
+```
+
+CI/CD is optional future work and is not a blocker for the university submission.
 
 ## Tasks
 
-- environment variables
-- CORS
-- API URL
-- production asset URLs
-- error pages
-- logging
-- analytics disabled/enabled decision
-- health checks
-- production build
-- source maps policy
+- create frontend production Dockerfile
+- create backend production Dockerfile
+- create/update project `compose.yaml`
+- join external Docker network `web`
+- define internal backend/database networking
+- create `.env.example`
+- document real server `.env` values without committing secrets
+- configure same-origin `/api` strategy where appropriate
+- verify CORS requirements after proxy routing
+- prepare Caddy route for X-Fly
+- define migration + seed commands
+- add frontend/backend health checks
+- verify restart policy
+- verify production assets
+- verify production builds
+- verify logging/error pages
+- verify source-map policy
+- document manual deploy / rollback steps
+- document pre-deploy backup step
+- verify no unnecessary public ports
+- configure/document `X-Fly - LOCAL` pgAdmin connection
+- configure/document `X-Fly - PRODUCTION` pgAdmin connection through SSH Tunnel
+- verify Local pgAdmin can inspect X-Fly schema/data
+- verify Production pgAdmin can inspect X-Fly schema/data without exposing PostgreSQL publicly
+- document clear warning that Local and Production data are separate
+
+## Exit Criteria
+
+- frontend image builds successfully
+- backend image builds successfully
+- project Compose config validates
+- services can join expected Docker networks
+- backend can resolve PostgreSQL internally
+- Caddy target names/ports are documented
+- `.env.example` contains no secrets
+- production build passes
+- pgAdmin can inspect Local X-Fly PostgreSQL directly through the local host port
+- pgAdmin can inspect Production X-Fly PostgreSQL only through SSH Tunnel
+- PostgreSQL remains non-public
+- Local and Production databases are clearly separated in pgAdmin
+- deployment can proceed without redesigning existing server infrastructure
 
 ---
 
-# 71. BRANCH 31 — Production Deployment
+# 71. BRANCH 31 — Self-Hosted Deployment
 
 ## Branch
 
@@ -2902,33 +3190,287 @@ Render Docker
 chore/31-production-deploy
 ```
 
-## Architecture
+## Deployment Architecture
+
+University/demo deployment:
 
 ```txt
-Vercel
-  ↓
-Next.js
-
-Render
-  ↓
-Rust + Axum Docker
-  ↓
-Managed PostgreSQL
+Professor / Tester
+        ↓
+HTTPS
+        ↓
+Cloudflare Edge
+        ↓
+Cloudflare Quick Tunnel
+        ↓
+cloudflared on Ubuntu Server
+        ↓
+127.0.0.1:8080
+        ↓
+Caddy
+        ↓
+Docker network: web
+   ┌──────┴──────┐
+   ↓             ↓
+Frontend       Backend
+Next.js        Rust + Axum
+:3000          :8080
+                  ↓
+             PostgreSQL 18
+                  ↓
+          Persistent Storage
+                  ↓
+          Daily Backup 02:00
 ```
+
+Cloudflare Quick Tunnel เป็น deployment URL สำหรับ:
+
+- university submission
+- professor demo
+- temporary public testing
+
+Quick Tunnel URL เป็น temporary URL และอาจเปลี่ยนเมื่อ tunnel restart.
+
+สำหรับ client/production จริงในอนาคต:
+
+```txt
+Domain
+  ↓
+Cloudflare DNS
+  ↓
+Named Cloudflare Tunnel
+  ↓
+Same Ubuntu/VPS-compatible architecture
+```
+
+การซื้อ domain และ Named Tunnel ไม่ใช่ requirement สำหรับ university MVP.
+
+## Deployment Workflow
+
+### 1. Server Preflight
+
+```txt
+ssh safe-host
+docker ps
+docker exec postgres pg_isready -U postgres
+curl http://127.0.0.1:8080
+```
+
+ตรวจ:
+
+- Docker daemon
+- PostgreSQL
+- Caddy
+- free disk space
+- current backups
+- expected Docker network `web`
+
+### 2. Source Deployment
+
+Project source มาจาก Git/GitHub:
+
+```txt
+git pull
+```
+
+หรือ clone ใน first deployment.
+
+ไม่พัฒนา source code โดยตรงบน server.
+
+### 3. Environment
+
+- create/update server `.env`
+- never commit secrets
+- validate required variables
+- verify backend database URL uses internal Docker hostname
+- verify frontend uses expected `/api` or approved public API base
+- verify no LAN IP is hard-coded
+
+### 4. Database Safety
+
+ก่อน migration สำคัญ:
+
+- run manual `pg_dump`
+- verify backup exists
+
+จากนั้น:
+
+- create X-Fly database/schema as planned
+- run migrations
+- run controlled demo seed if required
+- verify migration status
+- verify application DB permissions
+
+### 4A. Verify Production Data with pgAdmin over SSH
+
+Production database inspection ใช้ pgAdmin บน Mac ผ่าน SSH Tunnel เท่านั้น.
+
+Concept:
+
+```txt
+Mac / pgAdmin
+      ↓
+SSH Tunnel
+      ↓
+safe-host
+      ↓
+127.0.0.1:5432
+      ↓
+PostgreSQL 18
+      ↓
+x_fly
+```
+
+Verification checklist:
+
+- SSH connection to `safe-host` works
+- PostgreSQL remains bound to `127.0.0.1:5432` on Ubuntu
+- no PostgreSQL public Internet port is opened
+- pgAdmin connection `X-Fly - PRODUCTION` connects successfully through SSH
+- `x_fly` schema is visible
+- migrations are visible in schema/history tables where applicable
+- seed/demo records are visible
+- application-created records can be inspected after smoke tests
+- Local and Production pgAdmin connections are visually distinguishable
+
+Production pgAdmin access is for controlled inspection/debugging only.
+
+Do not use pgAdmin as an application dependency and do not route application traffic through pgAdmin.
+
+### 5. Build & Start
+
+```txt
+docker compose build
+docker compose up -d
+```
+
+ตรวจ:
+
+```txt
+docker compose ps
+docker compose logs
+```
+
+Application containers ต้องใช้ restart policy ที่เหมาะสม เช่น `unless-stopped`.
+
+### 6. Caddy Integration
+
+- update `/srv/apps/proxy/Caddyfile`
+- route frontend to the X-Fly frontend service
+- route `/api/*` to the Rust backend where applicable
+- validate config
+- reload Caddy
+- verify from Ubuntu host through `127.0.0.1:8080`
+
+### 7. Local Smoke Test
+
+ตรวจอย่างน้อย:
+
+- homepage
+- flight search
+- flight results
+- seat flow
+- passenger/review/payment mock flow
+- ticket / QR verification route
+- manage booking
+- admin login/access boundary
+- backend health
+- database read/write
+- static assets
+- error pages
+
+### 8. Public Tunnel
+
+เปิด:
+
+```txt
+cloudflared tunnel --url http://127.0.0.1:8080
+```
+
+รับ URL:
+
+```txt
+https://xxxxx.trycloudflare.com
+```
+
+จากนั้นทดสอบจาก Internet จริง ไม่ใช่เฉพาะ LAN.
+
+### 9. Public Verification
+
+- HTTPS works through Cloudflare
+- frontend loads from external network
+- API requests work through Caddy
+- no mixed-content errors
+- QR / verification URLs use the correct public base where required
+- admin access restrictions behave as designed
+- PostgreSQL is not publicly reachable
+- no frontend/backend development ports are exposed unnecessarily
+- no secrets appear in client bundles/logs
+- responsive/mobile smoke test
+- browser console clean
+
+### 10. Demo Handoff
+
+ก่อนส่งอาจารย์:
+
+- keep Ubuntu Server powered on
+- ensure Docker containers are healthy
+- ensure Quick Tunnel process is running
+- verify current `trycloudflare.com` URL
+- perform one final external smoke test
+- provide the current temporary URL to professor/tester
 
 ## Tasks
 
-- deploy frontend
-- deploy backend
-- production DB
-- migrations
-- seed
-- backup
-- smoke test
-- verify QR URLs
-- admin access restriction
-- HTTPS
-- domain
+- deploy frontend container
+- deploy Rust + Axum backend container
+- connect backend to PostgreSQL 18
+- run migrations
+- run demo seed if required
+- manual pre-release database backup
+- integrate Caddy routes
+- validate/reload Caddy
+- local smoke test through Caddy
+- launch Cloudflare Quick Tunnel
+- external Internet smoke test
+- verify QR/public URLs
+- verify admin access/security rules
+- verify health checks
+- verify container restart behavior
+- verify logs
+- verify backup still operates
+- verify `X-Fly - PRODUCTION` pgAdmin SSH Tunnel access
+- inspect deployed schema and representative application records through pgAdmin
+- confirm PostgreSQL is still not publicly exposed
+- document current temporary demo URL
+
+## Exit Criteria
+
+Full public path works:
+
+```txt
+Internet
+↓
+Cloudflare Quick Tunnel
+↓
+Caddy
+↓
+Frontend / Backend
+↓
+PostgreSQL
+```
+
+และ:
+
+- booking E2E works on deployed environment
+- database migrations are applied
+- backup exists
+- HTTPS works via Cloudflare
+- PostgreSQL remains non-public
+- pgAdmin on Mac can inspect Production through SSH Tunnel
+- Local and Production data remain isolated
+- application recovers correctly after container restart
+- final external smoke test passes
 
 ---
 
@@ -3248,23 +3790,67 @@ SQLx
 PostgreSQL
 ```
 
-Local:
+Local Development:
 
 ```txt
-Next.js local
-Rust local
-PostgreSQL Docker
+Mac
+├── Next.js local
+├── Rust + Axum local
+├── pgAdmin
+│     ↓
+│   localhost:<POSTGRES_HOST_PORT>
+│     ↓
+└── PostgreSQL Docker
 ```
 
-Production:
+Local backend และ pgAdmin ใช้ PostgreSQL local instance ตัวเดียวกัน.
+
+Self-Hosted Deployment:
 
 ```txt
-Vercel
-   ↓
-Render Rust Docker
-   ↓
-Managed PostgreSQL
+Developer Mac
+      ↓
+GitHub
+      ↓
+Ubuntu Server
+      ↓
+Docker Compose
+      ↓
+Frontend + Rust/Axum Backend
+      ↓
+PostgreSQL 18
+      ↓
+Caddy
+      ↓
+Cloudflare Quick Tunnel
+      ↓
+Internet
 ```
+
+Production database inspection:
+
+```txt
+pgAdmin on Mac
+      ↓
+SSH Tunnel (safe-host)
+      ↓
+Ubuntu Server 127.0.0.1:5432
+      ↓
+PostgreSQL 18 / x_fly
+```
+
+Deployment principles:
+
+- existing Ubuntu infrastructure is reused, not rebuilt from zero
+- Caddy is the reverse-proxy entry point
+- frontend/backend communicate through Docker networking and approved internal service names
+- PostgreSQL remains private for application traffic and is accessed by the backend
+- pgAdmin Local inspects the local PostgreSQL instance directly
+- pgAdmin Production inspects the server PostgreSQL only through SSH Tunnel
+- Local and Production are separate databases; migrations align schema but data does not auto-sync
+- PostgreSQL must never be exposed publicly merely for pgAdmin access
+- university/demo uses temporary `trycloudflare.com`
+- domain + Named Cloudflare Tunnel are future production/client upgrades, not MVP blockers
 
 ---
 
@@ -3408,6 +3994,13 @@ X-Fly Anyway ถือว่าประสบความสำเร็จเ�
 - Mobile ใช้งานได้ดี
 - Reduced motion รองรับ
 - Production build เร็วและเสถียร
+- Self-hosted deployment ผ่าน Caddy + Cloudflare Quick Tunnel ใช้งานจาก Internet จริงได้
+- Frontend / Backend รันเป็น production containers และไม่มี unnecessary public ports
+- PostgreSQL ไม่เปิดสู่ Internet และ backup/migration workflow ผ่าน
+- pgAdmin บน Mac ดู `X-Fly - LOCAL` ได้จาก Local PostgreSQL
+- pgAdmin บน Mac ดู `X-Fly - PRODUCTION` ได้ผ่าน SSH Tunnel เท่านั้น
+- Local / Production schema ตรวจสอบได้และข้อมูลแยกจากกันชัดเจน
+- University demo สามารถเปิดด้วย temporary `trycloudflare.com` URL ได้
 
 | Branch                            | Model          | Reasoning  | เหตุผล                                         |
 | --------------------------------- | -------------- | ---------- | ---------------------------------------------- |
@@ -3443,7 +4036,7 @@ X-Fly Anyway ถือว่าประสบความสำเร็จเ�
 | `perf/27-frontend-performance`    | **Sol**        | High       | profiling/optimization reasoning               |
 | `test/28-cross-browser-qa`        | **Terra**      | Low/Medium | mostly fixes from QA                           |
 | `test/29-booking-e2e`             | **Terra**      | Medium     | Playwright flow                                |
-| `chore/30-deployment-prep`        | **Terra**      | Medium     | env/CORS/build config                          |
-| `chore/31-production-deploy`      | **Sol**        | Medium     | production problems can be subtle              |
+| `chore/30-deployment-prep`        | **Terra**      | Medium     | Dockerfiles/Compose/env/Caddy integration prep |
+| `chore/31-production-deploy`      | **Sol**        | Medium     | self-host/Caddy/Cloudflare deploy issues can be subtle |
 | `feat/32-final-polish`            | **Terra**      | Medium     | mostly visual refinements                      |
 | `docs/33-final-documentation`     | **Luna**       | Low        | docs/summarization                             |

@@ -136,7 +136,7 @@ describe("scroll storytelling", () => {
     });
 
     expect(
-      screen.getByRole("heading", { level: 2, name: "The world, closer." }),
+      screen.getByRole("heading", { level: 2, name: "The world, within reach." }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { level: 2, name: "Choose your way to fly." }),
@@ -153,7 +153,7 @@ describe("scroll storytelling", () => {
     expect(
       screen.getByRole("heading", {
         level: 2,
-        name: "From first thought to final step.",
+        name: "A continuous journey.",
       }),
     ).toBeInTheDocument();
     expect(
@@ -273,7 +273,7 @@ describe("scroll storytelling", () => {
     expect(globalImgs?.length).toBeGreaterThanOrEqual(1);
     expect(globalImgs?.[0]).toHaveAttribute(
       "src",
-      expect.stringContaining("x-fly-global-reach-bg-v1.jpg"),
+      expect.stringContaining("x-fly-global-reach-luxury.jpg"),
     );
 
     expect(within(globalReach as HTMLElement).getByText("156")).toBeInTheDocument();
@@ -283,6 +283,186 @@ describe("scroll storytelling", () => {
     expect(
       within(globalReach as HTMLElement).queryByRole("button"),
     ).not.toBeInTheDocument();
+  });
+
+  it("presents Global Reach as a grounded, accessible travel network", () => {
+    const { container } = render(<Home />);
+    const globalReach = container.querySelector("#global-reach");
+
+    expect(globalReach).not.toBeNull();
+    expect(globalReach).toHaveAttribute("data-travel-network", "cartographic");
+    expect(globalReach?.querySelector("[data-global-globe]"))
+      .not.toBeInTheDocument();
+    expect(globalReach?.querySelector("[data-global-space]"))
+      .not.toBeInTheDocument();
+    expect(
+      within(globalReach as HTMLElement).getByText(
+        "Connected across every horizon.",
+        { exact: false },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(globalReach as HTMLElement).getByText("7 GLOBAL HUBS"),
+    ).toBeVisible();
+    expect(
+      within(globalReach as HTMLElement).getByText("24/7 OPERATIONS"),
+    ).toBeVisible();
+  });
+
+  it("exposes immutable stage-owned Journey slots for persistent cards", () => {
+    const { container } = render(<Home />);
+    const journey = container.querySelector("#journey-path");
+    const desktop = journey?.querySelector("[data-journey-desktop]");
+    const stages = Array.from(
+      desktop?.querySelectorAll<HTMLElement>("[data-journey-stage]") ?? [],
+    );
+
+    expect(journey).not.toBeNull();
+    expect(desktop).toHaveAttribute("data-desktop-pin", "bounded");
+    expect(desktop).toHaveAttribute("data-promotion-duration", "0.88");
+    expect(desktop).toHaveAttribute("data-pair-starts", "0.55,2.45");
+    expect(desktop).toHaveAttribute("data-copy-change-offset", "0.98");
+    expect(desktop).toHaveAttribute("data-scroll-distance-vh", "2.3");
+    expect(desktop).toHaveAttribute("data-scrub-smoothing", "0.45");
+    expect(desktop).toHaveAttribute("data-interpolation-ease", "none");
+    expect(stages).toHaveLength(2);
+    expect(stages.map((stage) => stage.dataset.journeyStage)).toEqual([
+      "left",
+      "right",
+    ]);
+    expect(stages.map((stage) => stage.dataset.stageEmphasis)).toEqual([
+      "secondary",
+      "primary",
+    ]);
+
+    for (const stage of stages) {
+      const anchors = Array.from(
+        stage.querySelectorAll<HTMLElement>("[data-journey-anchor]"),
+      );
+      const cards = Array.from(
+        stage.querySelectorAll<HTMLElement>("[data-journey-card]"),
+      );
+      const cardIds = cards.map((card) => card.dataset.journeyCardId);
+
+      expect(cards).toHaveLength(4);
+      expect(stage).toHaveAttribute("data-stage-bounds", "contained");
+      expect(stage).toHaveAttribute("data-slot-model", "immutable");
+      expect(anchors.map((anchor) => anchor.dataset.journeyAnchor)).toEqual([
+        "front",
+        "queued",
+        "deep",
+        "off-deck",
+      ]);
+      anchors.forEach((anchor) => {
+        expect(anchor).toHaveAttribute("data-anchor-bounds", "contained");
+        expect(anchor).toHaveAttribute(
+          "data-slot-id",
+          `${stage.dataset.journeyStage}-${anchor.dataset.journeyAnchor}`,
+        );
+        expect(anchor).toHaveAttribute(
+          "data-slot-owner",
+          `${stage.dataset.journeyStage}-stage`,
+        );
+        expect(anchor).toHaveAttribute("data-slot-geometry", "absolute");
+        expect(anchor.style.top).not.toBe("");
+        expect(anchor.style.height).not.toBe("");
+      });
+      expect(stage.querySelector('[data-journey-anchor="front"]')).toHaveAttribute(
+        "data-visual-layer",
+        stage.dataset.journeyStage === "right"
+          ? "foremost-front"
+          : "supporting-front",
+      );
+      expect(stage.querySelector('[data-journey-anchor="queued"]')).toHaveAttribute(
+        "data-slot-direction",
+        "inward",
+      );
+      expect(stage.querySelector('[data-journey-anchor="queued"]')).toHaveAttribute(
+        "data-composition-zone",
+        "center-biased",
+      );
+      expect(stage.querySelector('[data-journey-anchor="queued"]')).toHaveAttribute(
+        "data-depth-rank",
+        stage.dataset.journeyStage === "left" ? "queued-near" : "queued-far",
+      );
+      expect(stage.querySelector('[data-journey-anchor="deep"]')).toHaveAttribute(
+        "data-slot-direction",
+        "inward",
+      );
+      expect(stage.querySelector('[data-journey-anchor="deep"]')).toHaveAttribute(
+        "data-depth-rank",
+        stage.dataset.journeyStage === "left" ? "deep-near" : "deep-far",
+      );
+      expect(cardIds.every(Boolean)).toBe(true);
+      expect(new Set(cardIds).size).toBe(cards.length);
+      cards.forEach((card) => {
+        expect(card).toHaveAttribute("data-persistent-card", "true");
+        expect(card).toHaveAttribute("data-layout-owner", "stage-slot");
+        expect(card).toHaveAttribute("data-transform-accumulation", "none");
+        expect(card.style.transform).toBe("");
+        expect(card.style.top).not.toBe("");
+        expect(card.style.height).not.toBe("");
+      });
+      expect(stage.querySelector('[data-depth-role="front"]')).toBeVisible();
+      expect(stage.querySelector('[data-depth-role="queued"]')).toBeVisible();
+      expect(stage.querySelector('[data-depth-role="deep"]')).toBeVisible();
+      expect(stage.querySelector('[data-depth-role="off-deck"]')).toBeInTheDocument();
+    }
+  });
+
+  it("promotes persistent Journey pairs together into the shared front role", () => {
+    const { container } = render(<Home />);
+    const desktop = container.querySelector("[data-journey-desktop]");
+    const stages = Array.from(
+      desktop?.querySelectorAll<HTMLElement>("[data-journey-stage]") ?? [],
+    );
+
+    const promotionBeats = Array.from(
+      desktop?.querySelectorAll<HTMLElement>("[data-promotion-beat]") ?? [],
+    );
+    expect(promotionBeats).toHaveLength(2);
+    expect(
+      promotionBeats.map((beat) => [
+        beat.dataset.promotionMode,
+        beat.dataset.promotesStackIndex,
+        beat.dataset.chapterAdvance,
+        beat.dataset.leftTargetSlot,
+        beat.dataset.rightTargetSlot,
+      ]),
+    ).toEqual([
+      ["pair", "1", "move", "left-front", "right-front"],
+      ["pair", "2", "arrive", "left-front", "right-front"],
+    ]);
+
+    promotionBeats.forEach((beat) => {
+      expect(beat).not.toHaveAttribute("data-promotion-side");
+      expect(beat).toHaveAttribute("data-slot-interpolation", "continuous");
+
+      stages.forEach((stage) => {
+        const promotedCard = stage.querySelector(
+          `[data-stack-index="${beat.dataset.promotesStackIndex}"]`,
+        );
+
+        expect(promotedCard).toBeInTheDocument();
+        expect(promotedCard).toHaveAttribute("data-persistent-card", "true");
+        expect(beat).toHaveAttribute(
+          `data-${stage.dataset.journeyStage}-card-id`,
+          promotedCard?.getAttribute("data-journey-card-id"),
+        );
+      });
+    });
+  });
+
+  it("keeps Journey mobile and reduced-motion content in normal document flow", () => {
+    const { container } = render(<Home />);
+    const journey = container.querySelector("#journey-path");
+    const fallback = journey?.querySelector("[data-journey-mobile]");
+
+    expect(fallback).toHaveAttribute("data-mobile-flow", "vertical");
+    expect(fallback).toHaveAttribute("data-reduced-motion-fallback", "true");
+    expect(fallback?.querySelectorAll("[data-mobile-chapter]")).toHaveLength(3);
+    expect(journey?.outerHTML).not.toContain("overflow-x-auto");
+    expect(journey?.outerHTML).not.toContain("snap-x");
   });
 
   it("uses the approved interior and service assets without reusing aircraft imagery", () => {
@@ -541,7 +721,7 @@ describe("scroll storytelling", () => {
       mediaEventTime += 10;
       act(() => media.setViewportHeight(700));
 
-      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(1);
+      expect(container.querySelectorAll(".pin-spacer")).toHaveLength(2);
       for (const beat of Array.from(
         container.querySelectorAll<HTMLElement>("[data-aircraft-beat]"),
       )) {
