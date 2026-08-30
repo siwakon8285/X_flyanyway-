@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
+import { render } from "@/tests/renderWithLanguage";
 
 import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import { serializeFlightSearch } from "@/components/booking/search/searchState";
@@ -29,7 +30,7 @@ describe("FlightResultsPage", () => {
 
     expect(screen.getByRole("heading", { level: 1, name: /BKK.*LHR/ })).toBeInTheDocument();
     expect(screen.getByText("Bangkok to London")).toBeInTheDocument();
-    expect(screen.getByText("10 MAY 2099")).toBeInTheDocument();
+    expect(screen.getByText("10 May 2099")).toBeInTheDocument();
     expect(screen.getByText(/2 passengers/i)).toBeInTheDocument();
     expect(screen.getAllByText(/premium economy/i).length).toBeGreaterThan(0);
     expect(screen.getByText("Select your outbound flight")).toBeInTheDocument();

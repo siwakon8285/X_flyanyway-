@@ -11,13 +11,16 @@ import type {
 } from "@/components/booking/seats/seatMapTypes";
 import { Reveal } from "@/components/motion/Reveal";
 import { cn } from "@/lib/utils/cn";
+import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/types";
 
 const markerAbbreviations = {
-  door: "Door",
-  exit: "Exit",
-  galley: "G",
-  lavatory: "Lav",
-} as const;
+  door: "seatMap.abbreviations.door",
+  exit: "seatMap.abbreviations.exit",
+  galley: "seatMap.abbreviations.galley",
+  lavatory: "seatMap.abbreviations.lavatory",
+} as const satisfies Record<string, TranslationKey>;
 
 type PositionedMarkerKind = keyof typeof markerAbbreviations;
 
@@ -36,6 +39,7 @@ const AircraftSeatMap = ({
   selectedSeatIds: ReadonlySet<string>;
 }) => {
   const presentation = SEAT_MAP_PRESENTATION[map.cabin];
+  const { t } = useLanguage();
   const isBusiness = map.cabin === "business";
   const hasWingContext = map.section.markers.some((marker) => marker.kind === "wing");
   const hasBulkhead = map.section.markers.some((marker) => marker.kind === "bulkhead");
@@ -53,7 +57,7 @@ const AircraftSeatMap = ({
       <AircraftPlanOverview map={map} />
       {isBusiness ? (
         <p className="px-4 pt-3 text-center text-[0.625rem] text-muted-foreground sm:hidden">
-          Swipe within the aircraft section to view every seat.
+          {t("seatMap.swipe")}
         </p>
       ) : null}
       <div
@@ -92,15 +96,15 @@ const AircraftSeatMap = ({
                       ? "left-0"
                       : "right-0",
                 )}
-                key={`plan-position-${marker.kind}-${marker.label}`}
+                key={`plan-position-${marker.kind}-${marker.labelKey}`}
                 style={{ top: `${15 + marker.positionPercent * 0.72}%` }}
               >
                 <span className="border-y border-white/10 bg-[#090d12] px-1 py-0.5">
-                  {markerAbbreviations[marker.kind]}
+                  {t(markerAbbreviations[marker.kind])}
                 </span>
                 {marker.side === "both" ? (
                   <span className="border-y border-white/10 bg-[#090d12] px-1 py-0.5">
-                    {markerAbbreviations[marker.kind]}
+                    {t(markerAbbreviations[marker.kind])}
                   </span>
                 ) : null}
               </div>
@@ -115,22 +119,22 @@ const AircraftSeatMap = ({
           <div className="mx-auto flex w-fit flex-col items-center">
             <Plane aria-hidden="true" className={cn("size-5 rotate-[-90deg]", presentation.accentClass)} />
             <p className="mt-2 text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Aircraft front
+              {t("seatMap.aircraftFront")}
             </p>
             <p className={cn("mt-2 text-xs font-semibold uppercase tracking-[0.16em]", presentation.accentClass)}>
-              {map.section.label}
+              {t(map.section.labelKey)}
             </p>
           </div>
 
           <ul
-            aria-label="Aircraft section features"
+            aria-label={t("seatMap.aircraftSectionFeatures")}
             className="mx-auto mt-5 flex max-w-xl flex-wrap items-center justify-center gap-2"
           >
             {map.section.markers.map((marker) => (
               <li
                 className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/25 px-2.5 py-1 text-[0.58rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
                 data-plan-marker={marker.kind}
-                key={`${marker.kind}-${marker.label}`}
+                key={`${marker.kind}-${marker.labelKey}`}
               >
                 <span
                   aria-hidden="true"
@@ -141,7 +145,7 @@ const AircraftSeatMap = ({
                       : presentation.accentClass,
                   )}
                 />
-                {marker.label}
+                {t(marker.labelKey)}
               </li>
             ))}
           </ul>
@@ -150,19 +154,19 @@ const AircraftSeatMap = ({
             <div aria-hidden="true" className="mx-auto mt-5 flex max-w-xl items-center gap-2">
               <span className="h-px flex-1 bg-white/12" />
               <span className="text-[0.5rem] font-semibold uppercase tracking-[0.16em] text-muted-foreground/60">
-                Bulkhead
+                {t("seatMap.bulkhead")}
               </span>
               <span className="h-px flex-1 bg-white/12" />
             </div>
           ) : null}
 
           <p className="mt-5 text-center text-[0.625rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground/75">
-            {presentation.columnGuide}
+            {t(presentation.columnGuideKey)}
           </p>
 
           <Reveal
             as="ol"
-            aria-label={`${map.cabin === "premium-economy" ? "Premium Economy" : map.cabin} seat rows`}
+            aria-label={t("seatMap.seatRowsAria", { cabin: t(cabinLabelKeys[map.cabin]) })}
             className="mt-5 space-y-3.5"
             stagger={0.035}
           >

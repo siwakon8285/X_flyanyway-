@@ -1,6 +1,10 @@
+"use client";
+
 import Image from "next/image";
 
 import { Container } from "@/components/layout/Container";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/types";
 
 const cabinImages = {
   business: "/images/hero/x-fly-cabin-business-v1.png",
@@ -11,48 +15,59 @@ const cabinImages = {
 
 const cabins = [
   {
-    alt: "Economy cabin seating aboard X-Fly with spacious rows and aircraft windows",
+    altKey: "home.cabins.economy.alt",
     atmosphere:
       "bg-[radial-gradient(circle_at_78%_48%,rgba(84,105,124,0.13),transparent_43%)]",
-    copy: "Ease, considered from departure to arrival.",
+    copyKey: "home.cabins.economy.copy",
     id: "economy",
     image: cabinImages.economy,
-    label: "Economy",
+    labelKey: "common.cabins.economy",
     position: "object-[52%_48%]",
   },
   {
-    alt: "Premium Economy seating aboard X-Fly with expanded width and legroom",
+    altKey: "home.cabins.premiumEconomy.alt",
     atmosphere:
       "bg-[radial-gradient(circle_at_76%_46%,rgba(185,151,91,0.12),transparent_45%)]",
-    copy: "More room for the distance ahead.",
+    copyKey: "home.cabins.premiumEconomy.copy",
     id: "premium-economy",
     image: cabinImages["premium-economy"],
-    label: "Premium Economy",
+    labelKey: "common.cabins.premiumEconomy",
     position: "object-[50%_50%]",
   },
   {
-    alt: "Business Class lie-flat pod and private side console aboard X-Fly",
+    altKey: "home.cabins.business.alt",
     atmosphere:
       "bg-[linear-gradient(116deg,transparent_34%,rgba(72,91,112,0.14)_56%,transparent_78%)]",
-    copy: "Space to focus. Freedom to arrive ready.",
+    copyKey: "home.cabins.business.copy",
     id: "business",
     image: cabinImages.business,
-    label: "Business",
+    labelKey: "common.cabins.business",
     position: "object-[48%_50%]",
   },
   {
-    alt: "First Class private suite with luxury dining and personalized setting aboard X-Fly",
+    altKey: "home.cabins.first.alt",
     atmosphere:
       "bg-[radial-gradient(ellipse_at_82%_50%,rgba(255,212,0,0.085),rgba(95,73,35,0.055)_35%,transparent_67%)]",
-    copy: "A private expression of flight.",
+    copyKey: "home.cabins.first.copy",
     id: "first",
     image: cabinImages.first,
-    label: "First",
+    labelKey: "common.cabins.first",
     position: "object-[50%_50%]",
   },
-] as const;
+] as const satisfies readonly {
+  altKey: TranslationKey;
+  atmosphere: string;
+  copyKey: TranslationKey;
+  id: string;
+  image: string;
+  labelKey: TranslationKey;
+  position: string;
+}[];
 
-const CabinStory = () => (
+const CabinStory = () => {
+  const { t } = useLanguage();
+
+  return (
   <section
     aria-labelledby="cabins-heading"
     className="relative isolate border-y border-border/70 bg-[#07080b] py-section-md md:py-0"
@@ -97,7 +112,7 @@ const CabinStory = () => (
               key={`desktop-media-${cabin.id}`}
             >
               <Image
-                alt={cabin.alt}
+                alt={t(cabin.altKey)}
                 className={`object-cover ${cabin.position}`}
                 fill
                 loading={index === 0 ? "eager" : "lazy"}
@@ -119,13 +134,13 @@ const CabinStory = () => (
         {/* Section Header */}
         <div className="grid gap-5 border-b border-border/80 pb-8 md:grid-cols-[auto_1fr] md:items-end md:justify-between">
           <div>
-            <p className="text-label text-brand">Four ways forward</p>
+            <p className="text-label text-brand">{t("home.cabins.label")}</p>
             <h2 className="mt-4 max-w-4xl text-h1 text-balance" id="cabins-heading">
-              Choose your way to fly.
+              {t("home.cabins.heading")}
             </h2>
           </div>
           <p className="max-w-sm text-body text-muted-foreground md:justify-self-end">
-            One standard of confidence, expressed across four distinct journeys.
+            {t("home.cabins.intro")}
           </p>
         </div>
 
@@ -146,10 +161,10 @@ const CabinStory = () => (
                   {String(index + 1).padStart(2, "0")} / 04
                 </p>
                 <h3 className="mt-4 text-[clamp(2.75rem,7vw,7rem)] font-semibold leading-[0.86] tracking-[-0.07em] text-foreground text-balance">
-                  {cabin.label}
+                  {t(cabin.labelKey)}
                 </h3>
                 <p className="mt-6 max-w-[26rem] text-body text-muted-foreground sm:text-body-lg">
-                  {cabin.copy}
+                  {t(cabin.copyKey)}
                 </p>
               </div>
 
@@ -159,7 +174,7 @@ const CabinStory = () => (
                 data-cabin-mobile-image
               >
                 <Image
-                  alt={cabin.alt}
+                  alt={t(cabin.altKey)}
                   className={`object-cover ${cabin.position}`}
                   fill
                   loading="lazy"
@@ -189,6 +204,7 @@ const CabinStory = () => (
       </Container>
     </div>
   </section>
-);
+  );
+};
 
 export { CabinStory, cabinImages, cabins };

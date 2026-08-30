@@ -1,14 +1,16 @@
+import type { TranslationKey } from "@/i18n/types";
+
 type JourneyImage = {
-  alt: string;
+  altKey: TranslationKey;
   src: string;
 };
 
 type JourneyChapter = {
-  body: string;
-  headline: string;
+  bodyKey: TranslationKey;
+  headlineKey: TranslationKey;
   id: "begin" | "move" | "arrive";
   images: readonly [JourneyImage, JourneyImage];
-  label: string;
+  labelKey: TranslationKey;
 };
 
 type JourneyDepthRole = "front" | "queued" | "deep" | "off-deck";
@@ -24,52 +26,52 @@ type JourneySlotGeometry = {
 
 const journeyImages = {
   arriveCity: {
-    alt: "City arrival and premium hospitality",
+    altKey: "home.journey.arrive.imageCity",
     src: "/images/hero/x-fly-journey-arrive-a.jpg",
   },
   arriveTraveler: {
-    alt: "Traveler arriving at a premium city hotel",
+    altKey: "home.journey.arrive.imageTraveler",
     src: "/images/hero/x-fly-journey-arrive-b.jpg",
   },
   beginDocuments: {
-    alt: "Passport and premium travel documents",
+    altKey: "home.journey.begin.imageDocuments",
     src: "/images/hero/x-fly-journey-begin-a.jpg",
   },
   beginLounge: {
-    alt: "Traveler preparing to depart from an airport lounge",
+    altKey: "home.journey.begin.imageLounge",
     src: "/images/hero/x-fly-journey-begin-b.jpg",
   },
   moveCabin: {
-    alt: "Traveler in a private premium cabin",
+    altKey: "home.journey.move.imageCabin",
     src: "/images/hero/x-fly-journey-move-a.jpg",
   },
   moveWindow: {
-    alt: "Business traveler looking through an aircraft window",
+    altKey: "home.journey.move.imageWindow",
     src: "/images/hero/x-fly-journey-move-b.jpg",
   },
 } as const satisfies Record<string, JourneyImage>;
 
 const journeyChapters = [
   {
-    body: "Every considered journey begins before departure.",
-    headline: "Where the journey begins.",
+    bodyKey: "home.journey.begin.body",
+    headlineKey: "home.journey.begin.headline",
     id: "begin",
     images: [journeyImages.beginDocuments, journeyImages.beginLounge],
-    label: "CHAPTER 1 · BEGIN",
+    labelKey: "home.journey.begin.label",
   },
   {
-    body: "Comfort and clarity, carried through every mile.",
-    headline: "One considered path.",
+    bodyKey: "home.journey.move.body",
+    headlineKey: "home.journey.move.headline",
     id: "move",
     images: [journeyImages.moveWindow, journeyImages.moveCabin],
-    label: "CHAPTER 2 · MOVE",
+    labelKey: "home.journey.move.label",
   },
   {
-    body: "Arrival should feel as composed as the journey itself.",
-    headline: "A seamless arrival.",
+    bodyKey: "home.journey.arrive.body",
+    headlineKey: "home.journey.arrive.headline",
     id: "arrive",
     images: [journeyImages.arriveTraveler, journeyImages.arriveCity],
-    label: "CHAPTER 3 · ARRIVE",
+    labelKey: "home.journey.arrive.label",
   },
 ] as const satisfies readonly JourneyChapter[];
 

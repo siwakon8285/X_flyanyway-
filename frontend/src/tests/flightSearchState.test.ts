@@ -86,7 +86,7 @@ describe("flight search state", () => {
       "2026-08-27",
     );
 
-    expect(errors.to).toBe("Origin and destination must be different.");
+    expect(errors.to).toBe("flightSearch.validation.destinationDifferent");
   });
 
   it("rejects missing or chronologically invalid dates", () => {
@@ -100,8 +100,8 @@ describe("flight search state", () => {
         "2026-08-27",
       ),
     ).toMatchObject({
-      departure: "Departure date cannot be in the past.",
-      returnDate: "Return date must be on or after departure.",
+      departure: "flightSearch.validation.departurePast",
+      returnDate: "flightSearch.validation.returnOrder",
     });
 
     expect(
@@ -110,8 +110,8 @@ describe("flight search state", () => {
         "2026-08-27",
       ),
     ).toMatchObject({
-      departure: "Choose a departure date.",
-      returnDate: "Choose a return date.",
+      departure: "flightSearch.validation.departureRequired",
+      returnDate: "flightSearch.validation.returnRequired",
     });
   });
 
@@ -124,7 +124,7 @@ describe("flight search state", () => {
         },
         "2026-08-27",
       ).passengers,
-    ).toBe("Passenger counts are outside the supported UI range.");
+    ).toBe("flightSearch.validation.passengerRange");
   });
 
   it("creates independent default passenger state", () => {

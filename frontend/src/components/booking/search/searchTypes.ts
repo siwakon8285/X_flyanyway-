@@ -26,11 +26,11 @@ type FlightSearchFormValues = {
 };
 
 type FlightSearchErrors = {
-  departure?: string;
-  from?: string;
-  passengers?: string;
-  returnDate?: string;
-  to?: string;
+  departure?: TranslationKey;
+  from?: TranslationKey;
+  passengers?: TranslationKey;
+  returnDate?: TranslationKey;
+  to?: TranslationKey;
 };
 
 export type {
@@ -41,3 +41,4 @@ export type {
   PassengerCounts,
   TripType,
 };
+import type { TranslationKey } from "@/i18n/types";

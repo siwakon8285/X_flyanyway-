@@ -4,6 +4,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ComponentProps } from "react";
 
+import { useLanguage } from "@/i18n/LanguageProvider";
 import { cn } from "@/lib/utils/cn";
 
 const Dialog = DialogPrimitive.Root;
@@ -29,8 +30,10 @@ const DialogContent = ({
   className,
   showCloseButton = true,
   ...props
-}: DialogContentProps) => (
-  <DialogPrimitive.Portal>
+}: DialogContentProps) => {
+  const { t } = useLanguage();
+
+  return <DialogPrimitive.Portal>
     <DialogOverlay />
     <DialogPrimitive.Content
       className={cn(
@@ -43,12 +46,12 @@ const DialogContent = ({
       {showCloseButton ? (
         <DialogPrimitive.Close className="absolute right-4 top-4 rounded-control p-2 text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus">
           <X aria-hidden="true" className="size-4" />
-          <span className="sr-only">Close dialog</span>
+          <span className="sr-only">{t("common.closeDialog")}</span>
         </DialogPrimitive.Close>
       ) : null}
     </DialogPrimitive.Content>
-  </DialogPrimitive.Portal>
-);
+  </DialogPrimitive.Portal>;
+};
 
 const DialogHeader = ({ className, ...props }: ComponentProps<"header">) => (
   <header className={cn("space-y-2 pr-8", className)} {...props} />

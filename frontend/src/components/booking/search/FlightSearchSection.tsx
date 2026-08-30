@@ -10,6 +10,7 @@ import {
 } from "@/components/booking/search/searchState";
 import { Container } from "@/components/layout/Container";
 import { Reveal } from "@/components/motion/Reveal";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const subscribeToLocation = (onStoreChange: () => void) => {
   window.addEventListener("popstate", onStoreChange);
@@ -20,6 +21,7 @@ const getServerLocationSearch = () => "";
 
 const FlightSearchSection = () => {
   const router = useRouter();
+  const { t } = useLanguage();
   const locationSearch = useSyncExternalStore(
     subscribeToLocation,
     getLocationSearch,
@@ -41,16 +43,16 @@ const FlightSearchSection = () => {
         <Reveal as="div" variant="fade-up">
           <div className="grid gap-6 border-b border-border pb-8 lg:grid-cols-[minmax(0,0.75fr)_minmax(20rem,0.45fr)] lg:items-end lg:gap-16">
             <div>
-              <p className="text-label text-brand">Flight search · Earth routes</p>
+              <p className="text-label text-brand">{t("flightSearch.eyebrow")}</p>
               <h2
                 className="mt-4 max-w-[11ch] text-h1 uppercase text-balance"
                 id="flight-search-heading"
               >
-                Where will you go next?
+                {t("flightSearch.heading")}
               </h2>
             </div>
             <p className="max-w-md text-body-lg text-muted-foreground lg:justify-self-end">
-              Choose your route and shape the journey in a few precise steps.
+              {t("flightSearch.intro")}
             </p>
           </div>
         </Reveal>

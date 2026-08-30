@@ -1,3 +1,5 @@
+"use client";
+
 import { ArrowDown } from "lucide-react";
 
 import { Container } from "@/components/layout/Container";
@@ -5,8 +7,12 @@ import { Container } from "@/components/layout/Container";
 import { SplitText } from "@/components/motion/SplitText";
 import { buttonVariants } from "@/components/ui/Button";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
-const HeroContent = () => (
+const HeroContent = () => {
+  const { t } = useLanguage();
+
+  return (
   <Container
     className="relative z-10 flex min-h-svh flex-col justify-end pb-[max(2rem,env(safe-area-inset-bottom))] pt-[calc(var(--header-height)+3rem)] sm:pb-10 lg:pb-12"
     data-hero-content
@@ -18,7 +24,7 @@ const HeroContent = () => (
         data-hero-line
       />
       <p className="text-label text-brand" data-hero-eyebrow>
-        X-FLY ANYWAY · GLOBAL AVIATION
+        {t("home.hero.eyebrow")}
       </p>
       <SplitText
         animate={false}
@@ -27,15 +33,14 @@ const HeroContent = () => (
         data-hero-headline
         id="hero-heading"
         split="words"
-        text="Go anywhere. Fly different."
+        text={t("home.hero.headline")}
       />
       <div
         className="mt-7 flex max-w-2xl flex-col gap-6 sm:mt-9 sm:flex-row sm:items-end sm:justify-between sm:gap-10"
         data-hero-details
       >
         <p className="max-w-lg text-body-lg text-foreground/78">
-          From the world’s great cities to what comes next. Travel without
-          limits.
+          {t("home.hero.body")}
         </p>
         <div className="flex shrink-0 flex-col gap-3 sm:flex-row" data-hero-actions>
           <a
@@ -45,22 +50,23 @@ const HeroContent = () => (
             )}
             href="#journey"
           >
-            Explore X-Fly
+            {t("home.hero.explore")}
           </a>
         </div>
       </div>
     </div>
 
     <a
-      aria-label="Scroll to explore X-Fly"
+      aria-label={t("home.hero.scrollAria")}
       className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-page-gutter inline-flex items-center gap-3 rounded-sm text-caption text-foreground/65 outline-none transition-colors hover:text-brand focus-visible:ring-2 focus-visible:ring-focus lg:left-auto lg:right-page-gutter"
       data-hero-scroll-cue
       href="#journey"
     >
-      <span data-hero-scroll-label>Scroll</span>
+      <span data-hero-scroll-label>{t("home.hero.scroll")}</span>
       <ArrowDown aria-hidden="true" className="size-4 text-brand" />
     </a>
   </Container>
-);
+  );
+};
 
 export { HeroContent };

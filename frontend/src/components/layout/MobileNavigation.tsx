@@ -18,6 +18,7 @@ import { gsapEasings } from "@/lib/motion/easing";
 import { gsap, useGSAP } from "@/lib/motion/gsap";
 import { useReducedMotion } from "@/lib/motion/reducedMotion";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const mobileNavigationId = "mobile-navigation-menu";
 
@@ -25,6 +26,7 @@ const MobileNavigation = () => {
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
+  const { t } = useLanguage();
 
   useGSAP(
     () => {
@@ -67,7 +69,7 @@ const MobileNavigation = () => {
         <button
           aria-controls={mobileNavigationId}
           aria-expanded={open}
-          aria-label="Open navigation menu"
+          aria-label={t("navigation.openMenu")}
           className="inline-flex size-11 items-center justify-center rounded-control border border-border/80 bg-background/70 text-foreground outline-none transition-colors hover:border-border-strong hover:bg-surface focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
           type="button"
         >
@@ -80,15 +82,15 @@ const MobileNavigation = () => {
         id={mobileNavigationId}
         showCloseButton={false}
       >
-        <DialogTitle className="sr-only">Navigation</DialogTitle>
+        <DialogTitle className="sr-only">{t("navigation.menuTitle")}</DialogTitle>
         <DialogDescription className="sr-only">
-          X-Fly Anyway public navigation.
+          {t("navigation.dialogDescription")}
         </DialogDescription>
         <div
           className="flex min-h-full flex-col justify-between px-page-gutter pb-8 pt-24"
           ref={menu}
         >
-          <nav aria-label="Mobile navigation">
+          <nav aria-label={t("navigation.mobile")}>
             <ul className="space-y-2">
               {navigationItems.map((item) => (
                 <li data-mobile-navigation-item key={item.id}>
@@ -97,7 +99,7 @@ const MobileNavigation = () => {
                       className="inline-flex rounded-sm py-2 text-h1 text-foreground outline-none transition-colors hover:text-brand focus-visible:ring-2 focus-visible:ring-focus"
                       href={item.href}
                     >
-                      {item.label}
+                      {t(item.labelKey)}
                     </a>
                   </DialogClose>
                 </li>
@@ -107,16 +109,16 @@ const MobileNavigation = () => {
           <div className="space-y-8" data-mobile-navigation-item>
             <DialogClose asChild>
               <a className={cn(buttonVariants({ size: "lg" }), "w-full sm:w-auto")} href={bookingHref}>
-                Book a Flight
+                {t("navigation.bookFlight")}
               </a>
             </DialogClose>
             <p className="text-caption text-muted-foreground">
-              Global aviation · Designed to go anywhere
+              {t("navigation.tagline")}
             </p>
           </div>
         </div>
         <DialogClose
-          aria-label="Close navigation menu"
+          aria-label={t("navigation.closeMenu")}
           className="absolute right-page-gutter top-5 inline-flex size-11 items-center justify-center rounded-control border border-border/80 bg-background/70 text-foreground outline-none transition-colors hover:border-border-strong hover:bg-surface focus-visible:ring-2 focus-visible:ring-focus"
         >
           <X aria-hidden="true" className="size-5" />

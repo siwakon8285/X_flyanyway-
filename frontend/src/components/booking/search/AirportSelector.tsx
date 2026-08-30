@@ -15,17 +15,20 @@ import {
 } from "@/components/ui/Dialog";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/utils/cn";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 type AirportSelectorProps = {
   error?: string;
-  label: "From" | "To";
+  kind: "from" | "to";
   onSelect: (airport: AirportOption) => void;
   value: AirportOption | null;
 };
 
-const AirportSelector = ({ error, label, onSelect, value }: AirportSelectorProps) => {
+const AirportSelector = ({ error, kind, onSelect, value }: AirportSelectorProps) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const { t } = useLanguage();
+  const label = t(kind === "from" ? "flightSearch.airport.from" : "flightSearch.airport.to");
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const airports = AIRPORT_FIXTURES.filter((airport) =>
     [airport.code, airport.city, airport.airport, airport.country].some((text) =>
@@ -34,8 +37,8 @@ const AirportSelector = ({ error, label, onSelect, value }: AirportSelectorProps
   );
   const triggerLabel = value
     ? `${label} ${value.code}, ${value.city}, ${value.country}`
-    : `Choose ${label === "From" ? "origin" : "destination"}`;
-  const errorId = `${label.toLocaleLowerCase()}-error`;
+    : t(kind === "from" ? "flightSearch.airport.chooseOrigin" : "flightSearch.airport.chooseDestination");
+  const errorId = `${kind}-error`;
 
   return (
     <div className="min-w-0">
@@ -85,10 +88,10 @@ const AirportSelector = ({ error, label, onSelect, value }: AirportSelectorProps
             ) : (
               <span className="mt-8 block">
                 <span className="block text-h3 text-foreground">
-                  {label === "From" ? "Select origin" : "Select destination"}
+                  {t(kind === "from" ? "flightSearch.airport.selectOrigin" : "flightSearch.airport.selectDestination")}
                 </span>
                 <span className="mt-2 block text-body-sm text-muted-foreground">
-                  Search airport or city
+                  {t("flightSearch.airport.search")}
                 </span>
               </span>
             )}
@@ -96,9 +99,9 @@ const AirportSelector = ({ error, label, onSelect, value }: AirportSelectorProps
         </DialogTrigger>
         <DialogContent className="max-h-[min(46rem,calc(100dvh-2rem))] overflow-hidden p-0 sm:max-w-2xl">
           <DialogHeader className="px-6 pb-0 pt-6 md:px-8 md:pt-8">
-            <DialogTitle>Search airport or city</DialogTitle>
+            <DialogTitle>{t("flightSearch.airport.search")}</DialogTitle>
             <DialogDescription>
-              Choose from featured Earth destinations. Availability is not live.
+              {t("flightSearch.airport.description")}
             </DialogDescription>
           </DialogHeader>
           <div className="px-6 md:px-8">
@@ -108,18 +111,18 @@ const AirportSelector = ({ error, label, onSelect, value }: AirportSelectorProps
                 className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
               />
               <Input
-                aria-label="Search airport or city"
+                aria-label={t("flightSearch.airport.search")}
                 autoFocus
                 className="pl-11"
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Code, city, airport, or country"
+                placeholder={t("flightSearch.airport.placeholder")}
                 value={query}
               />
             </div>
           </div>
           <div className="min-h-0 overflow-y-auto px-6 pb-6 md:px-8 md:pb-8">
             <p className="mb-3 text-caption text-muted-foreground">
-              {normalizedQuery ? "Matching airports" : "Featured airports"}
+              {normalizedQuery ? t("flightSearch.airport.matching") : t("flightSearch.airport.featured")}
             </p>
             {airports.length > 0 ? (
               <ul className="divide-y divide-border border-y border-border">
@@ -150,7 +153,7 @@ const AirportSelector = ({ error, label, onSelect, value }: AirportSelectorProps
               </ul>
             ) : (
               <p className="border-y border-border py-8 text-body text-muted-foreground">
-                No featured airports match your search.
+                {t("flightSearch.airport.noMatch")}
               </p>
             )}
           </div>

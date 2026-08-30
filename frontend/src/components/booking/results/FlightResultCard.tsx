@@ -3,13 +3,11 @@ import { ArrowRight, Clock3, Plane } from "lucide-react";
 import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
 import type { FlightResult } from "@/components/booking/results/flightResultTypes";
-import {
-  formatDuration,
-  formatPrice,
-  getCabinPrice,
-} from "@/components/booking/results/flightResultUtils";
-import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
+import { getCabinPrice } from "@/components/booking/results/flightResultUtils";
+import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
 import { buttonVariants } from "@/components/ui/Button";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatDuration, formatPrice } from "@/i18n/formatters";
 
 const FlightResultCard = ({
   cabin,
@@ -26,6 +24,7 @@ const FlightResultCard = ({
   const destination = AIRPORT_FIXTURES.find(
     (airport) => airport.code === flight.destinationCode,
   );
+  const { locale, t } = useLanguage();
 
   if (price === null) return null;
 
@@ -61,14 +60,14 @@ const FlightResultCard = ({
             <div className="flex min-w-20 flex-col items-center sm:min-w-36">
               <p className="inline-flex items-center gap-1.5 text-label text-foreground">
                 <Clock3 aria-hidden="true" className="size-4 text-brand" />
-                {formatDuration(flight.durationMinutes)}
+                {formatDuration(flight.durationMinutes, locale)}
               </p>
               <div aria-hidden="true" className="my-3 flex w-full items-center">
                 <span className="h-px flex-1 bg-border-strong transition-colors duration-200 group-hover:bg-brand/60" />
                 <ArrowRight className="size-4 -translate-x-px text-brand transition-transform duration-200 motion-safe:group-hover:translate-x-1 motion-reduce:transition-none" />
               </div>
               <p className="text-caption text-muted-foreground">
-                {flight.stops === "direct" ? "Direct" : "1 stop"}
+                {t(flight.stops === "direct" ? "common.direct" : "common.oneStop")}
               </p>
             </div>
 
@@ -89,20 +88,20 @@ const FlightResultCard = ({
 
         <div className="flex flex-col justify-between gap-5 border-t border-border pt-6 xl:border-l xl:border-t-0 xl:pl-9 xl:pt-0">
           <div>
-            <p className="text-caption text-muted-foreground">{cabinLabels[cabin]}</p>
+            <p className="text-caption text-muted-foreground">{t(cabinLabelKeys[cabin])}</p>
             <p className="mt-2 text-2xl font-semibold tracking-[-0.035em] transition-[color,text-shadow] duration-200 group-hover:text-white group-hover:[text-shadow:0_0_20px_rgb(255_255_255/0.08)] sm:text-3xl motion-reduce:transition-none">
-              {formatPrice(price)}
+              {formatPrice(price, locale)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Sample fare · per passenger
+              {t("common.farePerPassenger")}
             </p>
           </div>
           <a
-            aria-label={`Select flight ${flight.flightNumber}`}
+            aria-label={t("flightResults.selectFlightAria", { flight: flight.flightNumber })}
             className={`${buttonVariants({ size: "lg" })} transition-[background-color,box-shadow,transform] duration-200 hover:shadow-[0_12px_30px_rgb(255_212_0/0.2)] motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.02] motion-safe:active:translate-y-0 motion-safe:active:scale-[0.985] motion-reduce:transition-none [&_svg]:transition-transform [&_svg]:duration-200 motion-safe:hover:[&_svg]:translate-x-1.5`}
             href={`/flights/${flight.id}?${query}`}
           >
-            Select Flight
+            {t("flightResults.selectFlight")}
             <ArrowRight aria-hidden="true" />
           </a>
         </div>

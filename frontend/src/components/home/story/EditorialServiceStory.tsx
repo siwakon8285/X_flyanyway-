@@ -1,11 +1,17 @@
+"use client";
+
 import Image from "next/image";
 
 import { Container } from "@/components/layout/Container";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 const interiorImage = "/images/hero/x-fly-interior-premium-v1.png";
 const serviceImage = "/images/hero/x-fly-service-dining-v1.png";
 
-const EditorialServiceStory = () => (
+const EditorialServiceStory = () => {
+  const { t } = useLanguage();
+
+  return (
   <section
     aria-labelledby="service-story-heading"
     className="relative isolate overflow-hidden bg-[#eee5d6] py-[clamp(11rem,14vw,16rem)] text-[#171611]"
@@ -44,7 +50,7 @@ const EditorialServiceStory = () => (
                 className="h-px w-10 origin-left bg-[#ad8b00]"
                 data-service-eyebrow-line
               />
-              <p className="text-label text-[#8d7100]">X-FLY SERVICE</p>
+              <p className="text-label text-[#8d7100]">{t("home.service.label")}</p>
             </div>
             <h2
               className="mt-4 max-w-[12ch] text-h1 uppercase text-balance"
@@ -52,12 +58,12 @@ const EditorialServiceStory = () => (
             >
               <span className="block overflow-hidden">
                 <span className="block" data-service-heading-line>
-                  A journey considered
+                  {t("home.service.headingFirst")}
                 </span>
               </span>
               <span className="block overflow-hidden">
                 <span className="block" data-service-heading-line>
-                  in every detail.
+                  {t("home.service.headingSecond")}
                 </span>
               </span>
             </h2>
@@ -66,8 +72,7 @@ const EditorialServiceStory = () => (
             className="max-w-lg text-body-lg text-[#5f594f] md:col-span-4 md:col-start-8 md:justify-self-end"
             data-service-intro
           >
-            Thoughtful service, refined comfort, and a sense of ease from the
-            moment you board.
+            {t("home.service.body")}
           </p>
         </div>
 
@@ -85,7 +90,7 @@ const EditorialServiceStory = () => (
                 data-service-image-parallax="primary"
               >
                 <Image
-                  alt="X-Fly premium cabin with an ivory seat and dining setting"
+                  alt={t("home.service.cabinAlt")}
                   className="object-cover object-center"
                   data-service-image="primary"
                   fill
@@ -95,7 +100,7 @@ const EditorialServiceStory = () => (
               </div>
               <div className="absolute inset-0 bg-gradient-to-t from-black/18 via-transparent to-white/8" />
               <span className="absolute left-5 top-5 text-caption text-[#3c352a] sm:left-7 sm:top-7">
-                01 · Interior
+                {t("home.service.cabinLabel")}
               </span>
             </div>
             <figcaption
@@ -107,9 +112,9 @@ const EditorialServiceStory = () => (
                 className="absolute inset-x-0 top-0 h-px origin-left bg-gradient-to-r from-[#a88700] via-black/20 to-transparent"
                 data-service-caption-rule
               />
-              <span className="text-h3">Cabin comfort</span>
+              <span className="text-h3">{t("home.service.cabinHeading")}</span>
               <span className="max-w-60 text-body-sm text-[#655f55] sm:text-right">
-                Space designed to let the journey feel effortless.
+                {t("home.service.cabinBody")}
               </span>
             </figcaption>
           </figure>
@@ -127,7 +132,7 @@ const EditorialServiceStory = () => (
                 data-service-image-parallax="secondary"
               >
                 <Image
-                  alt="X-Fly cabin crew providing an onboard dining service"
+                  alt={t("home.service.serviceAlt")}
                   className="object-cover object-[50%_42%]"
                   data-service-image="secondary"
                   fill
@@ -137,7 +142,7 @@ const EditorialServiceStory = () => (
               </div>
               <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-white/8" />
               <span className="absolute left-5 top-5 text-caption text-white/90 sm:left-7 sm:top-7">
-                02 · Service
+                {t("home.service.serviceLabel")}
               </span>
             </div>
             <figcaption
@@ -149,9 +154,9 @@ const EditorialServiceStory = () => (
                 className="absolute inset-x-0 top-0 h-px origin-left bg-gradient-to-r from-[#a88700] via-black/20 to-transparent"
                 data-service-caption-rule
               />
-              <span className="text-h3">Personal service</span>
+              <span className="text-h3">{t("home.service.serviceHeading")}</span>
               <p className="mt-3 max-w-sm text-body-sm text-[#655f55]">
-                Care that feels considered, never excessive.
+                {t("home.service.serviceBody")}
               </p>
             </figcaption>
           </figure>
@@ -159,6 +164,7 @@ const EditorialServiceStory = () => (
       </Container>
     </div>
   </section>
-);
+  );
+};
 
 export { EditorialServiceStory, interiorImage, serviceImage };

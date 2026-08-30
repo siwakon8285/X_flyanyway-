@@ -1,47 +1,60 @@
+"use client";
+
 import Image from "next/image";
 
 import { AircraftNarrativeControls } from "@/components/home/story/AircraftNarrativeControls";
 import { Container } from "@/components/layout/Container";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/types";
 
 const flythroughAircraft =
   "/images/hero/x-fly-aircraft-flythrough-v1.png";
 
 const narrativeBeats = [
   {
-    copy: "One connected journey across continents and time zones.",
-    headline: "GO FURTHER.",
+    copyKey: "home.aircraft.global.copy",
+    headlineKey: "home.aircraft.global.headline",
     id: "global",
-    label: "GLOBAL",
+    labelKey: "home.aircraft.global.label",
     position:
       "motion-safe:[@media(min-height:52rem)]:lg:col-start-1 motion-safe:[@media(min-height:52rem)]:lg:row-start-1 motion-safe:[@media(min-height:52rem)]:lg:w-[82%] motion-safe:[@media(min-height:52rem)]:lg:max-w-[23rem] motion-safe:[@media(min-height:52rem)]:lg:self-start motion-safe:[@media(min-height:52rem)]:lg:justify-self-start",
   },
   {
-    copy: "Space shaped around how you choose to travel.",
-    headline: "FLY YOUR WAY.",
+    copyKey: "home.aircraft.personal.copy",
+    headlineKey: "home.aircraft.personal.headline",
     id: "personal",
-    label: "PERSONAL",
+    labelKey: "home.aircraft.personal.label",
     position:
       "motion-safe:[@media(min-height:52rem)]:lg:col-start-1 motion-safe:[@media(min-height:52rem)]:lg:row-start-2 motion-safe:[@media(min-height:52rem)]:lg:w-[82%] motion-safe:[@media(min-height:52rem)]:lg:max-w-[24rem] motion-safe:[@media(min-height:52rem)]:lg:self-end motion-safe:[@media(min-height:52rem)]:lg:justify-self-center",
   },
   {
-    copy: "Thoughtful comfort, considered at every altitude.",
-    headline: "ABOVE THE ORDINARY.",
+    copyKey: "home.aircraft.premium.copy",
+    headlineKey: "home.aircraft.premium.headline",
     id: "premium",
-    label: "PREMIUM",
+    labelKey: "home.aircraft.premium.label",
     position:
       "motion-safe:[@media(min-height:52rem)]:lg:col-start-2 motion-safe:[@media(min-height:52rem)]:lg:row-start-1 motion-safe:[@media(min-height:52rem)]:lg:w-[82%] motion-safe:[@media(min-height:52rem)]:lg:max-w-[24rem] motion-safe:[@media(min-height:52rem)]:lg:self-start motion-safe:[@media(min-height:52rem)]:lg:justify-self-end",
   },
   {
-    copy: "Every detail considered from departure to arrival.",
-    headline: "FROM HERE TO THERE.",
+    copyKey: "home.aircraft.seamless.copy",
+    headlineKey: "home.aircraft.seamless.headline",
     id: "seamless",
-    label: "SEAMLESS",
+    labelKey: "home.aircraft.seamless.label",
     position:
       "motion-safe:[@media(min-height:52rem)]:lg:col-start-2 motion-safe:[@media(min-height:52rem)]:lg:row-start-2 motion-safe:[@media(min-height:52rem)]:lg:w-[82%] motion-safe:[@media(min-height:52rem)]:lg:max-w-[25rem] motion-safe:[@media(min-height:52rem)]:lg:self-end motion-safe:[@media(min-height:52rem)]:lg:justify-self-end",
   },
-] as const;
+] as const satisfies readonly {
+  copyKey: TranslationKey;
+  headlineKey: TranslationKey;
+  id: string;
+  labelKey: TranslationKey;
+  position: string;
+}[];
 
-const AircraftNarrativeStory = () => (
+const AircraftNarrativeStory = () => {
+  const { t } = useLanguage();
+
+  return (
   <section
     aria-labelledby="aircraft-story-heading"
     className="relative isolate overflow-clip border-y border-border/70 bg-[linear-gradient(180deg,#07090c_0%,#0a121b_48%,#080a0d_100%)] py-section-lg"
@@ -51,17 +64,16 @@ const AircraftNarrativeStory = () => (
     <Container className="relative z-20">
       <div className="flex items-center gap-4">
         <span className="h-px w-10 bg-brand" />
-        <p className="text-label text-brand">The X-Fly way</p>
+        <p className="text-label text-brand">{t("home.aircraft.eyebrow")}</p>
       </div>
       <h2
         className="mt-5 max-w-[11ch] text-h1 text-balance"
         id="aircraft-story-heading"
       >
-        Movement, made personal.
+        {t("home.aircraft.heading")}
       </h2>
       <p className="mt-6 max-w-xl text-body-lg text-muted-foreground">
-        More than a route between two places. A journey with one considered
-        rhythm from takeoff to arrival.
+        {t("home.aircraft.body")}
       </p>
     </Container>
 
@@ -130,19 +142,19 @@ const AircraftNarrativeStory = () => (
                 key={beat.id}
               >
                 <p className="text-caption text-brand" data-aircraft-beat-meta>
-                  {String(index + 1).padStart(2, "0")} / 04 · {beat.label}
+                  {String(index + 1).padStart(2, "0")} / 04 · {t(beat.labelKey)}
                 </p>
                 <h3
                   className="mt-3 text-[clamp(2rem,3.5vw,4.25rem)] font-semibold leading-[0.9] tracking-[-0.055em]"
                   data-aircraft-beat-headline
                 >
-                  {beat.headline}
+                  {t(beat.headlineKey)}
                 </h3>
                 <p
                   className="mt-4 max-w-sm text-body text-muted-foreground"
                   data-aircraft-beat-copy
                 >
-                  {beat.copy}
+                  {t(beat.copyKey)}
                 </p>
               </li>
             ))}
@@ -154,6 +166,7 @@ const AircraftNarrativeStory = () => (
       </div>
     </div>
   </section>
-);
+  );
+};
 
 export { AircraftNarrativeStory, flythroughAircraft };

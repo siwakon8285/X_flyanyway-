@@ -1,15 +1,20 @@
+"use client";
+
 import { Container } from "@/components/layout/Container";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { useLanguage } from "@/i18n/LanguageProvider";
 
 export default function FlightDetailLoading() {
+  const { t } = useLanguage();
+
   return (
     <Container>
       <main
-        aria-label="Loading flight detail"
+        aria-label={t("loading.flightDetail")}
         className="min-h-screen py-section-sm pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]"
         role="status"
       >
-        <span className="sr-only">Loading flight detail</span>
+        <span className="sr-only">{t("loading.flightDetail")}</span>
         <section className="border-b border-border pb-10" data-detail-skeleton>
           <Skeleton className="h-9 w-36" />
           <Skeleton className="mt-8 h-5 w-28" />

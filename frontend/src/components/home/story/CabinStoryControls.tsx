@@ -1,21 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/types";
 
 type CabinMeta = {
   id: "economy" | "premium-economy" | "business" | "first";
-  label: string;
+  labelKey: TranslationKey;
 };
 
 const cabinsMeta: readonly CabinMeta[] = [
-  { id: "economy", label: "Economy" },
-  { id: "premium-economy", label: "Premium Economy" },
-  { id: "business", label: "Business" },
-  { id: "first", label: "First" },
+  { id: "economy", labelKey: "common.cabins.economy" },
+  { id: "premium-economy", labelKey: "common.cabins.premiumEconomy" },
+  { id: "business", labelKey: "common.cabins.business" },
+  { id: "first", labelKey: "common.cabins.first" },
 ] as const;
 
 const CabinStoryControls = () => {
   const [activeCabin, setActiveCabin] = useState(0);
+  const { t } = useLanguage();
 
   useEffect(() => {
     if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
@@ -75,7 +78,7 @@ const CabinStoryControls = () => {
       data-cabin-mobile-nav
     >
       <nav
-        aria-label="Cabin choices"
+        aria-label={t("home.cabins.controlLabel")}
         className="flex items-center gap-1.5 rounded-full border border-border/50 bg-[#090c12]/80 px-4 py-2 backdrop-blur-md"
       >
         {cabinsMeta.map((cabin, index) => {
@@ -83,7 +86,7 @@ const CabinStoryControls = () => {
           return (
             <button
               aria-current={isActive ? "step" : undefined}
-              aria-label={`Go to ${cabin.label}`}
+              aria-label={t("home.cabins.goTo", { label: t(cabin.labelKey) })}
               className="group relative flex min-h-[44px] min-w-[44px] items-center justify-center p-1 focus-visible:outline-none"
               key={cabin.id}
               onClick={() => handleCabinClick(index)}

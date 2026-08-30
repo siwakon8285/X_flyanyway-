@@ -136,28 +136,28 @@ const validateFlightSearch = (
 ): FlightSearchErrors => {
   const errors: FlightSearchErrors = {};
 
-  if (!values.from) errors.from = "Choose an origin.";
+  if (!values.from) errors.from = "flightSearch.validation.originRequired";
   if (!values.to) {
-    errors.to = "Choose a destination.";
+    errors.to = "flightSearch.validation.destinationRequired";
   } else if (values.from?.code === values.to.code) {
-    errors.to = "Origin and destination must be different.";
+    errors.to = "flightSearch.validation.destinationDifferent";
   }
 
   if (!values.departure) {
-    errors.departure = "Choose a departure date.";
+    errors.departure = "flightSearch.validation.departureRequired";
   } else if (!isDateInputValue(values.departure)) {
-    errors.departure = "Choose a valid departure date.";
+    errors.departure = "flightSearch.validation.departureValid";
   } else if (values.departure < today) {
-    errors.departure = "Departure date cannot be in the past.";
+    errors.departure = "flightSearch.validation.departurePast";
   }
 
   if (values.trip === "round-trip") {
     if (!values.returnDate) {
-      errors.returnDate = "Choose a return date.";
+      errors.returnDate = "flightSearch.validation.returnRequired";
     } else if (!isDateInputValue(values.returnDate)) {
-      errors.returnDate = "Choose a valid return date.";
+      errors.returnDate = "flightSearch.validation.returnValid";
     } else if (values.departure && values.returnDate < values.departure) {
-      errors.returnDate = "Return date must be on or after departure.";
+      errors.returnDate = "flightSearch.validation.returnOrder";
     }
   }
 
@@ -167,9 +167,9 @@ const validateFlightSearch = (
       !Number.isSafeInteger(count) || count < 0 || count > PASSENGER_UI_SAFETY_LIMIT,
   );
   if (outsideSafetyRange) {
-    errors.passengers = "Passenger counts are outside the supported UI range.";
+    errors.passengers = "flightSearch.validation.passengerRange";
   } else if (values.passengers.adults < 1) {
-    errors.passengers = "At least one adult is required.";
+    errors.passengers = "flightSearch.validation.adultRequired";
   }
 
   return errors;

@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { render } from "@/tests/renderWithLanguage";
 
 import { FlightDetailPage } from "@/components/booking/detail/FlightDetailPage";
 import { resolveFlightDetailRequest } from "@/components/booking/detail/flightDetailUtils";
@@ -41,8 +42,8 @@ describe("FlightDetailPage", () => {
     expect(screen.getByText("Direct")).toBeInTheDocument();
     expect(screen.getByText("Airbus A350-900")).toBeInTheDocument();
     expect(screen.getByText("On schedule")).toBeInTheDocument();
-    expect(screen.getByText("10 MAY 2099")).toBeInTheDocument();
-    expect(screen.getByText("Return 18 MAY 2099")).toBeInTheDocument();
+    expect(screen.getByText("10 May 2099")).toBeInTheDocument();
+    expect(screen.getByText("Return 18 May 2099")).toBeInTheDocument();
     expect(screen.getByText("2 passengers")).toBeInTheDocument();
     expect(screen.getByText(/all times shown in local airport time/i)).toBeInTheDocument();
   });

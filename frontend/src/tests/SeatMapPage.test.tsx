@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
+import { render } from "@/tests/renderWithLanguage";
 
 import { resolveSeatSelectionRequest } from "@/components/booking/detail/flightDetailUtils";
 import { SeatMapPage } from "@/components/booking/seats/SeatMapPage";

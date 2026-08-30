@@ -1,15 +1,15 @@
+"use client";
+
 import { ArrowLeft, ArrowRight, CalendarDays, Clock3, UsersRound } from "lucide-react";
 import Link from "next/link";
 
-import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
-import {
-  formatDuration,
-  formatSearchDate,
-} from "@/components/booking/results/flightResultUtils";
+import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
 import type { FlightResult } from "@/components/booking/results/flightResultTypes";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
 import { Badge } from "@/components/ui/Badge";
 import { buttonVariants } from "@/components/ui/Button";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatDate, formatDuration } from "@/i18n/formatters";
 
 const FlightDetailSummary = ({
   criteria,
@@ -24,6 +24,7 @@ const FlightDetailSummary = ({
     (total, count) => total + count,
     0,
   );
+  const { locale, t } = useLanguage();
 
   return (
     <header className="border-b border-border pb-10 lg:pb-14">
@@ -32,12 +33,12 @@ const FlightDetailSummary = ({
         href={`/flights?${query}`}
       >
         <ArrowLeft aria-hidden="true" />
-        Back to Flights
+        {t("flightDetail.back")}
       </Link>
 
       <div className="mt-9 flex flex-wrap items-center gap-3">
         <p className="text-label text-brand">{flight.flightNumber}</p>
-        <Badge variant="outline">On schedule</Badge>
+        <Badge variant="outline">{t("flightDetail.onSchedule")}</Badge>
       </div>
 
       <h1 className="mt-4 text-h1 uppercase">
@@ -45,7 +46,7 @@ const FlightDetailSummary = ({
         <span aria-hidden="true" className="mx-[0.22em] text-brand">
           →
         </span>
-        <span className="sr-only"> to </span>
+        <span className="sr-only"> {t("common.to")} </span>
         {flight.destinationCode}
       </h1>
 
@@ -63,14 +64,14 @@ const FlightDetailSummary = ({
         <div className="flex min-w-20 flex-col items-center sm:min-w-40">
           <span className="inline-flex items-center gap-2 text-label">
             <Clock3 aria-hidden="true" className="size-4 text-brand" />
-            {formatDuration(flight.durationMinutes)}
+            {formatDuration(flight.durationMinutes, locale)}
           </span>
           <span aria-hidden="true" className="my-3 flex w-full items-center">
             <span className="h-px flex-1 bg-border-strong" />
             <ArrowRight className="size-4 -translate-x-px text-brand" />
           </span>
           <span className="text-caption text-muted-foreground">
-            {flight.stops === "direct" ? "Direct" : "1 stop"}
+            {t(flight.stops === "direct" ? "common.direct" : "common.oneStop")}
           </span>
         </div>
 
@@ -89,24 +90,24 @@ const FlightDetailSummary = ({
       </div>
 
       <p className="mt-5 text-body-sm text-muted-foreground">
-        All times shown in local airport time.
+        {t("flightDetail.localTimes")}
       </p>
 
       <div className="mt-8 flex flex-wrap gap-x-7 gap-y-4 border-t border-border pt-6 text-label">
         <span className="inline-flex items-center gap-2">
           <CalendarDays aria-hidden="true" className="size-4 text-brand" />
-          {formatSearchDate(criteria.departure)}
+          {formatDate(criteria.departure, locale)}
         </span>
         <span className="text-muted-foreground">
           {criteria.trip === "round-trip"
-            ? `Return ${formatSearchDate(criteria.returnDate)}`
-            : "One way"}
+            ? t("common.returnDate", { date: formatDate(criteria.returnDate, locale) })
+            : t("common.oneWay")}
         </span>
         <span className="inline-flex items-center gap-2">
           <UsersRound aria-hidden="true" className="size-4 text-brand" />
-          {passengerTotal} {passengerTotal === 1 ? "passenger" : "passengers"}
+          {passengerTotal} {t(passengerTotal === 1 ? "common.passenger" : "common.passengers")}
         </span>
-        <span>{cabinLabels[criteria.cabin]}</span>
+        <span>{t(cabinLabelKeys[criteria.cabin])}</span>
       </div>
     </header>
   );

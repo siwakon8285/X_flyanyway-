@@ -1,21 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import type { TranslationKey } from "@/i18n/types";
 
 type BeatMeta = {
   id: "global" | "personal" | "premium" | "seamless";
-  label: string;
+  labelKey: TranslationKey;
 };
 
 const beats: readonly BeatMeta[] = [
-  { id: "global", label: "Global" },
-  { id: "personal", label: "Personal" },
-  { id: "premium", label: "Premium" },
-  { id: "seamless", label: "Seamless" },
+  { id: "global", labelKey: "home.aircraft.global.label" },
+  { id: "personal", labelKey: "home.aircraft.personal.label" },
+  { id: "premium", labelKey: "home.aircraft.premium.label" },
+  { id: "seamless", labelKey: "home.aircraft.seamless.label" },
 ] as const;
 
 const AircraftNarrativeControls = () => {
   const [activeBeat, setActiveBeat] = useState(0);
+  const { t } = useLanguage();
 
   useEffect(() => {
     if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
@@ -75,7 +78,7 @@ const AircraftNarrativeControls = () => {
       data-aircraft-mobile-nav
     >
       <nav
-        aria-label="Aircraft narrative milestones"
+        aria-label={t("home.aircraft.controlLabel")}
         className="flex items-center gap-1.5 rounded-full border border-border/50 bg-[#090c12]/80 px-4 py-2 backdrop-blur-md"
       >
         {beats.map((beat, index) => {
@@ -83,7 +86,7 @@ const AircraftNarrativeControls = () => {
           return (
             <button
               aria-current={isActive ? "step" : undefined}
-              aria-label={`Go to ${beat.label}`}
+              aria-label={t("home.aircraft.goTo", { label: t(beat.labelKey) })}
               className="group relative flex min-h-[44px] min-w-[44px] items-center justify-center p-1 focus-visible:outline-none"
               key={beat.id}
               onClick={() => handleBeatClick(index)}

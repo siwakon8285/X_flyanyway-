@@ -1,4 +1,5 @@
 import type { CabinClass } from "@/components/booking/search/searchTypes";
+import type { TranslationKey } from "@/i18n/types";
 
 type SeatAvailability = "available" | "booked" | "unavailable";
 type SeatPosition = "aisle" | "middle" | "window";
@@ -19,14 +20,14 @@ type AircraftFamily = {
 
 type AircraftPlanMarker = {
   kind: AircraftPlanMarkerKind;
-  label: string;
+  labelKey: TranslationKey;
   positionPercent: number;
   side: AircraftPlanMarkerSide;
 };
 
 type AircraftCabinSection = {
   endPercent: number;
-  label: string;
+  labelKey: TranslationKey;
   location: AircraftSectionLocation;
   markers: readonly AircraftPlanMarker[];
   startPercent: number;

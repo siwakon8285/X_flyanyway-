@@ -1,8 +1,11 @@
+"use client";
+
 import { ArrowLeft, CalendarDays, UsersRound } from "lucide-react";
-import { cabinLabels } from "@/components/booking/cabin/cabinPresentation";
-import { formatSearchDate } from "@/components/booking/results/flightResultUtils";
+import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
 import { buttonVariants } from "@/components/ui/Button";
+import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatDate } from "@/i18n/formatters";
 
 const SearchSummary = ({
   criteria,
@@ -15,6 +18,7 @@ const SearchSummary = ({
     (total, count) => total + count,
     0,
   );
+  const { locale, t } = useLanguage();
 
   return (
     <header className="border-b border-border pb-8 lg:pb-10">
@@ -23,41 +27,41 @@ const SearchSummary = ({
         href={`/?${query}#flight-search`}
       >
         <ArrowLeft aria-hidden="true" />
-        Modify Search
+        {t("flightResults.modifySearch")}
       </a>
       <div className="mt-9">
         <div>
-          <p className="text-label text-brand">Flight results</p>
+          <p className="text-label text-brand">{t("flightResults.label")}</p>
           <h1 className="mt-4 text-h1 uppercase">
             {criteria.from?.code}
             <span aria-hidden="true" className="mx-[0.22em] text-brand">
               →
             </span>
-            <span className="sr-only"> to </span>
+            <span className="sr-only"> {t("common.to")} </span>
             {criteria.to?.code}
           </h1>
           <p className="mt-3 text-body-lg text-muted-foreground">
-            {criteria.from?.city} to {criteria.to?.city}
+            {t("flightResults.routeCities", { from: criteria.from?.city ?? "", to: criteria.to?.city ?? "" })}
           </p>
         </div>
       </div>
       <div className="mt-8 flex flex-wrap gap-x-7 gap-y-4 text-label text-foreground">
         <span className="inline-flex items-center gap-2">
           <CalendarDays aria-hidden="true" className="size-4 text-brand" />
-          {formatSearchDate(criteria.departure)}
+          {formatDate(criteria.departure, locale)}
         </span>
         {criteria.trip === "round-trip" ? (
           <span className="text-muted-foreground">
-            Return {formatSearchDate(criteria.returnDate)}
+            {t("common.returnDate", { date: formatDate(criteria.returnDate, locale) })}
           </span>
         ) : (
-          <span className="text-muted-foreground">One way</span>
+          <span className="text-muted-foreground">{t("common.oneWay")}</span>
         )}
         <span className="inline-flex items-center gap-2">
           <UsersRound aria-hidden="true" className="size-4 text-brand" />
-          {passengerTotal} {passengerTotal === 1 ? "passenger" : "passengers"}
+          {passengerTotal} {t(passengerTotal === 1 ? "common.passenger" : "common.passengers")}
         </span>
-        <span>{cabinLabels[criteria.cabin]}</span>
+        <span>{t(cabinLabelKeys[criteria.cabin])}</span>
       </div>
     </header>
   );

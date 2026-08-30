@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { render } from "@/tests/renderWithLanguage";
 
 import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import { FlightSearchForm } from "@/components/booking/search/FlightSearchForm";
@@ -126,10 +127,10 @@ describe("FlightSearchForm", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Passengers, 1 total" }));
-    expect(screen.getByRole("button", { name: "Decrease adults" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Decrease adults/i })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Increase children" }));
-    expect(screen.getByLabelText("Children count")).toHaveTextContent("1");
+    fireEvent.click(screen.getByRole("button", { name: /Increase children/i }));
+    expect(screen.getByLabelText("Children 1")).toHaveTextContent("1");
 
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     expect(screen.getByRole("button", { name: "Passengers, 2 total" })).toBeInTheDocument();
