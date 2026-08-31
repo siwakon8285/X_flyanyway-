@@ -7,11 +7,15 @@ import { cn } from "@/lib/utils/cn";
 import { useLanguage } from "@/i18n/LanguageProvider";
 
 const SeatRow = ({
+  interactionLocked,
   onToggle,
+  pendingSeatIds,
   row,
   selectedSeatIds,
 }: {
+  interactionLocked: boolean;
   onToggle: (seatId: string) => void;
+  pendingSeatIds: ReadonlySet<string>;
   row: SeatRowData;
   selectedSeatIds: ReadonlySet<string>;
 }) => {
@@ -61,8 +65,10 @@ const SeatRow = ({
             ) : null}
             {group.map((seat) => (
               <SeatButton
+                interactionLocked={interactionLocked}
                 key={seat.id}
                 onToggle={onToggle}
+                pending={pendingSeatIds.has(seat.id)}
                 seat={seat}
                 selected={selectedSeatIds.has(seat.id)}
               />

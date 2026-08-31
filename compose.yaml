@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-x_fly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_for_local_development}
+      POSTGRES_USER: ${POSTGRES_USER:-x_fly_app}
+      TZ: UTC
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - x_fly_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-x_fly_app} -d ${POSTGRES_DB:-x_fly}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  db_test:
+    image: postgres:18
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_TEST_DB:-x_fly_concurrency_test}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_for_local_development}
+      POSTGRES_USER: ${POSTGRES_USER:-x_fly_app}
+      TZ: UTC
+    ports:
+      - "${POSTGRES_TEST_HOST_PORT:-5434}:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-x_fly_app} -d ${POSTGRES_TEST_DB:-x_fly_concurrency_test}"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  x_fly_postgres_data:

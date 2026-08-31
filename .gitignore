@@ -1,0 +1,9 @@
+.env
+*.sqlx.json
+backend/target/
+backups/
+*.dump
+*.sql
+!backend/migrations/*.sql
+!backend/seeds/*.sql
+

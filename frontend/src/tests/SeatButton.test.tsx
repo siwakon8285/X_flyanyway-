@@ -17,7 +17,15 @@ const seat: AircraftSeat = {
 describe("SeatButton", () => {
   it("keeps selection usable and spatial motion disabled under reduced motion", () => {
     const onToggle = jest.fn();
-    render(<SeatButton onToggle={onToggle} seat={seat} selected={false} />);
+    render(
+      <SeatButton
+        interactionLocked={false}
+        onToggle={onToggle}
+        pending={false}
+        seat={seat}
+        selected={false}
+      />,
+    );
     const button = screen.getByRole("button", { name: /seat 20a.*available/i });
 
     fireEvent.mouseEnter(button);
@@ -27,7 +35,15 @@ describe("SeatButton", () => {
   });
 
   it("uses a native button so browser Enter and Space activation remain available", () => {
-    render(<SeatButton onToggle={jest.fn()} seat={seat} selected={false} />);
+    render(
+      <SeatButton
+        interactionLocked={false}
+        onToggle={jest.fn()}
+        pending={false}
+        seat={seat}
+        selected={false}
+      />,
+    );
     const button = screen.getByRole("button", { name: /seat 20a.*available/i });
 
     button.focus();
