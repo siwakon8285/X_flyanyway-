@@ -30,12 +30,16 @@ const isPositionedMarker = (
   marker.kind in markerAbbreviations;
 
 const AircraftSeatMap = ({
+  interactionLocked,
   map,
   onToggle,
+  pendingSeatIds,
   selectedSeatIds,
 }: {
+  interactionLocked: boolean;
   map: CabinSeatMap;
   onToggle: (seatId: string) => void;
+  pendingSeatIds: ReadonlySet<string>;
   selectedSeatIds: ReadonlySet<string>;
 }) => {
   const presentation = SEAT_MAP_PRESENTATION[map.cabin];
@@ -172,8 +176,10 @@ const AircraftSeatMap = ({
           >
             {map.rows.map((row) => (
               <SeatRow
+                interactionLocked={interactionLocked}
                 key={row.row}
                 onToggle={onToggle}
+                pendingSeatIds={pendingSeatIds}
                 row={row}
                 selectedSeatIds={selectedSeatIds}
               />

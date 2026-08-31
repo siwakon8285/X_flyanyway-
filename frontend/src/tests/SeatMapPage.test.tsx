@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
 import { resolveSeatSelectionRequest } from "@/components/booking/detail/flightDetailUtils";
@@ -31,7 +31,89 @@ const renderSeatMap = (selectedCabin: CabinClass = "business") => {
   return render(<SeatMapPage request={request} seatMap={seatMap} />);
 };
 
+const response = (payload: unknown, status = 200) => ({
+  json: async () => payload,
+  ok: status >= 200 && status < 300,
+  status,
+});
+
+const installSuccessfulSeatHoldFetch = () => {
+  let currentHold: Record<string, unknown> | null = null;
+  const fetchMock = jest.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/flights/")) {
+      const cabin = new URL(url).searchParams.get("cabin") as CabinClass;
+      const fixture = getSeatMapFixture("Airbus A350-900", cabin);
+      return response({
+        cabin,
+        departureDate: "2099-05-10",
+        flightId: "xf-201",
+        seats: fixture?.rows.flatMap((row) =>
+          row.groups.flat().map((seat) => ({
+            columnCode: seat.column,
+            position: seat.position,
+            rowNumber: seat.row,
+            seatNumber: seat.seatNumber,
+            status:
+              seat.availability === "booked"
+                ? "BOOKED"
+                : seat.availability === "unavailable"
+                  ? "UNAVAILABLE"
+                  : "AVAILABLE",
+          })),
+        ) ?? [],
+        serverTime: "2099-05-10T10:00:00Z",
+      });
+    }
+    if (url.endsWith("/validation")) return response(currentHold);
+    if (init?.method === "POST" || init?.method === "PUT") {
+      const body = JSON.parse(String(init.body)) as {
+        cabin?: CabinClass;
+        departureDate?: string;
+        flightId?: string;
+        passengers?: { adults: number; children: number; infants: number };
+        seats: string[];
+      };
+      currentHold = {
+        cabin: body.cabin ?? currentHold?.cabin ?? "business",
+        departureDate: body.departureDate ?? currentHold?.departureDate ?? "2099-05-10",
+        expiresAt: "2099-05-10T10:10:00Z",
+        flightId: body.flightId ?? currentHold?.flightId ?? "xf-201",
+        id: "8d256f1e-4758-4997-861f-3f20a53c5846",
+        passengers:
+          body.passengers ?? currentHold?.passengers ?? { adults: 2, children: 1, infants: 1 },
+        seats: body.seats,
+        serverTime: "2099-05-10T10:00:00Z",
+      };
+      return response(currentHold, init.method === "POST" ? 201 : 200);
+    }
+    if (init?.method === "DELETE") return response(null, 204);
+    return response(currentHold);
+  });
+  Object.defineProperty(global, "fetch", {
+    configurable: true,
+    value: fetchMock,
+    writable: true,
+  });
+  return fetchMock;
+};
+
 describe("SeatMapPage", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => window.sessionStorage.clear());
+
+  afterEach(() => {
+    if (originalFetch) {
+      Object.defineProperty(global, "fetch", {
+        configurable: true,
+        value: originalFetch,
+        writable: true,
+      });
+    } else {
+      Reflect.deleteProperty(global, "fetch");
+    }
+  });
   it("renders validated flight, route, selected cabin, and seat requirement context", () => {
     renderSeatMap();
 
@@ -176,7 +258,8 @@ describe("SeatMapPage", () => {
     expect(availableSeat).toHaveAttribute("type", "button");
   });
 
-  it("selects and deselects an available seat and exposes the state semantically", () => {
+  it("selects and deselects an available seat and exposes the state semantically", async () => {
+    installSuccessfulSeatHoldFetch();
     renderSeatMap();
     const seat = screen.getAllByRole("button", { name: /, available$/i })[0];
     if (!seat) throw new Error("Expected an available seat");
@@ -186,8 +269,15 @@ describe("SeatMapPage", () => {
     expect(seat).toHaveAccessibleName(/selected/i);
     expect(screen.getByText("1 of 3 seats selected")).toBeInTheDocument();
 
+    await waitFor(() =>
+      expect(screen.getByRole("complementary")).toHaveAttribute(
+        "data-hold-state",
+        "confirmed",
+      ),
+    );
+
     fireEvent.click(seat);
-    expect(seat).toHaveAttribute("aria-pressed", "false");
+    await waitFor(() => expect(seat).toHaveAttribute("aria-pressed", "false"));
     expect(screen.getByText("0 of 3 seats selected")).toBeInTheDocument();
   });
 
@@ -203,11 +293,20 @@ describe("SeatMapPage", () => {
     expect(screen.getByText("0 of 3 seats selected")).toBeInTheDocument();
   });
 
-  it("does not replace a selection after reaching the passenger limit", () => {
+  it("does not replace a selection after reaching the passenger limit", async () => {
+    installSuccessfulSeatHoldFetch();
     renderSeatMap();
     const available = screen.getAllByRole("button", { name: /, available$/i });
 
-    available.slice(0, 3).forEach((seat) => fireEvent.click(seat));
+    for (const seat of available.slice(0, 3)) {
+      fireEvent.click(seat);
+      await waitFor(() =>
+        expect(screen.getByRole("complementary")).toHaveAttribute(
+          "data-hold-state",
+          "confirmed",
+        ),
+      );
+    }
     fireEvent.click(available[3] as HTMLButtonElement);
 
     expect(screen.getByText("3 of 3 seats selected")).toBeInTheDocument();
@@ -217,22 +316,30 @@ describe("SeatMapPage", () => {
     expect(available[3]).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("enables continuation only when complete and preserves all handoff state", () => {
+  it("enables continuation only after a server hold and revalidates before handoff", async () => {
+    const fetchMock = installSuccessfulSeatHoldFetch();
     renderSeatMap();
     expect(screen.getByRole("button", { name: /continue.*select 3 seats/i })).toBeDisabled();
 
     const available = screen.getAllByRole("button", { name: /, available$/i });
-    const selectedCodes = available.slice(0, 3).map((seat) => {
+    for (const seat of available.slice(0, 3)) {
       fireEvent.click(seat);
-      return seat.getAttribute("data-seat-number") ?? "";
-    });
-    const sortedSeats = [...selectedCodes].sort((left, right) =>
-      left.localeCompare(right, undefined, { numeric: true }),
-    );
+      await waitFor(() =>
+        expect(screen.getByRole("complementary")).toHaveAttribute(
+          "data-hold-state",
+          "confirmed",
+        ),
+      );
+    }
 
-    expect(screen.getByRole("link", { name: "Continue with 3 seats" })).toHaveAttribute(
-      "href",
-      `/booking/passengers?from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=2&children=1&infants=1&cabin=business&trip=round-trip&flightId=xf-201&selectedCabin=business&seats=${sortedSeats.join("%2C")}`,
+    const continueButton = screen.getByRole("button", { name: "Continue with 3 seats" });
+    expect(continueButton).toBeEnabled();
+    fireEvent.click(continueButton);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringMatching(/\/seat-holds\/8d256f1e/),
+        expect.objectContaining({ credentials: "include" }),
+      ),
     );
   });
 
@@ -245,9 +352,9 @@ describe("SeatMapPage", () => {
     );
   });
 
-  it("uses native focusable controls and does not make network calls", () => {
+  it("uses native focusable controls and requests authoritative availability", () => {
     const originalFetch = global.fetch;
-    const fetchMock = jest.fn();
+    const fetchMock = jest.fn(() => new Promise(() => {}));
     Object.defineProperty(global, "fetch", {
       configurable: true,
       value: fetchMock,
@@ -262,9 +369,12 @@ describe("SeatMapPage", () => {
 
       expect(seat).toHaveFocus();
       expect(container.querySelector('[role="grid"]')).not.toBeInTheDocument();
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/api/v1/flights/xf-201/seats"),
+        expect.objectContaining({ credentials: "include" }),
+      );
       expect(screen.queryByRole("form")).not.toBeInTheDocument();
-      expect(screen.queryByText(/hold expires|held for/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/held for/i)).not.toBeInTheDocument();
     } finally {
       if (originalFetch) {
         Object.defineProperty(global, "fetch", {

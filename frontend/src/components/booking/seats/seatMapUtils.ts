@@ -54,17 +54,20 @@ const toggleSeatSelection = ({
 
 const buildPassengerDetailsHref = ({
   flightId,
+  holdId,
   query,
   seats,
   selectedCabin,
 }: {
   flightId: string;
+  holdId?: string;
   query: string;
   seats: readonly string[];
   selectedCabin: CabinClass;
 }) => {
   const params = new URLSearchParams(query);
   params.set("flightId", flightId);
+  if (holdId) params.set("holdId", holdId);
   params.set("selectedCabin", selectedCabin);
   params.set("seats", sortSeatNumbers(seats).join(","));
   return `/booking/passengers?${params.toString()}`;

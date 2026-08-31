@@ -25,18 +25,23 @@ const statusKeys = {
 } as const satisfies Record<"available" | "booked" | "selected" | "unavailable", TranslationKey>;
 
 const SeatButton = ({
+  interactionLocked,
   onToggle,
+  pending,
   seat,
   selected,
 }: {
+  interactionLocked: boolean;
   onToggle: (seatId: string) => void;
+  pending: boolean;
   seat: AircraftSeat;
   selected: boolean;
 }) => {
   const reducedMotion = useReducedMotion();
   const presentation = SEAT_MAP_PRESENTATION[seat.cabin];
   const { t } = useLanguage();
-  const disabled = seat.availability !== "available";
+  const unavailable = seat.availability !== "available";
+  const disabled = unavailable || interactionLocked;
   const announcedStatus = selected ? "selected" : seat.availability;
 
   return (
@@ -52,11 +57,12 @@ const SeatButton = ({
         seat: seat.seatNumber,
         status: t(statusKeys[announcedStatus]),
       })}
-      aria-pressed={disabled ? undefined : selected}
+      aria-busy={pending || undefined}
+      aria-pressed={unavailable ? undefined : selected}
       className={cn(
         "relative flex shrink-0 items-center justify-center rounded-xl border outline-none transition-[border-color,background-color,box-shadow,color] duration-200 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed motion-reduce:transition-colors",
         presentation.seatButtonClass,
-        disabled
+        unavailable
           ? seat.availability === "booked"
             ? "border-transparent bg-transparent text-[#828993] opacity-65"
             : "border-transparent bg-transparent text-[#626873] opacity-55"
@@ -65,6 +71,7 @@ const SeatButton = ({
             : presentation.availableClass,
       )}
       data-seat
+      data-hold-state={pending ? "pending" : selected ? "held-by-me" : undefined}
       data-seat-number={seat.seatNumber}
       disabled={disabled}
       onClick={() => onToggle(seat.id)}
