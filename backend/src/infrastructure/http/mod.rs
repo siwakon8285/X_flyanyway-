@@ -21,8 +21,9 @@ use uuid::Uuid;
 use crate::{
     domain::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
+        extras::ExtraSelectionInput,
         passengers::{PassengerFieldError, PassengerInput},
-        repositories::{PassengerRepositoryError, SeatHoldRepositoryError},
+        repositories::{ExtraRepositoryError, PassengerRepositoryError, SeatHoldRepositoryError},
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
         DomainError,
     },
@@ -47,6 +48,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/seat-holds/{hold_id}/passengers",
             get(get_passengers).put(save_passengers),
+        )
+        .route(
+            "/api/v1/seat-holds/{hold_id}/extras",
+            get(get_extras).put(save_extras),
         )
         .route(
             "/api/v1/seat-holds/{hold_id}/validation",
@@ -218,6 +223,43 @@ async fn save_passengers(
     ))
 }
 
+async fn get_extras(
+    State(state): State<AppState>,
+    Path(hold_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, ApiError> {
+    let token_hash = token_hash_from_cookie(&headers, hold_id)?;
+    let context = state.extras.get_extras(hold_id, token_hash).await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store, private")],
+        Json(context),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SaveExtrasRequest {
+    selections: Vec<ExtraSelectionInput>,
+}
+
+async fn save_extras(
+    State(state): State<AppState>,
+    Path(hold_id): Path<Uuid>,
+    headers: HeaderMap,
+    payload: Result<Json<SaveExtrasRequest>, JsonRejection>,
+) -> Result<impl IntoResponse, ApiError> {
+    let token_hash = token_hash_from_cookie(&headers, hold_id)?;
+    let request = payload.map_err(|_| ApiError::extras_bad_request())?.0;
+    let context = state
+        .extras
+        .save_extras(hold_id, token_hash, request.selections)
+        .await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store, private")],
+        Json(context),
+    ))
+}
+
 async fn validate_hold_for_continue(
     State(state): State<AppState>,
     Path(hold_id): Path<Uuid>,
@@ -352,6 +394,92 @@ impl ApiError {
             message: "Passenger information is invalid.",
             conflicting_seats: Vec::new(),
             field_errors: Vec::new(),
+        }
+    }
+
+    fn extras_bad_request() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "EXTRAS_VALIDATION_FAILED",
+            message: "Travel extras are invalid.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+}
+
+impl From<ExtraRepositoryError> for ApiError {
+    fn from(error: ExtraRepositoryError) -> Self {
+        let validation = |code, message| Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code,
+            message,
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        };
+        match error {
+            ExtraRepositoryError::HoldNotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "HOLD_NOT_FOUND",
+                message: "The seat hold could not be found.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ExtraRepositoryError::Unauthorized => Self::unauthorized(),
+            ExtraRepositoryError::HoldExpired => Self {
+                status: StatusCode::GONE,
+                code: "HOLD_EXPIRED",
+                message: "The seat hold has expired.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ExtraRepositoryError::HoldReleased => Self {
+                status: StatusCode::GONE,
+                code: "HOLD_RELEASED",
+                message: "The seat hold has been released.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ExtraRepositoryError::HoldConsumed => Self {
+                status: StatusCode::CONFLICT,
+                code: "HOLD_CONSUMED",
+                message: "The seat hold has already been consumed.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ExtraRepositoryError::SeatCountMismatch => {
+                validation("SEAT_COUNT_MISMATCH", "Held seats are incomplete.")
+            }
+            ExtraRepositoryError::PassengersNotReady => Self {
+                status: StatusCode::CONFLICT,
+                code: "PASSENGERS_NOT_READY",
+                message: "Passenger information must be completed before extras.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ExtraRepositoryError::UnknownProduct => {
+                validation("EXTRA_PRODUCT_UNKNOWN", "The extra product is unknown.")
+            }
+            ExtraRepositoryError::InvalidQuantity => validation(
+                "EXTRA_QUANTITY_INVALID",
+                "The extra product quantity is invalid.",
+            ),
+            ExtraRepositoryError::InvalidPassenger => validation(
+                "EXTRA_PASSENGER_INVALID",
+                "The passenger does not belong to this hold.",
+            ),
+            ExtraRepositoryError::PassengerIneligible => validation(
+                "EXTRA_PASSENGER_INELIGIBLE",
+                "The passenger is not eligible for this extra.",
+            ),
+            ExtraRepositoryError::CategoryConflict => validation(
+                "EXTRA_SELECTION_CONFLICT",
+                "The passenger has conflicting extra selections.",
+            ),
+            ExtraRepositoryError::Infrastructure(_error) => {
+                tracing::error!("extras repository failure");
+                Self::internal()
+            }
         }
     }
 }

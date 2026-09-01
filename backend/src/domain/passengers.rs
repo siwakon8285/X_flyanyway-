@@ -153,7 +153,7 @@ pub struct PassengerDraft {
     passengers: Vec<Passenger>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PassengerSlot {
     pub ordinal: u8,

@@ -94,6 +94,23 @@ The host-run backend and pgAdmin both connect through port `5433`, so they inspe
 
 The root Compose file intentionally contains PostgreSQL services only. `backend/Dockerfile` is retained for future production/self-hosted deployment builds, but it is not part of the local Compose workflow.
 
+## Travel Extras demo fixtures
+
+Travel Extras are persisted against the active, authorized seat hold in `hold_extras` and are exposed through `GET`/`PUT /api/v1/seat-holds/{hold_id}/extras`. The browser submits only `passengerOrdinal`, `productCode`, and `quantity`; the backend resolves eligibility and price. Saved rows retain a whole-baht unit-price snapshot in `THB`, and every PUT atomically replaces the complete selection set.
+
+Demo extra-baggage prices are `BAG_10KG` = THB 1,500, `BAG_20KG` = THB 2,800, and `BAG_30KG` = THB 3,900. Adults and children may select one baggage tier, one meal preference, and multiple assistance requests. Infants are informational-only in this MVP: they have no independent seat, extra-baggage purchase, meal preference, or assistance selection.
+
+Included cabin fixtures are:
+
+| Cabin | Cabin baggage | Checked baggage | Seat selection | Meal service |
+| --- | ---: | ---: | --- | --- |
+| Economy | 7 kg | 20 kg | Included | Standard |
+| Premium Economy | 7 kg | 25 kg | Included | Enhanced |
+| Business | 10 kg | 40 kg | Included | Premium |
+| First | 14 kg | 50 kg | Included | Signature |
+
+`seat_holds.extras_saved_at` is strictly a Travel Extras workflow-readiness marker. It means the customer explicitly reviewed and saved the Extras step, including an explicit save with no selections. It does **not** mean payment completed, a booking was confirmed, or a ticket was issued. Later booking, payment, and ticketing branches must use their own state and timestamps and must never reuse `extras_saved_at` for those meanings.
+
 ## Isolated PostgreSQL tests
 
 Repository and race tests refuse a database whose URL path does not end in `_test`. `TEST_DATABASE_URL` is separate from `DATABASE_URL` and uses host port `5434` for host-run tests. Start the isolated, tmpfs-backed test database only when required:

@@ -7,8 +7,67 @@ use uuid::Uuid;
 use crate::domain::value_objects::SeatNumber;
 use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
+    extras::{ExtraContext, ExtraSelectionInput, ExtraValidationError},
     passengers::{PassengerContext, PassengerFieldError, PassengerInput},
 };
+
+#[derive(Debug, Error)]
+pub enum ExtraRepositoryError {
+    #[error("seat hold not found")]
+    HoldNotFound,
+    #[error("seat hold authorization failed")]
+    Unauthorized,
+    #[error("seat hold has expired")]
+    HoldExpired,
+    #[error("seat hold has been released")]
+    HoldReleased,
+    #[error("seat hold has already been consumed")]
+    HoldConsumed,
+    #[error("held seat count no longer matches the passenger party")]
+    SeatCountMismatch,
+    #[error("passenger information must be completed before extras")]
+    PassengersNotReady,
+    #[error("extra product code is unknown")]
+    UnknownProduct,
+    #[error("extra quantity is invalid")]
+    InvalidQuantity,
+    #[error("passenger ordinal does not belong to the active hold")]
+    InvalidPassenger,
+    #[error("passenger is not eligible for the selected extra")]
+    PassengerIneligible,
+    #[error("passenger has conflicting selections in one category")]
+    CategoryConflict,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+impl From<ExtraValidationError> for ExtraRepositoryError {
+    fn from(error: ExtraValidationError) -> Self {
+        match error {
+            ExtraValidationError::UnknownProduct => Self::UnknownProduct,
+            ExtraValidationError::InvalidQuantity => Self::InvalidQuantity,
+            ExtraValidationError::InvalidPassenger => Self::InvalidPassenger,
+            ExtraValidationError::PassengerIneligible => Self::PassengerIneligible,
+            ExtraValidationError::CategoryConflict => Self::CategoryConflict,
+        }
+    }
+}
+
+#[async_trait]
+pub trait ExtraRepository: Send + Sync {
+    async fn get_extras(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+    ) -> Result<ExtraContext, ExtraRepositoryError>;
+
+    async fn save_extras(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        selections: Vec<ExtraSelectionInput>,
+    ) -> Result<ExtraContext, ExtraRepositoryError>;
+}
 
 #[derive(Debug, Error)]
 pub enum SeatHoldRepositoryError {

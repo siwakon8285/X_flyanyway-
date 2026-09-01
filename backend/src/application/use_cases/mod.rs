@@ -4,19 +4,23 @@ use uuid::Uuid;
 
 use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
+    extras::{ExtraContext, ExtraSelectionInput},
     passengers::{PassengerContext, PassengerInput},
     repositories::{
-        PassengerRepository, PassengerRepositoryError, SeatHoldRepository, SeatHoldRepositoryError,
+        ExtraRepository, ExtraRepositoryError, PassengerRepository, PassengerRepositoryError,
+        SeatHoldRepository, SeatHoldRepositoryError,
     },
     value_objects::SeatNumber,
 };
 
 mod create_seat_hold;
+mod get_extras;
 mod get_passengers;
 mod get_seat_hold;
 mod get_seat_map;
 mod release_seat_hold;
 mod replace_seat_hold_seats;
+mod save_extras;
 mod save_passengers;
 mod validate_seat_hold;
 
@@ -29,6 +33,34 @@ pub struct SeatHoldApplication {
 #[derive(Clone)]
 pub struct PassengerApplication {
     repository: Arc<dyn PassengerRepository>,
+}
+
+#[derive(Clone)]
+pub struct ExtraApplication {
+    repository: Arc<dyn ExtraRepository>,
+}
+
+impl ExtraApplication {
+    pub fn new(repository: Arc<dyn ExtraRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub async fn get_extras(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+    ) -> Result<ExtraContext, ExtraRepositoryError> {
+        get_extras::execute(self.repository.as_ref(), hold_id, token_hash).await
+    }
+
+    pub async fn save_extras(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        selections: Vec<ExtraSelectionInput>,
+    ) -> Result<ExtraContext, ExtraRepositoryError> {
+        save_extras::execute(self.repository.as_ref(), hold_id, token_hash, selections).await
+    }
 }
 
 impl PassengerApplication {
