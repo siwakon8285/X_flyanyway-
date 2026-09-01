@@ -14,6 +14,7 @@ use crate::domain::{
     value_objects::{CabinClass, PassengerCounts, SeatNumber},
 };
 
+mod extras;
 mod passengers;
 
 #[derive(Debug, Error)]

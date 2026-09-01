@@ -33,6 +33,7 @@ async fn app() -> (axum::Router, PgPool) {
     (
         build_router(AppState::new(
             repository.clone(),
+            repository.clone(),
             repository,
             Duration::from_secs(600),
             false,

@@ -2,6 +2,7 @@
 
 import { ArrowLeft, Check } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/components/booking/passengers/passengerClient";
 import { PassengerForm } from "@/components/booking/passengers/PassengerForm";
 import { PassengerSummary } from "@/components/booking/passengers/PassengerSummary";
+import { buildExtrasHandoffHref } from "@/components/booking/passengers/passengerRoute";
 import { validationKeys } from "@/components/booking/passengers/passengerPresentation";
 import type {
   PassengerContext,
@@ -92,6 +94,7 @@ const PassengerInformationPage = ({
   holdId: string;
 }) => {
   const { t } = useLanguage();
+  const router = useRouter();
   const [context, setContext] = useState<PassengerContext | null>(null);
   const [values, setValues] = useState<PassengerFormValue[]>([]);
   const [errors, setErrors] = useState<PassengerValidationError[]>([]);
@@ -199,6 +202,7 @@ const PassengerInformationPage = ({
       setErrors([]);
       setReady(true);
       setRecentlySaved(true);
+      router.push(buildExtrasHandoffHref({ holdId, query: backQuery }));
     } catch (error) {
       if (error instanceof BookingApiError) {
         if (["HOLD_EXPIRED", "HOLD_RELEASED", "HOLD_NOT_FOUND", "HOLD_UNAUTHORIZED"].includes(error.code)) {

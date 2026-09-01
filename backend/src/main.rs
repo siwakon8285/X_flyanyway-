@@ -34,6 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
     let state = AppState::new(
         repository.clone(),
+        repository.clone(),
         repository,
         config.seat_hold_ttl,
         config.secure_cookies,

@@ -19,7 +19,46 @@ const buildPassengerInformationHref = ({
   return `/booking/passengers?${params.toString()}`;
 };
 
-const buildExtrasHandoffHref = (holdId: string) =>
-  `/booking/extras?${new URLSearchParams({ holdId }).toString()}`;
+const recoveryKeys = new Set([
+  "adults",
+  "cabin",
+  "children",
+  "departure",
+  "flightId",
+  "from",
+  "infants",
+  "return",
+  "selectedCabin",
+  "to",
+  "trip",
+]);
 
-export { buildExtrasHandoffHref, buildPassengerInformationHref };
+const allowlistedRecoveryParams = (query: string) => {
+  const result = new URLSearchParams();
+  new URLSearchParams(query).forEach((value, key) => {
+    if (recoveryKeys.has(key)) result.set(key, value);
+  });
+  return result;
+};
+
+const buildExtrasHandoffHref = ({
+  holdId,
+  query,
+}: {
+  holdId: string;
+  query: string;
+}) => {
+  const params = allowlistedRecoveryParams(query);
+  params.set("holdId", holdId);
+  return `/booking/extras?${params.toString()}`;
+};
+
+const buildReviewHandoffHref = (holdId: string) =>
+  `/booking/review?${new URLSearchParams({ holdId }).toString()}`;
+
+export {
+  allowlistedRecoveryParams,
+  buildExtrasHandoffHref,
+  buildPassengerInformationHref,
+  buildReviewHandoffHref,
+};

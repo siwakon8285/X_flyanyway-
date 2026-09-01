@@ -7,6 +7,12 @@ import type {
 } from "@/components/booking/passengers/passengerTypes";
 import { render } from "@/tests/renderWithLanguage";
 
+const mockPush = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
 const hold = {
   cabin: "economy" as const,
   departureDate: "2027-05-10",
@@ -82,6 +88,7 @@ describe("PassengerInformationPage", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
+    mockPush.mockReset();
     if (originalFetch) {
       Object.defineProperty(global, "fetch", {
         configurable: true,
@@ -115,7 +122,7 @@ describe("PassengerInformationPage", () => {
     expect(screen.queryByText("99 passengers")).not.toBeInTheDocument();
   });
 
-  it("restores saved values and stays on Passenger with a clear ready state after save", async () => {
+  it("navigates to the real Extras route only after Passenger save succeeds", async () => {
     const fetchMock = setFetch(
       { body: savedContext, ok: true, status: 200 },
       { body: savedContext, ok: true, status: 200 },
@@ -131,13 +138,9 @@ describe("PassengerInformationPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save passenger information" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(
-      screen.getByRole("status", {
-        name: "Passenger information saved and ready for the next step.",
-      }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /extras/i })).not.toBeInTheDocument();
-    expect(window.location.pathname).not.toBe("/booking/extras");
+    expect(mockPush).toHaveBeenCalledWith(
+      "/booking/extras?from=BKK&to=LHR&departure=2027-05-10&adults=1&children=1&infants=1&cabin=economy&trip=one-way&flightId=xf-201&holdId=hold-123",
+    );
   });
 
   it("maps backend field errors without exposing backend messages", async () => {
@@ -163,6 +166,7 @@ describe("PassengerInformationPage", () => {
 
     expect(await screen.findByText("Enter a valid email address.")).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("blocks saving when the server reports an expired hold and guides back to seats", async () => {
