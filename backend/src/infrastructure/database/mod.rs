@@ -14,6 +14,8 @@ use crate::domain::{
     value_objects::{CabinClass, PassengerCounts, SeatNumber},
 };
 
+mod passengers;
+
 #[derive(Debug, Error)]
 pub enum DatabaseInitError {
     #[error("database migration failed")]

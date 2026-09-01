@@ -19,7 +19,7 @@ describe("Footer", () => {
     expect(screen.getByRole("link", { name: "Terms" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Cabins" })).toHaveAttribute(
       "href",
-      "#cabins",
+      "/#cabins",
     );
     expect(screen.getByRole("link", { name: "Book a Flight" })).toHaveAttribute(
       "href",
@@ -27,11 +27,15 @@ describe("Footer", () => {
     );
     expect(screen.getByRole("link", { name: "About X-Fly" })).toHaveAttribute(
       "href",
-      "#journey-experience",
+      "/#experience",
+    );
+    expect(screen.getByRole("link", { name: "Offers" })).toHaveAttribute(
+      "href",
+      "/#offers",
     );
   });
 
-  it("renders the final flight search before the footer", () => {
+  it("renders the hero flight search before the footer", () => {
     const { container } = render(
       <SiteShell>
         <Home />

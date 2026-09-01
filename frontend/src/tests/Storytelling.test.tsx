@@ -119,14 +119,11 @@ describe("scroll storytelling", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
 
     const storySections = [
-      container.querySelector("#global-reach"),
-      container.querySelector("#aircraft-story"),
+      container.querySelector("#explore"),
       container.querySelector("#cabins"),
       container.querySelector("#service-story"),
       container.querySelector("#journey-path"),
-      container.querySelector("#future-moon"),
-      container.querySelector("#journey-experience"),
-      container.querySelector("#flight-search"),
+      container.querySelector("#experience"),
     ];
 
     expect(storySections.every(Boolean)).toBe(true);
@@ -136,9 +133,7 @@ describe("scroll storytelling", () => {
       ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     });
 
-    expect(
-      screen.getByRole("heading", { level: 2, name: "The world, within reach." }),
-    ).toBeInTheDocument();
+    expect(container.querySelector("#global-reach")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { level: 2, name: "Choose your way to fly." }),
     ).toBeInTheDocument();
@@ -157,12 +152,7 @@ describe("scroll storytelling", () => {
         name: "A continuous journey.",
       }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", {
-        level: 2,
-        name: /NEXT:\s+THE MOON\./i,
-      }),
-    ).toBeInTheDocument();
+    expect(container.querySelector("#future-moon")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", {
         level: 2,
@@ -176,7 +166,7 @@ describe("scroll storytelling", () => {
 
   it("renders four spatial milestones inside the continuous aircraft corridor", () => {
     const { container } = render(<Home />);
-    const aircraftStory = container.querySelector("#aircraft-story");
+    const aircraftStory = container.querySelector("#explore");
 
     expect(aircraftStory).not.toBeNull();
     expect(
@@ -259,55 +249,6 @@ describe("scroll storytelling", () => {
     expect(
       aircraftStory?.querySelector("[data-aircraft-progress]"),
     ).not.toBeInTheDocument();
-  });
-
-  it("uses photographic Global Reach visual while preserving the 156-country message", () => {
-    const { container } = render(<Home />);
-    const globalReach = container.querySelector("#global-reach");
-
-    expect(globalReach).not.toBeNull();
-    expect(
-      globalReach?.querySelector("svg[data-world-map]"),
-    ).not.toBeInTheDocument();
-
-    const globalImgs = globalReach?.querySelectorAll("img");
-    expect(globalImgs?.length).toBeGreaterThanOrEqual(1);
-    expect(globalImgs?.[0]).toHaveAttribute(
-      "src",
-      expect.stringContaining("x-fly-global-reach-luxury.jpg"),
-    );
-
-    expect(within(globalReach as HTMLElement).getByText("156")).toBeInTheDocument();
-    expect(
-      within(globalReach as HTMLElement).getByText("COUNTRIES"),
-    ).toBeInTheDocument();
-    expect(
-      within(globalReach as HTMLElement).queryByRole("button"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("presents Global Reach as a grounded, accessible travel network", () => {
-    const { container } = render(<Home />);
-    const globalReach = container.querySelector("#global-reach");
-
-    expect(globalReach).not.toBeNull();
-    expect(globalReach).toHaveAttribute("data-travel-network", "cartographic");
-    expect(globalReach?.querySelector("[data-global-globe]"))
-      .not.toBeInTheDocument();
-    expect(globalReach?.querySelector("[data-global-space]"))
-      .not.toBeInTheDocument();
-    expect(
-      within(globalReach as HTMLElement).getByText(
-        "Connected across every horizon.",
-        { exact: false },
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(globalReach as HTMLElement).getByText("7 GLOBAL HUBS"),
-    ).toBeVisible();
-    expect(
-      within(globalReach as HTMLElement).getByText("24/7 OPERATIONS"),
-    ).toBeVisible();
   });
 
   it("exposes immutable stage-owned Journey slots for persistent cards", () => {
@@ -542,13 +483,13 @@ describe("scroll storytelling", () => {
     ).toHaveClass("md:mt-24", "lg:mt-36");
   });
 
-  it("ends storytelling with the brand summary before the single flight search", () => {
+  it("places the single flight search in the hero before the story sequence", () => {
     const { container } = render(<Home />);
-    const journey = container.querySelector("#journey-experience");
-    const flightSearch = container.querySelector("#flight-search");
+    const journey = container.querySelector("#experience");
+    const heroSearch = container.querySelector("[data-hero-search]");
 
     expect(journey).not.toBeNull();
-    expect(flightSearch).not.toBeNull();
+    expect(heroSearch).not.toBeNull();
     expect(
       within(journey as HTMLElement).getByRole("heading", {
         level: 2,
@@ -564,20 +505,17 @@ describe("scroll storytelling", () => {
     expect(within(journey as HTMLElement).queryByRole("link", { name: "Book a Flight" })).not.toBeInTheDocument();
     expect(within(journey as HTMLElement).queryByRole("link", { name: "Explore Cabins" })).not.toBeInTheDocument();
     expect(journey?.querySelector("[data-journey-cta]")).not.toBeInTheDocument();
-    expect(journey?.compareDocumentPosition(flightSearch as Node)).toBe(
+    expect(heroSearch?.compareDocumentPosition(journey as Node)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(container.querySelectorAll("#flight-search")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-hero-search]")).toHaveLength(1);
   });
 
-  it("communicates global scale and presents 4 dedicated cabin tiers with photography and without interactive controls", () => {
+  it("presents 4 dedicated cabin tiers with photography and without interactive controls", () => {
     const { container } = render(<Home />);
-    const globalReach = container.querySelector("#global-reach");
     const cabins = container.querySelector("#cabins");
 
-    expect(globalReach).not.toBeNull();
     expect(cabins).not.toBeNull();
-    expect(within(globalReach as HTMLElement).getByText("156")).toBeInTheDocument();
 
     const stages = Array.from(cabins?.querySelectorAll("[data-cabin-stage]") ?? []);
     expect(stages).toHaveLength(4);

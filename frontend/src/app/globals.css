@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+@keyframes passenger-field-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+@keyframes passenger-ready {
+  0% { box-shadow: 0 0 0 rgb(255 212 0 / 0); }
+  45% { box-shadow: 0 0 0 5px rgb(255 212 0 / 0.14); }
+  100% { box-shadow: 0 0 0 rgb(255 212 0 / 0); }
+}
+
 :root {
   color-scheme: dark;
 
@@ -154,18 +166,6 @@ html[lang="th"] body {
 html[lang="th"] :is(.text-display, .text-h1, .text-h2, .text-h3) {
   letter-spacing: -0.025em;
   line-height: 1.08;
-}
-
-html[lang="th"] #global-reach-heading {
-  letter-spacing: 0;
-  line-height: 0.98;
-}
-
-html[lang="th"] [data-global-heading-wrapper] {
-  --thai-global-reach-glyph-clearance: clamp(0.42rem, 0.72vw, 0.66rem);
-
-  margin-block: calc(var(--thai-global-reach-glyph-clearance) * -1);
-  padding-block: var(--thai-global-reach-glyph-clearance);
 }
 
 html[data-initial-hash-positioning] body {

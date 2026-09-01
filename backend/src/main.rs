@@ -31,8 +31,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     prepare_database(&pool).await?;
 
+    let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
     let state = AppState::new(
-        Arc::new(SqlxSeatHoldRepository::new(pool)),
+        repository.clone(),
+        repository,
         config.seat_hold_ttl,
         config.secure_cookies,
         config.frontend_origin,

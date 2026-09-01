@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{rejection::JsonRejection, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -21,7 +21,8 @@ use uuid::Uuid;
 use crate::{
     domain::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
-        repositories::SeatHoldRepositoryError,
+        passengers::{PassengerFieldError, PassengerInput},
+        repositories::{PassengerRepositoryError, SeatHoldRepositoryError},
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
         DomainError,
     },
@@ -43,6 +44,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/v1/flights/{flight_id}/seats", get(seat_map))
         .route("/api/v1/seat-holds", post(create_hold))
+        .route(
+            "/api/v1/seat-holds/{hold_id}/passengers",
+            get(get_passengers).put(save_passengers),
+        )
         .route(
             "/api/v1/seat-holds/{hold_id}/validation",
             post(validate_hold_for_continue),
@@ -177,6 +182,42 @@ async fn get_hold(
     Ok(Json(state.seat_holds.get_hold(hold_id, token_hash).await?))
 }
 
+async fn get_passengers(
+    State(state): State<AppState>,
+    Path(hold_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, ApiError> {
+    let token_hash = token_hash_from_cookie(&headers, hold_id)?;
+    let context = state.passengers.get_passengers(hold_id, token_hash).await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store, private")],
+        Json(context),
+    ))
+}
+
+#[derive(Deserialize)]
+struct SavePassengersRequest {
+    passengers: Vec<PassengerInput>,
+}
+
+async fn save_passengers(
+    State(state): State<AppState>,
+    Path(hold_id): Path<Uuid>,
+    headers: HeaderMap,
+    payload: Result<Json<SavePassengersRequest>, JsonRejection>,
+) -> Result<impl IntoResponse, ApiError> {
+    let token_hash = token_hash_from_cookie(&headers, hold_id)?;
+    let request = payload.map_err(|_| ApiError::passenger_bad_request())?.0;
+    let context = state
+        .passengers
+        .save_passengers(hold_id, token_hash, request.passengers)
+        .await?;
+    Ok((
+        [(header::CACHE_CONTROL, "no-store, private")],
+        Json(context),
+    ))
+}
+
 async fn validate_hold_for_continue(
     State(state): State<AppState>,
     Path(hold_id): Path<Uuid>,
@@ -261,6 +302,8 @@ struct ApiErrorBody {
     message: &'static str,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     conflicting_seats: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    field_errors: Vec<PassengerFieldError>,
 }
 
 struct ApiError {
@@ -268,6 +311,7 @@ struct ApiError {
     code: &'static str,
     message: &'static str,
     conflicting_seats: Vec<String>,
+    field_errors: Vec<PassengerFieldError>,
 }
 
 impl ApiError {
@@ -277,6 +321,7 @@ impl ApiError {
             code: "VALIDATION_ERROR",
             message: "The seat hold request is invalid.",
             conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
         }
     }
 
@@ -286,6 +331,7 @@ impl ApiError {
             code: "HOLD_UNAUTHORIZED",
             message: "Seat hold authorization is missing or invalid.",
             conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
         }
     }
 
@@ -295,6 +341,17 @@ impl ApiError {
             code: "INTERNAL_ERROR",
             message: "The seat hold service is temporarily unavailable.",
             conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+
+    fn passenger_bad_request() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "PASSENGER_VALIDATION_FAILED",
+            message: "Passenger information is invalid.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
         }
     }
 }
@@ -307,36 +364,42 @@ impl From<SeatHoldRepositoryError> for ApiError {
                 code: "FLIGHT_NOT_FOUND",
                 message: "The selected flight could not be found.",
                 conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::CabinUnavailable => Self {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 code: "CABIN_UNAVAILABLE",
                 message: "The selected cabin is not available for this flight.",
                 conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::SeatNotFound(seats) => Self {
                 status: StatusCode::NOT_FOUND,
                 code: "SEAT_NOT_FOUND",
                 message: "One or more seats do not exist for this flight and cabin.",
                 conflicting_seats: seats,
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::SeatCountMismatch => Self {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 code: "SEAT_COUNT_MISMATCH",
                 message: "The seat count must match adults plus children.",
                 conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::SeatConflict(seats) => Self {
                 status: StatusCode::CONFLICT,
                 code: "SEAT_UNAVAILABLE",
                 message: "One or more seats were just taken.",
                 conflicting_seats: seats,
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::HoldNotFound => Self {
                 status: StatusCode::NOT_FOUND,
                 code: "HOLD_NOT_FOUND",
                 message: "The seat hold could not be found.",
                 conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::Unauthorized => Self::unauthorized(),
             SeatHoldRepositoryError::HoldExpired => Self {
@@ -344,21 +407,92 @@ impl From<SeatHoldRepositoryError> for ApiError {
                 code: "HOLD_EXPIRED",
                 message: "The seat hold has expired.",
                 conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::HoldReleased => Self {
                 status: StatusCode::GONE,
                 code: "HOLD_RELEASED",
                 message: "The seat hold has been released.",
                 conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::HoldConsumed => Self {
                 status: StatusCode::CONFLICT,
                 code: "HOLD_CONSUMED",
                 message: "The seat hold has already been consumed.",
                 conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
             },
             SeatHoldRepositoryError::Infrastructure(error) => {
                 tracing::error!(?error, "seat hold repository failure");
+                Self::internal()
+            }
+        }
+    }
+}
+
+impl From<PassengerRepositoryError> for ApiError {
+    fn from(error: PassengerRepositoryError) -> Self {
+        match error {
+            PassengerRepositoryError::HoldNotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "HOLD_NOT_FOUND",
+                message: "The seat hold could not be found.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PassengerRepositoryError::Unauthorized => Self::unauthorized(),
+            PassengerRepositoryError::HoldExpired => Self {
+                status: StatusCode::GONE,
+                code: "HOLD_EXPIRED",
+                message: "The seat hold has expired.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PassengerRepositoryError::HoldReleased => Self {
+                status: StatusCode::GONE,
+                code: "HOLD_RELEASED",
+                message: "The seat hold has been released.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PassengerRepositoryError::HoldConsumed => Self {
+                status: StatusCode::CONFLICT,
+                code: "HOLD_CONSUMED",
+                message: "The seat hold has already been consumed.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PassengerRepositoryError::SeatCountMismatch => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: "SEAT_COUNT_MISMATCH",
+                message: "The seat count must match adults plus children.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PassengerRepositoryError::CountMismatch => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: "PASSENGER_COUNT_MISMATCH",
+                message: "Passenger count does not match the active hold.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PassengerRepositoryError::TypeMismatch => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: "PASSENGER_TYPE_MISMATCH",
+                message: "Passenger types do not match the active hold.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PassengerRepositoryError::Validation(field_errors) => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: "PASSENGER_VALIDATION_FAILED",
+                message: "Passenger information is invalid.",
+                conflicting_seats: Vec::new(),
+                field_errors,
+            },
+            PassengerRepositoryError::Infrastructure(_error) => {
+                tracing::error!("passenger repository failure");
                 Self::internal()
             }
         }
@@ -374,6 +508,7 @@ impl IntoResponse for ApiError {
                     code: self.code,
                     message: self.message,
                     conflicting_seats: self.conflicting_seats,
+                    field_errors: self.field_errors,
                 },
             }),
         )

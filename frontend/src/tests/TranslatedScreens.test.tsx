@@ -47,8 +47,9 @@ describe("translated customer screens", () => {
     expect(
       screen.getByRole("heading", { name: "ไปได้ทุกที่ บินในแบบที่แตกต่าง" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("เครือข่ายทั่วโลก")).toBeInTheDocument();
-    expect(screen.getByText("ค้นหาเที่ยวบิน · เส้นทางบนโลก")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "โปรโมชั่นแนะนำ" })).toBeInTheDocument();
+    expect(screen.getByText("เอกลักษณ์ของ X-Fly")).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: "ค้นหาเที่ยวบินบนโลก" })).toBeInTheDocument();
     expect(screen.getByText("ออกแบบเพื่อพาคุณไปได้ทุกที่")).toBeInTheDocument();
   });
 

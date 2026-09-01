@@ -17,7 +17,8 @@ import {
   type SeatHold,
 } from "@/components/booking/seats/seatHoldClient";
 import { applySeatInventory, getHeldByMeSeats } from "@/components/booking/seats/seatHoldState";
-import { buildPassengerDetailsHref, toggleSeatSelection } from "@/components/booking/seats/seatMapUtils";
+import { buildPassengerInformationHref } from "@/components/booking/passengers/passengerRoute";
+import { toggleSeatSelection } from "@/components/booking/seats/seatMapUtils";
 import type { TranslationKey } from "@/i18n/types";
 
 const POLL_INTERVAL_MS = 10_000;
@@ -251,11 +252,10 @@ const useSeatHold = ({
       }
       applyHold(validated);
       router.push(
-        buildPassengerDetailsHref({
+        buildPassengerInformationHref({
           flightId: request.flight.id,
           holdId: validated.id,
           query: request.query,
-          seats: validated.seats,
           selectedCabin: request.selectedCabin,
         }),
       );

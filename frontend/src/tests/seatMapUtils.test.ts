@@ -1,5 +1,4 @@
 import {
-  buildPassengerDetailsHref,
   getRequiredSeatCount,
   sortSeatNumbers,
   toggleSeatSelection,
@@ -47,18 +46,4 @@ describe("seat map utilities", () => {
     expect(deselected.limitReached).toBe(false);
   });
 
-  it("builds the Branch 13 handoff with original criteria, cabin, and sorted seats", () => {
-    expect(
-      buildPassengerDetailsHref({
-        flightId: "xf-201",
-        holdId: "hold-123",
-        query:
-          "from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=2&children=0&infants=1&cabin=business&trip=round-trip",
-        seats: ["12F", "12A"],
-        selectedCabin: "business",
-      }),
-    ).toBe(
-      "/booking/passengers?from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=2&children=0&infants=1&cabin=business&trip=round-trip&flightId=xf-201&holdId=hold-123&selectedCabin=business&seats=12A%2C12F",
-    );
-  });
 });

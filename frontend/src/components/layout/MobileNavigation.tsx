@@ -1,6 +1,7 @@
 "use client";
 
 import { Menu, X } from "lucide-react";
+import Link from "next/link";
 import { useRef, useState } from "react";
 
 import { bookingHref, navigationItems } from "@/components/layout/navigationItems";
@@ -95,12 +96,12 @@ const MobileNavigation = () => {
               {navigationItems.map((item) => (
                 <li data-mobile-navigation-item key={item.id}>
                   <DialogClose asChild>
-                    <a
+                    <Link
                       className="inline-flex rounded-sm py-2 text-h1 text-foreground outline-none transition-colors hover:text-brand focus-visible:ring-2 focus-visible:ring-focus"
                       href={item.href}
                     >
                       {t(item.labelKey)}
-                    </a>
+                    </Link>
                   </DialogClose>
                 </li>
               ))}

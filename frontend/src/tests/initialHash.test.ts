@@ -30,6 +30,25 @@ describe("initial hash bootstrap", () => {
     expect(hasPositioningMarker()).toBe(true);
   });
 
+  it("marks the canonical Home Hero hash before positioning", () => {
+    window.history.replaceState(null, "", "/#top");
+
+    runInitialHashBootstrap();
+
+    expect(hasPositioningMarker()).toBe(true);
+  });
+
+  it.each(["explore", "offers", "cabins", "experience"])(
+    "marks the supported Home section hash #%s before positioning",
+    (sectionId) => {
+      window.history.replaceState(null, "", `/#${sectionId}`);
+
+      runInitialHashBootstrap();
+
+      expect(hasPositioningMarker()).toBe(true);
+    },
+  );
+
   it.each([
     "/#unknown-section",
     "/#%E0%A4%A",

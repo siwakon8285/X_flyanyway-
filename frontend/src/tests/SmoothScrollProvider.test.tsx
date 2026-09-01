@@ -1,8 +1,16 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import Lenis from "lenis";
 
 import { SmoothScrollProvider } from "@/components/motion/SmoothScrollProvider";
 import { INITIAL_HASH_POSITIONING_ATTRIBUTE } from "@/lib/motion/initialHash";
+import { ScrollTrigger } from "@/lib/motion/gsap";
+
+jest.mock("@/lib/motion/gsap", () => ({
+  ScrollTrigger: { refresh: jest.fn(), update: jest.fn() },
+  gsap: {
+    ticker: { add: jest.fn(), remove: jest.fn() },
+  },
+}));
 
 jest.mock("lenis", () => ({
   __esModule: true,
@@ -187,7 +195,7 @@ describe("SmoothScrollProvider", () => {
     requestAnimationFrame.mockRestore();
   });
 
-  it("does not scroll a normal homepage visit", () => {
+  it("normalizes a normal homepage visit to the canonical top boundary", () => {
     window.matchMedia = jest.fn().mockReturnValue({
       matches: false,
       media: "(prefers-reduced-motion: reduce)",
@@ -212,8 +220,110 @@ describe("SmoothScrollProvider", () => {
     );
 
     const instance = jest.mocked(Lenis).mock.results[0]?.value;
+    expect(instance?.scrollTo).toHaveBeenCalledWith(0, {
+      force: true,
+      immediate: true,
+    });
+    expect(window.scrollTo).toHaveBeenCalledWith({
+      behavior: "auto",
+      left: 0,
+      top: 0,
+    });
+    requestAnimationFrame.mockRestore();
+  });
+
+  it("resets Home after a client route transition instead of retaining Lenis position", () => {
+    window.matchMedia = jest.fn().mockReturnValue({
+      matches: false,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    });
+    window.history.replaceState(null, "", "/flights");
+    const requestAnimationFrame = jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        callback(0);
+        return 1;
+      });
+
+    const view = render(
+      <SmoothScrollProvider>
+        <p>Route content</p>
+      </SmoothScrollProvider>,
+    );
+    const instance = jest.mocked(Lenis).mock.results[0]?.value;
     expect(instance?.scrollTo).not.toHaveBeenCalled();
-    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    window.history.replaceState(null, "", "/#top");
+    view.rerender(
+      <SmoothScrollProvider>
+        <section id="top">Home Hero</section>
+      </SmoothScrollProvider>,
+    );
+
+    expect(instance?.scrollTo).toHaveBeenCalledWith(0, {
+      force: true,
+      immediate: true,
+    });
+    requestAnimationFrame.mockRestore();
+  });
+
+  it("refreshes and updates ScrollTrigger once after the canonical top reset", async () => {
+    window.matchMedia = jest.fn().mockReturnValue({
+      matches: false,
+      media: "(prefers-reduced-motion: reduce)",
+      onchange: null,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+      addListener: jest.fn(),
+      removeListener: jest.fn(),
+      dispatchEvent: jest.fn(),
+    });
+    window.history.replaceState(null, "", "/flights");
+    const requestAnimationFrame = jest
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        callback(0);
+        return 1;
+      });
+
+    const view = render(
+      <SmoothScrollProvider>
+        <p>Route content</p>
+      </SmoothScrollProvider>,
+    );
+    const instance = jest.mocked(Lenis).mock.results[0]?.value;
+    jest.mocked(ScrollTrigger.refresh).mockClear();
+    jest.mocked(ScrollTrigger.update).mockClear();
+
+    window.history.replaceState(null, "", "/#top");
+    view.rerender(
+      <SmoothScrollProvider>
+        <section id="top">Home Hero</section>
+      </SmoothScrollProvider>,
+    );
+
+    await waitFor(() => expect(ScrollTrigger.refresh).toHaveBeenCalledTimes(1));
+    expect(ScrollTrigger.update).toHaveBeenCalledTimes(1);
+    expect(instance?.scrollTo).toHaveBeenCalledWith(0, {
+      force: true,
+      immediate: true,
+    });
+
+    const nativeResetOrder = jest.mocked(window.scrollTo).mock.invocationCallOrder.at(-1);
+    const lenisResetOrder = jest
+      .mocked(instance!.scrollTo)
+      .mock.invocationCallOrder.at(-1);
+    const refreshOrder = jest.mocked(ScrollTrigger.refresh).mock.invocationCallOrder[0];
+    const updateOrder = jest.mocked(ScrollTrigger.update).mock.invocationCallOrder[0];
+    expect(nativeResetOrder).toBeLessThan(lenisResetOrder as number);
+    expect(lenisResetOrder).toBeLessThan(refreshOrder);
+    expect(refreshOrder).toBeLessThan(updateOrder);
     requestAnimationFrame.mockRestore();
   });
 });

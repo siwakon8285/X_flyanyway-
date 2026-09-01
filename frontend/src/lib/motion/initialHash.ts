@@ -1,9 +1,19 @@
 const INITIAL_HASH_POSITIONING_ATTRIBUTE = "data-initial-hash-positioning";
+const SUPPORTED_HOME_HASHES = new Set([
+  "#cabins",
+  "#experience",
+  "#explore",
+  "#flight-search",
+  "#offers",
+  "#top",
+]);
 
 const applyInitialHashBootstrap = (attribute: string) => {
+  window.history.scrollRestoration = "manual";
+
   if (
     window.location.pathname === "/" &&
-    window.location.hash === "#flight-search"
+    SUPPORTED_HOME_HASHES.has(window.location.hash)
   ) {
     document.documentElement.setAttribute(attribute, "");
   }

@@ -1,12 +1,12 @@
-import { FlightSearchSection } from "@/components/booking/search/FlightSearchSection";
 import { Hero } from "@/components/home/Hero";
+import { HomePromoCarousel } from "@/components/home/HomePromoCarousel";
 import { Storytelling } from "@/components/home/story/Storytelling";
 
 const Home = () => (
   <>
     <Hero />
+    <HomePromoCarousel />
     <Storytelling />
-    <FlightSearchSection />
   </>
 );
 

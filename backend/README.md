@@ -1,6 +1,6 @@
-# X-Fly seat inventory API
+# X-Fly booking API
 
-This service is the PostgreSQL-authoritative seat inventory and hold foundation for Branch 12.
+This service provides the PostgreSQL-authoritative seat hold and Passenger Information flows.
 
 ## Architecture
 
@@ -20,6 +20,7 @@ Domain types have no Axum dependencies. The SQLx repository uses deterministic s
 
 - Inventory is `AVAILABLE` when it is sellable, not booked, and has no active hold.
 - A hold has a fixed server-controlled 10-minute expiry by default.
+- Reading or saving passengers never refreshes or extends that expiry.
 - The public hold UUID may be kept by the browser for revalidation and handoff.
 - A separate random 256-bit secret is stored only in a scoped `HttpOnly`, `SameSite=Lax` cookie; PostgreSQL stores only its SHA-256 hash.
 - Cookie names are scoped by hold UUID, so a browser can retain more than one unrelated hold without exposing secrets to JavaScript.
@@ -35,9 +36,15 @@ GET    /api/v1/seat-holds/{hold_id}
 PUT    /api/v1/seat-holds/{hold_id}
 DELETE /api/v1/seat-holds/{hold_id}
 POST   /api/v1/seat-holds/{hold_id}/validation
+GET    /api/v1/seat-holds/{hold_id}/passengers
+PUT    /api/v1/seat-holds/{hold_id}/passengers
 ```
 
 The validation endpoint is the Continue gate: it revalidates authorization and expiry and independently requires held seats to equal adults + children. Lap infants do not consume seats. Conflicting inventory returns HTTP 409 with `SEAT_UNAVAILABLE` and `conflictingSeats`.
+
+The passenger resource uses the same hold-scoped HttpOnly authorization cookie. `GET` returns the active hold, authoritative passenger slots, any saved passenger draft, and `readyToContinue`. `PUT` atomically replaces the full draft after checking the hold, held-seat count, passenger count/order/types, and every passenger field. Adult, child, and infant slots are always ordered in that sequence. Age is attained age on outbound departure: adult 12+, child 2–11, and infant under 2.
+
+Passenger details are stored in `hold_passengers` and cascade with their temporary hold; this does not create the future final Booking aggregate. API validation errors contain stable codes and field coordinates, never submitted PII. Passenger repository failures are logged without raw database error details to avoid logging sensitive bound values.
 
 ## Local development
 
@@ -83,7 +90,7 @@ Username: x_fly_app (or POSTGRES_USER)
 Password: the local POSTGRES_PASSWORD
 ```
 
-The host-run backend and pgAdmin both connect through port `5433`, so they inspect the same Docker PostgreSQL instance. Useful tables are `flight_instances`, `flight_seats`, and `seat_holds`; the latter exposes expiry/ownership hashes without storing the browser secret. Do not publish production PostgreSQL. Production inspection remains pgAdmin over an SSH tunnel to server-side `127.0.0.1:5432`.
+The host-run backend and pgAdmin both connect through port `5433`, so they inspect the same Docker PostgreSQL instance. Useful tables are `flight_instances`, `flight_seats`, `seat_holds`, and `hold_passengers`; the passenger table makes successful saves inspectable locally while remaining protected behind the API in the application. `seat_holds` exposes expiry/ownership hashes without storing the browser secret. Do not publish production PostgreSQL. Production inspection remains pgAdmin over an SSH tunnel to server-side `127.0.0.1:5432`.
 
 The root Compose file intentionally contains PostgreSQL services only. `backend/Dockerfile` is retained for future production/self-hosted deployment builds, but it is not part of the local Compose workflow.
 

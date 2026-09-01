@@ -42,16 +42,6 @@ const HeroMotion = ({ children }: HeroMotionProps) => {
           0.18,
         )
         .fromTo(
-          select("[data-hero-media-frame] img"),
-          { scale: 1.05 },
-          {
-            duration: motionDurations.cinematic,
-            ease: gsapEasings.cinematic,
-            scale: 1,
-          },
-          0.24,
-        )
-        .fromTo(
           select("[data-hero-eyebrow]"),
           { autoAlpha: 0, y: 12 },
           { autoAlpha: 1, duration: motionDurations.ui, y: 0 },
@@ -98,11 +88,6 @@ const HeroMotion = ({ children }: HeroMotionProps) => {
               trigger: element,
             },
           })
-          .to(
-            select("[data-hero-media-frame]"),
-            { scale: 1.025, yPercent: 4 },
-            0,
-          )
           .to(select("[data-hero-content]"), { autoAlpha: 0.62, y: -28 }, 0)
           .to(select("[data-hero-scroll-cue]"), { autoAlpha: 0 }, 0);
       });
@@ -120,7 +105,7 @@ const HeroMotion = ({ children }: HeroMotionProps) => {
     <section
       aria-labelledby="hero-heading"
       className="relative isolate min-h-svh overflow-hidden bg-background"
-      id="experience"
+      id="top"
       ref={hero}
     >
       {children}
