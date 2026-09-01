@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
 import { Header } from "@/components/layout/Header";
@@ -7,9 +7,17 @@ describe("Header", () => {
   it("renders the public brand, semantic navigation, and booking CTA", () => {
     render(<Header />);
 
-    expect(
-      screen.getByRole("link", { name: "X-Fly Anyway home" }),
-    ).toBeInTheDocument();
+    const brand = screen.getByRole("link", { name: "X-Fly Anyway home" });
+    expect(brand).toHaveAttribute("href", "/#top");
+    expect(brand).not.toHaveAttribute("href", expect.stringContaining("flight-search"));
+    expect(brand).toHaveClass(
+      "group/brand",
+      "motion-safe:active:scale-[0.98]",
+      "motion-reduce:transform-none",
+    );
+    expect(brand.querySelector("[data-brand-glint]")).toHaveClass(
+      "motion-reduce:hidden",
+    );
 
     const navigation = screen.getByRole("navigation", {
       name: "Primary navigation",
@@ -19,7 +27,7 @@ describe("Header", () => {
       screen.getByRole("link", { name: "Explore" }),
     );
     expect(navigation).toContainElement(
-      screen.getByRole("link", { name: "Destinations" }),
+      screen.getByRole("link", { name: "Offers" }),
     );
     expect(navigation).toContainElement(
       screen.getByRole("link", { name: "Cabins" }),
@@ -33,20 +41,29 @@ describe("Header", () => {
     );
     expect(screen.getByRole("link", { name: "Explore" })).toHaveAttribute(
       "href",
-      "#global-reach",
+      "/#explore",
     );
-    expect(screen.getByRole("link", { name: "Destinations" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Offers" })).toHaveAttribute(
       "href",
-      "#global-reach",
+      "/#offers",
     );
     expect(screen.getByRole("link", { name: "Cabins" })).toHaveAttribute(
       "href",
-      "#cabins",
+      "/#cabins",
     );
     expect(screen.getByRole("link", { name: "Experience" })).toHaveAttribute(
       "href",
-      "#journey-experience",
+      "/#experience",
     );
+    expect(screen.queryByRole("link", { name: "Destinations" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the canonical Home Hero destination in Thai", () => {
+    render(<Header />, { locale: "th" });
+
+    expect(
+      screen.getByRole("link", { name: "หน้าแรก X-Fly Anyway" }),
+    ).toHaveAttribute("href", "/#top");
   });
 
   it("renders desktop and mobile navigation without React warnings", () => {
@@ -57,6 +74,20 @@ describe("Header", () => {
       fireEvent.click(screen.getByRole("button", { name: "Open navigation menu" }));
 
       expect(consoleError).not.toHaveBeenCalled();
+      const mobileNavigation = screen.getByRole("navigation", {
+        name: "Mobile navigation",
+      });
+      for (const [name, href] of [
+        ["Explore", "/#explore"],
+        ["Offers", "/#offers"],
+        ["Cabins", "/#cabins"],
+        ["Experience", "/#experience"],
+      ] as const) {
+        expect(within(mobileNavigation).getByRole("link", { name })).toHaveAttribute(
+          "href",
+          href,
+        );
+      }
     } finally {
       consoleError.mockRestore();
     }

@@ -31,6 +31,15 @@ const connectLenisToGsap = (
   };
 };
 
+const scrollToPageTop = (lenis: Lenis | null) => {
+  window.scrollTo({ behavior: "auto", left: 0, top: 0 });
+
+  lenis?.scrollTo(0, {
+    force: true,
+    immediate: true,
+  });
+};
+
 const scrollToLocationHash = (lenis: Lenis | null) => {
   const encodedTargetId = window.location.hash.slice(1);
   if (!encodedTargetId) return false;
@@ -44,6 +53,11 @@ const scrollToLocationHash = (lenis: Lenis | null) => {
 
   const target = document.getElementById(targetId);
   if (!target) return false;
+
+  if (targetId === "top") {
+    scrollToPageTop(lenis);
+    return true;
+  }
 
   if (lenis) {
     const computedScrollMargin = Number.parseFloat(
@@ -64,5 +78,5 @@ const scrollToLocationHash = (lenis: Lenis | null) => {
   return true;
 };
 
-export { connectLenisToGsap, scrollToLocationHash };
+export { connectLenisToGsap, scrollToLocationHash, scrollToPageTop };
 export type { GsapTickerBridge, ScrollTriggerBridge };

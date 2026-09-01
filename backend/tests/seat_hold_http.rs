@@ -30,6 +30,7 @@ async fn app() -> axum::Router {
     prepare_database(&pool).await.unwrap();
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
     build_router(AppState::new(
+        repository.clone(),
         repository,
         Duration::from_secs(600),
         false,

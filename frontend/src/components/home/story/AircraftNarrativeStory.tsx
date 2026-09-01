@@ -59,7 +59,7 @@ const AircraftNarrativeStory = () => {
     aria-labelledby="aircraft-story-heading"
     className="relative isolate overflow-clip border-y border-border/70 bg-[linear-gradient(180deg,#07090c_0%,#0a121b_48%,#080a0d_100%)] py-section-lg"
     data-aircraft-story
-    id="aircraft-story"
+    id="explore"
   >
     <Container className="relative z-20">
       <div className="flex items-center gap-4">

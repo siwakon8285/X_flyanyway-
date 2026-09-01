@@ -19,7 +19,7 @@ const subscribeToLocation = (onStoreChange: () => void) => {
 const getLocationSearch = () => window.location.search;
 const getServerLocationSearch = () => "";
 
-const FlightSearchSection = () => {
+const FlightSearchSection = ({ embedded = false }: { embedded?: boolean }) => {
   const router = useRouter();
   const { t } = useLanguage();
   const locationSearch = useSyncExternalStore(
@@ -28,6 +28,19 @@ const FlightSearchSection = () => {
     getServerLocationSearch,
   );
   const initialValues = parseFlightSearch(new URLSearchParams(locationSearch));
+
+  const form = (
+    <FlightSearchForm
+      initialValues={initialValues}
+      key={locationSearch}
+      onValidSubmit={(values) => {
+        const query = serializeFlightSearch(values);
+        router.push(`/flights?${query}`);
+      }}
+    />
+  );
+
+  if (embedded) return form;
 
   return (
     <section
@@ -58,14 +71,7 @@ const FlightSearchSection = () => {
         </Reveal>
         <div>
           <div className="pt-8 lg:pt-10">
-            <FlightSearchForm
-              initialValues={initialValues}
-              key={locationSearch}
-              onValidSubmit={(values) => {
-                const query = serializeFlightSearch(values);
-                router.push(`/flights?${query}`);
-              }}
-            />
+            {form}
           </div>
         </div>
       </Container>

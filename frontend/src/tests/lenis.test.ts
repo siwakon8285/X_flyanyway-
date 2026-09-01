@@ -82,6 +82,27 @@ describe("scrollToLocationHash", () => {
     target.remove();
   });
 
+  it("resets both Lenis and native scrolling for the canonical Home Hero", () => {
+    window.history.replaceState(null, "", "/#top");
+    const target = document.createElement("section");
+    target.id = "top";
+    document.body.append(target);
+    const scrollTo = jest.fn();
+
+    expect(scrollToLocationHash({ scrollTo } as unknown as Lenis)).toBe(true);
+    expect(scrollTo).toHaveBeenCalledWith(0, {
+      force: true,
+      immediate: true,
+    });
+    expect(window.scrollTo).toHaveBeenCalledWith({
+      behavior: "auto",
+      left: 0,
+      top: 0,
+    });
+
+    target.remove();
+  });
+
   it("does nothing for a normal homepage visit or an unknown target", () => {
     expect(scrollToLocationHash(null)).toBe(false);
 

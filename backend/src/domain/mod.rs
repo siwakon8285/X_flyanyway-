@@ -1,4 +1,5 @@
 pub mod entities;
+pub mod passengers;
 pub mod repositories;
 pub mod value_objects;
 

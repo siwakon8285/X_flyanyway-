@@ -4,21 +4,54 @@ use uuid::Uuid;
 
 use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
-    repositories::{SeatHoldRepository, SeatHoldRepositoryError},
+    passengers::{PassengerContext, PassengerInput},
+    repositories::{
+        PassengerRepository, PassengerRepositoryError, SeatHoldRepository, SeatHoldRepositoryError,
+    },
     value_objects::SeatNumber,
 };
 
 mod create_seat_hold;
+mod get_passengers;
 mod get_seat_hold;
 mod get_seat_map;
 mod release_seat_hold;
 mod replace_seat_hold_seats;
+mod save_passengers;
 mod validate_seat_hold;
 
 #[derive(Clone)]
 pub struct SeatHoldApplication {
     repository: Arc<dyn SeatHoldRepository>,
     hold_ttl: Duration,
+}
+
+#[derive(Clone)]
+pub struct PassengerApplication {
+    repository: Arc<dyn PassengerRepository>,
+}
+
+impl PassengerApplication {
+    pub fn new(repository: Arc<dyn PassengerRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub async fn get_passengers(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+    ) -> Result<PassengerContext, PassengerRepositoryError> {
+        get_passengers::execute(self.repository.as_ref(), hold_id, token_hash).await
+    }
+
+    pub async fn save_passengers(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        passengers: Vec<PassengerInput>,
+    ) -> Result<PassengerContext, PassengerRepositoryError> {
+        save_passengers::execute(self.repository.as_ref(), hold_id, token_hash, passengers).await
+    }
 }
 
 impl SeatHoldApplication {

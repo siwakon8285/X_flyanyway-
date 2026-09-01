@@ -18,7 +18,7 @@ const JourneyExperienceStory = () => {
     aria-labelledby="journey-experience-heading"
     className="relative isolate flex min-h-svh items-center overflow-hidden bg-[radial-gradient(circle_at_12%_82%,rgba(255,212,0,0.07),transparent_28rem),linear-gradient(180deg,#eee5d6_0%,#3b362d_7rem,#090909_16rem,#12100b_100%)] pb-section-lg pt-[clamp(16rem,24vw,24rem)]"
     data-journey-story
-    id="journey-experience"
+    id="experience"
   >
     <Container className="relative">
       <div className="grid gap-12 lg:grid-cols-[minmax(0,0.72fr)_minmax(28rem,1.28fr)] lg:items-end">

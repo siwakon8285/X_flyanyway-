@@ -9,8 +9,13 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to review the temporary
-Design Foundation Preview.
+Open [http://localhost:3000](http://localhost:3000) to use the local booking flow.
+
+## Passenger Information handoff
+
+Seat selection opens `/booking/passengers?holdId={public-hold-id}` with only non-sensitive search/recovery context. The Passenger page loads authoritative passenger counts, types, seats, and expiry from the API using the scoped HttpOnly hold cookie. A successful explicit save stays on the implemented Passenger route and shows a ready state.
+
+Branch 13a can use the tested future handoff contract `/booking/extras?holdId={public-hold-id}` after the saved passenger resource reports `readyToContinue`. This branch does not navigate to that route or provide an Extras page.
 
 ## Quality checks
 
@@ -22,6 +27,4 @@ npm run build
 npm audit --audit-level=high
 ```
 
-This branch contains the reusable motion foundation and temporary preview only.
-It intentionally contains no final landing page, booking features, API
-integration, backend, or database implementation.
+Passenger validation is dependency-free TypeScript and mirrors the backend rules. Customer-facing Passenger strings are supplied by the existing typed English/Thai dictionaries. Passenger PII is not written to URLs, local storage, or session storage.

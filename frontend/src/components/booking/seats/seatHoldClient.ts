@@ -1,7 +1,11 @@
 import type { CabinClass } from "@/components/booking/search/searchTypes";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_X_FLY_API_URL ?? "http://localhost:8080/api/v1";
+import {
+  API_BASE_URL,
+  BookingApiError,
+  BookingApiError as SeatHoldApiError,
+  requestJson,
+  type ApiErrorResponse,
+} from "@/components/booking/api/bookingApiClient";
 
 type PassengerCounts = {
   adults: number;
@@ -48,61 +52,6 @@ type CreateSeatHoldRequest = {
   flightId: string;
   passengers: PassengerCounts;
   seats: string[];
-};
-
-type ApiErrorResponse = {
-  error?: {
-    code?: string;
-    conflictingSeats?: string[];
-    message?: string;
-  };
-};
-
-class SeatHoldApiError extends Error {
-  readonly code: string;
-  readonly conflictingSeats: string[];
-  readonly status: number;
-
-  constructor({
-    code,
-    conflictingSeats = [],
-    message,
-    status,
-  }: {
-    code: string;
-    conflictingSeats?: string[];
-    message: string;
-    status: number;
-  }) {
-    super(message);
-    this.name = "SeatHoldApiError";
-    this.code = code;
-    this.conflictingSeats = conflictingSeats;
-    this.status = status;
-  }
-}
-
-const requestJson = async <Result>(path: string, init?: RequestInit) => {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as ApiErrorResponse;
-    throw new SeatHoldApiError({
-      code: payload.error?.code ?? "SEAT_HOLD_REQUEST_FAILED",
-      conflictingSeats: payload.error?.conflictingSeats,
-      message: payload.error?.message ?? "The seat hold request failed.",
-      status: response.status,
-    });
-  }
-
-  return (await response.json()) as Result;
 };
 
 const getSeatInventory = ({
@@ -154,7 +103,7 @@ const releaseSeatHold = async (holdId: string) => {
   );
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as ApiErrorResponse;
-    throw new SeatHoldApiError({
+    throw new BookingApiError({
       code: payload.error?.code ?? "SEAT_HOLD_REQUEST_FAILED",
       message: payload.error?.message ?? "The seat hold request failed.",
       status: response.status,

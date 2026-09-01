@@ -11,9 +11,9 @@ const footerGroups = [
     id: "explore",
     labelKey: "footer.explore",
     links: [
-      { href: "#global-reach", id: "explore", labelKey: "footer.explore" },
-      { href: "#global-reach", id: "destinations", labelKey: "footer.destinations" },
-      { href: "#cabins", id: "cabins", labelKey: "footer.cabins" },
+      { href: "/#explore", id: "explore", labelKey: "footer.explore" },
+      { href: "/#offers", id: "offers", labelKey: "footer.offers" },
+      { href: "/#cabins", id: "cabins", labelKey: "footer.cabins" },
     ],
   },
   {
@@ -28,7 +28,7 @@ const footerGroups = [
     id: "company",
     labelKey: "footer.company",
     links: [
-      { href: "#journey-experience", id: "about", labelKey: "footer.about" },
+      { href: "/#experience", id: "about", labelKey: "footer.about" },
     ],
   },
   {

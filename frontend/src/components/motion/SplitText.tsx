@@ -34,7 +34,10 @@ const SplitText = ({
   useGSAP(
     () => {
       const element = elementRef.current;
-      if (!element || reducedMotion) return;
+      if (!element) return;
+
+      element.textContent = text;
+      if (reducedMotion) return;
 
       const splitType = new SplitType(element, { types: split });
       const units = split === "words,chars" ? splitType.chars : splitType.words;

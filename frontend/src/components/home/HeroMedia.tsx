@@ -9,7 +9,7 @@ const HeroMedia = () => (
     data-hero-media
   >
     <div
-      className="absolute -inset-y-3 inset-x-0 will-change-transform"
+      className="absolute -inset-y-3 inset-x-0"
       data-hero-media-frame
     >
       <Image
@@ -19,6 +19,7 @@ const HeroMedia = () => (
         preload
         sizes="100vw"
         src={heroImage}
+        unoptimized
       />
     </div>
     <div className="absolute inset-0 bg-gradient-to-r from-black/64 via-black/24 to-transparent" />
