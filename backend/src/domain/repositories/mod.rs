@@ -9,8 +9,76 @@ use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput, ExtraValidationError},
     passengers::{PassengerContext, PassengerFieldError, PassengerInput},
+    payment::{PaymentAttempt, PaymentAttemptTransition, PaymentContext, PaymentRepositoryCommand},
     review::ReviewContext,
 };
+
+#[derive(Debug, Error)]
+pub enum PaymentRepositoryError {
+    #[error("seat hold not found")]
+    HoldNotFound,
+    #[error("seat hold authorization failed")]
+    Unauthorized,
+    #[error("seat hold has expired")]
+    HoldExpired,
+    #[error("seat hold has been released")]
+    HoldReleased,
+    #[error("seat hold has already been consumed")]
+    HoldConsumed,
+    #[error("held seats are not ready for payment")]
+    SeatsNotReady,
+    #[error("passenger information is not ready for payment")]
+    PassengersNotReady,
+    #[error("travel extras are not ready for payment")]
+    ExtrasNotReady,
+    #[error("review snapshot is not ready for payment")]
+    ReviewNotReady,
+    #[error("a payment has already succeeded")]
+    AlreadySucceeded,
+    #[error("another payment attempt is in progress")]
+    AttemptInProgress,
+    #[error("payment attempt not found")]
+    AttemptNotFound,
+    #[error("payment transition is invalid")]
+    InvalidTransition,
+    #[error("idempotency key was reused with a different request")]
+    IdempotencyKeyReused,
+    #[error("payment request is invalid")]
+    InvalidRequest,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+#[async_trait]
+pub trait PaymentRepository: Send + Sync {
+    async fn get_payment(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+    ) -> Result<PaymentContext, PaymentRepositoryError>;
+
+    async fn get_payment_attempt(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        attempt_id: Uuid,
+    ) -> Result<PaymentAttempt, PaymentRepositoryError>;
+
+    async fn create_payment_attempt(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        command: PaymentRepositoryCommand,
+    ) -> Result<PaymentAttempt, PaymentRepositoryError>;
+
+    async fn transition_payment_attempt(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        attempt_id: Uuid,
+        transition: PaymentAttemptTransition,
+    ) -> Result<PaymentAttempt, PaymentRepositoryError>;
+}
 
 #[derive(Debug, Error)]
 pub enum ExtraRepositoryError {

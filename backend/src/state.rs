@@ -2,7 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     application::use_cases::{
-        ExtraApplication, PassengerApplication, ReviewApplication, SeatHoldApplication,
+        ExtraApplication, PassengerApplication, PaymentApplication, ReviewApplication,
+        SeatHoldApplication,
     },
     domain::repositories::{
         ExtraRepository, PassengerRepository, ReviewRepository, SeatHoldRepository,
@@ -13,6 +14,7 @@ use crate::{
 pub struct AppState {
     pub extras: ExtraApplication,
     pub passengers: PassengerApplication,
+    pub payments: Option<PaymentApplication>,
     pub reviews: ReviewApplication,
     pub seat_holds: SeatHoldApplication,
     pub secure_cookies: bool,
@@ -32,10 +34,16 @@ impl AppState {
         Self {
             extras: ExtraApplication::new(extra_repository),
             passengers: PassengerApplication::new(passenger_repository),
+            payments: None,
             reviews: ReviewApplication::new(review_repository),
             seat_holds: SeatHoldApplication::new(repository, hold_ttl),
             secure_cookies,
             frontend_origin,
         }
+    }
+
+    pub fn with_payments(mut self, payments: PaymentApplication) -> Self {
+        self.payments = Some(payments);
+        self
     }
 }

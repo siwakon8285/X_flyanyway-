@@ -1,4 +1,11 @@
-use std::{env, sync::Arc, time::Duration};
+use std::{
+    env,
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use axum::{
     body::Body,
@@ -45,8 +52,9 @@ async fn app() -> (axum::Router, PgPool) {
 }
 
 fn departure_date() -> NaiveDate {
+    static NEXT_OFFSET: AtomicI64 = AtomicI64::new(0);
     Utc::now().date_naive()
-        + ChronoDuration::days(60 + (uuid::Uuid::new_v4().as_u128() % 400) as i64)
+        + ChronoDuration::days(200 + NEXT_OFFSET.fetch_add(1, Ordering::Relaxed))
 }
 
 async fn create_hold(

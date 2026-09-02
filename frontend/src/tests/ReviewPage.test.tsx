@@ -242,7 +242,10 @@ describe("ReviewPage", () => {
     const ready = screen.getByText("Review confirmations complete.");
     expect(ready).toHaveAttribute("role", "status");
     expect(ready).toHaveAttribute("data-review-ready", "true");
-    expect(screen.getByRole("button", { name: "Proceed to Payment" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Proceed to Payment" })).toHaveAttribute(
+      "href",
+      "/booking/payment?flightId=xf-201&holdId=hold-123",
+    );
   });
 
   it("recovers to the exact prerequisite without fabricating review data", async () => {

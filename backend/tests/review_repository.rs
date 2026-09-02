@@ -1,4 +1,8 @@
-use std::{env, time::Duration};
+use std::{
+    env,
+    sync::atomic::{AtomicI64, Ordering},
+    time::Duration,
+};
 
 use chrono::{Datelike, Duration as ChronoDuration, NaiveDate, Utc};
 use sqlx::PgPool;
@@ -32,8 +36,9 @@ async fn test_pool() -> PgPool {
 }
 
 fn test_date() -> NaiveDate {
+    static NEXT_OFFSET: AtomicI64 = AtomicI64::new(0);
     Utc::now().date_naive()
-        + ChronoDuration::days(60 + (uuid::Uuid::new_v4().as_u128() % 300) as i64)
+        + ChronoDuration::days(400 + NEXT_OFFSET.fetch_add(1, Ordering::Relaxed))
 }
 
 fn passenger(ordinal: u8, passenger_type: PassengerType, departure: NaiveDate) -> PassengerInput {

@@ -1,10 +1,12 @@
 import { Check } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import type { ReviewContext, ReviewPricingLine } from "@/components/booking/review/reviewTypes";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonVariants } from "@/components/ui/Button";
 import { formatPrice } from "@/i18n/formatters";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { cn } from "@/lib/utils/cn";
 
 const priceLineKey = {
   DEMO_AIRPORT_FEE: "review.fare.airportFee",
@@ -18,7 +20,7 @@ const passengerTypeKey = {
   INFANT: "passengerInformation.passenger.infant",
 } as const;
 
-const FareSummary = ({ context, remainingMilliseconds }: { context: ReviewContext; remainingMilliseconds: number }) => {
+const FareSummary = ({ context, paymentHref, remainingMilliseconds }: { context: ReviewContext; paymentHref: string; remainingMilliseconds: number }) => {
   const { locale, t } = useLanguage();
   const [namesConfirmed, setNamesConfirmed] = useState(false);
   const [conditionsConfirmed, setConditionsConfirmed] = useState(false);
@@ -48,8 +50,8 @@ const FareSummary = ({ context, remainingMilliseconds }: { context: ReviewContex
         {complete ? <p className="review-ready-emphasis mt-4 flex items-center gap-2 text-sm text-brand" data-review-ready="true" role="status"><Check aria-hidden="true" className="review-check-emphasis size-4" />{t("review.acknowledgement.complete")}</p> : null}
         <p aria-live="off" className="mt-6 font-semibold tabular-nums text-brand" role="timer">{t("review.hold.countdown", { time: `${minutes}:${seconds.toString().padStart(2, "0")}` })}</p>
         <p className="sr-only">{t("review.hold.expiresAt", { time: expiryTime })}</p>
-        <Button aria-describedby="review-payment-note" className="review-payment-disabled mt-5 w-full" data-review-payment="disabled" disabled size="lg">{t("review.payment.action")}</Button>
-        <p className="review-payment-note mt-3 text-center text-xs text-muted-foreground" id="review-payment-note">{t("review.payment.nextStep")}</p>
+        {complete && context.readyForPayment && remainingMilliseconds > 0 ? <Link aria-describedby="review-payment-note" className={cn(buttonVariants({ size: "lg" }), "mt-5 w-full")} data-review-payment="ready" href={paymentHref}>{t("review.payment.action")}</Link> : <Button aria-describedby="review-payment-note" className="review-payment-disabled mt-5 w-full" data-review-payment="disabled" disabled size="lg">{t("review.payment.action")}</Button>}
+        <p className="review-payment-note mt-3 text-center text-xs text-muted-foreground" id="review-payment-note">{t(complete ? "review.payment.ready" : "review.payment.nextStep")}</p>
       </div>
     </aside>
   );

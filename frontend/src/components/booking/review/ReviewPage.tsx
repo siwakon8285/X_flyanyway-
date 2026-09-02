@@ -4,7 +4,7 @@ import { ArrowLeft, Check } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { buildExtrasHandoffHref, allowlistedRecoveryParams } from "@/components/booking/passengers/passengerRoute";
+import { buildExtrasHandoffHref, buildPaymentHandoffHref, allowlistedRecoveryParams } from "@/components/booking/passengers/passengerRoute";
 import { FareSummary } from "@/components/booking/review/FareSummary";
 import { BookingApiError, getReviewContext } from "@/components/booking/review/reviewClient";
 import { ReviewDetails } from "@/components/booking/review/ReviewDetails";
@@ -136,6 +136,7 @@ const ReviewPage = ({ backQuery, holdId }: { backQuery: string; holdId: string }
   );
 
   const extrasHref = buildExtrasHandoffHref({ holdId, query: backQuery });
+  const paymentHref = buildPaymentHandoffHref({ holdId, query: backQuery });
   const actionHref = reviewState?.action === "passengers"
     ? passengerHref(backQuery, holdId)
     : reviewState?.action === "extras"
@@ -160,7 +161,7 @@ const ReviewPage = ({ backQuery, holdId }: { backQuery: string; holdId: string }
           <p className="mt-5 max-w-2xl text-body-lg text-muted-foreground">{t("review.intro")}</p>
         </div>
 
-        {loading ? <div aria-label={t("review.loading")} className="mt-10 min-h-72 animate-pulse rounded-surface border border-border bg-surface/60 motion-reduce:animate-none" role="status" /> : reviewState ? <div className="review-recovery-panel mt-10 rounded-surface border border-destructive/45 bg-destructive/10 p-7" data-review-recovery={reviewState.action}><p role="alert">{t(reviewState.message)}</p>{reviewState.action === "retry" ? <Button className="mt-5" onClick={() => setAttempt((value) => value + 1)}>{t("review.action.retry")}</Button> : <Link className="mt-5 inline-flex min-h-11 items-center gap-2 font-medium text-brand focus-visible:ring-2 focus-visible:ring-focus" href={actionHref}><ArrowLeft aria-hidden="true" />{t(actionLabel)}</Link>}</div> : context ? <div className="mt-10 grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start" data-testid="review-layout"><div data-review-reveal="details"><ReviewDetails context={context} /></div><FareSummary context={context} remainingMilliseconds={remainingMilliseconds} /></div> : null}
+        {loading ? <div aria-label={t("review.loading")} className="mt-10 min-h-72 animate-pulse rounded-surface border border-border bg-surface/60 motion-reduce:animate-none" role="status" /> : reviewState ? <div className="review-recovery-panel mt-10 rounded-surface border border-destructive/45 bg-destructive/10 p-7" data-review-recovery={reviewState.action}><p role="alert">{t(reviewState.message)}</p>{reviewState.action === "retry" ? <Button className="mt-5" onClick={() => setAttempt((value) => value + 1)}>{t("review.action.retry")}</Button> : <Link className="mt-5 inline-flex min-h-11 items-center gap-2 font-medium text-brand focus-visible:ring-2 focus-visible:ring-focus" href={actionHref}><ArrowLeft aria-hidden="true" />{t(actionLabel)}</Link>}</div> : context ? <div className="mt-10 grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start" data-testid="review-layout"><div data-review-reveal="details"><ReviewDetails context={context} /></div><FareSummary context={context} paymentHref={paymentHref} remainingMilliseconds={remainingMilliseconds} /></div> : null}
       </Container>
     </main>
   );

@@ -124,6 +124,16 @@ The first ready Review GET idempotently materializes one row in `hold_review_pri
 
 The returned `DEMO_FIXTURE_NONREFUNDABLE_NO_CHANGES` condition is a project demo configuration only. It must always be presented as a fixture policy and never represented as a real airline fare rule.
 
+## Mock payment and paid inventory lifecycle
+
+Payment is available only for an HttpOnly-cookie-authorized, active hold whose seats, passengers, saved Extras marker, and current `hold_review_pricing` snapshot all remain valid. `GET /api/v1/seat-holds/{hold_id}/payment` returns that server-owned amount and currency; create and simulation requests never accept pricing or card fields. Card details exist only as transient browser demo state. The backend receives a UUID request ID, payment method, and (for Card) a safe mock scenario.
+
+`PaymentApplication` depends on the provider-neutral `PaymentGateway` boundary. The branch supplies `MockCardPaymentGateway` and `MockBitcoinPaymentGateway`; a future provider can replace a gateway without adding provider SDK types to the domain or application layer. Bitcoin uses an invalid, deterministic demo destination and a fixed display conversion of 1 BTC = THB 2,000,000. It never generates key material or contacts a blockchain.
+
+Payment attempts use `CREATED`, `PROCESSING`, `AWAITING_PAYMENT`, `SUCCEEDED`, `FAILED`, and `CANCELLED`. Failed and cancelled attempts are historical and retryable while the hold remains active. Request IDs are idempotent and protected by a request fingerprint. Partial unique indexes allow only one open attempt and one successful attempt per hold.
+
+A transition to `SUCCEEDED` is also the paid-inventory finalization boundary. One guarded PostgreSQL transaction locks the authorized hold and attempt, revalidates the Review snapshot and held seats, records the paid seat association in `payment_attempt_seats`, changes those seats from `AVAILABLE` with this hold ID to `BOOKED` with `booked_at` set and `hold_id` cleared, sets `seat_holds.consumed_at`, and finally records the payment as `SUCCEEDED`. Any failure rolls the whole transaction back, so successful payment cannot coexist with expirable inventory. Expiry before this transition persists the attempt as `FAILED` with `HOLD_EXPIRED`; it never extends or replaces the hold. Ticket and QR representation remain a later concern and will consume the successful attempt, its finalized-seat association, the consumed hold, and BOOKED inventory state.
+
 ## Isolated PostgreSQL tests
 
 Repository and race tests refuse a database whose URL path does not end in `_test`. `TEST_DATABASE_URL` is separate from `DATABASE_URL` and uses host port `5434` for host-run tests. Start the isolated, tmpfs-backed test database only when required:

@@ -6,17 +6,24 @@ use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput},
     passengers::{PassengerContext, PassengerInput},
+    payment::{
+        build_demo_bitcoin_invoice, CreatePaymentRequest, PaymentAttempt, PaymentContext,
+        PaymentGateway, PaymentMethod, PaymentSimulationOutcome,
+    },
     repositories::{
         ExtraRepository, ExtraRepositoryError, PassengerRepository, PassengerRepositoryError,
-        ReviewRepository, ReviewRepositoryError, SeatHoldRepository, SeatHoldRepositoryError,
+        PaymentRepository, PaymentRepositoryError, ReviewRepository, ReviewRepositoryError,
+        SeatHoldRepository, SeatHoldRepositoryError,
     },
     review::ReviewContext,
     value_objects::SeatNumber,
 };
 
+mod create_payment_attempt;
 mod create_seat_hold;
 mod get_extras;
 mod get_passengers;
+mod get_payment;
 mod get_review;
 mod get_seat_hold;
 mod get_seat_map;
@@ -24,6 +31,7 @@ mod release_seat_hold;
 mod replace_seat_hold_seats;
 mod save_extras;
 mod save_passengers;
+mod simulate_payment_attempt;
 mod validate_seat_hold;
 
 #[derive(Clone)]
@@ -45,6 +53,90 @@ pub struct ExtraApplication {
 #[derive(Clone)]
 pub struct ReviewApplication {
     repository: Arc<dyn ReviewRepository>,
+}
+
+#[derive(Clone)]
+pub struct PaymentApplication {
+    repository: Arc<dyn PaymentRepository>,
+    card_gateway: Arc<dyn PaymentGateway>,
+    bitcoin_gateway: Arc<dyn PaymentGateway>,
+}
+
+impl PaymentApplication {
+    pub fn new(
+        repository: Arc<dyn PaymentRepository>,
+        card_gateway: Arc<dyn PaymentGateway>,
+        bitcoin_gateway: Arc<dyn PaymentGateway>,
+    ) -> Self {
+        Self {
+            repository,
+            card_gateway,
+            bitcoin_gateway,
+        }
+    }
+
+    pub async fn get_payment(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+    ) -> Result<PaymentContext, PaymentRepositoryError> {
+        let mut context =
+            get_payment::execute(self.repository.as_ref(), hold_id, token_hash).await?;
+        context
+            .attempts
+            .iter_mut()
+            .for_each(decorate_bitcoin_attempt);
+        Ok(context)
+    }
+
+    pub async fn create_attempt(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        request: CreatePaymentRequest,
+    ) -> Result<PaymentAttempt, PaymentRepositoryError> {
+        let mut attempt = create_payment_attempt::execute(
+            self.repository.as_ref(),
+            self.card_gateway.as_ref(),
+            self.bitcoin_gateway.as_ref(),
+            hold_id,
+            token_hash,
+            request,
+        )
+        .await?;
+        decorate_bitcoin_attempt(&mut attempt);
+        Ok(attempt)
+    }
+
+    pub async fn simulate(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        attempt_id: Uuid,
+        outcome: PaymentSimulationOutcome,
+    ) -> Result<PaymentAttempt, PaymentRepositoryError> {
+        let mut attempt = simulate_payment_attempt::execute(
+            self.repository.as_ref(),
+            hold_id,
+            token_hash,
+            attempt_id,
+            outcome,
+        )
+        .await?;
+        decorate_bitcoin_attempt(&mut attempt);
+        Ok(attempt)
+    }
+}
+
+fn decorate_bitcoin_attempt(attempt: &mut PaymentAttempt) {
+    if attempt.payment_method != PaymentMethod::Bitcoin {
+        return;
+    }
+    let Some(reference) = attempt.provider_reference.as_deref() else {
+        return;
+    };
+    attempt.demo_bitcoin_invoice =
+        build_demo_bitcoin_invoice(attempt.id, attempt.amount.amount, reference).ok();
 }
 
 impl ReviewApplication {
