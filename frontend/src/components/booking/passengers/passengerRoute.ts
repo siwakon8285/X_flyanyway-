@@ -65,7 +65,6 @@ const buildReviewHandoffHref = ({
   return `/booking/review?${params.toString()}`;
 };
 
-// Prepared for Branch 15 only. No Branch 14 production flow invokes this helper.
 const buildPaymentHandoffHref = ({
   holdId,
   query,

@@ -23,9 +23,10 @@ use crate::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
         extras::ExtraSelectionInput,
         passengers::{PassengerFieldError, PassengerInput},
+        payment::{CardScenario, CreatePaymentRequest, PaymentMethod, PaymentSimulationOutcome},
         repositories::{
-            ExtraRepositoryError, PassengerRepositoryError, ReviewRepositoryError,
-            SeatHoldRepositoryError,
+            ExtraRepositoryError, PassengerRepositoryError, PaymentRepositoryError,
+            ReviewRepositoryError, SeatHoldRepositoryError,
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
         DomainError,
@@ -57,6 +58,15 @@ pub fn build_router(state: AppState) -> Router {
             get(get_extras).put(save_extras),
         )
         .route("/api/v1/seat-holds/{hold_id}/review", get(get_review))
+        .route("/api/v1/seat-holds/{hold_id}/payment", get(get_payment))
+        .route(
+            "/api/v1/seat-holds/{hold_id}/payment-attempts",
+            post(create_payment_attempt),
+        )
+        .route(
+            "/api/v1/seat-holds/{hold_id}/payment-attempts/{attempt_id}/simulate",
+            post(simulate_payment_attempt),
+        )
         .route(
             "/api/v1/seat-holds/{hold_id}/validation",
             post(validate_hold_for_continue),
@@ -288,6 +298,102 @@ async fn get_review(
     response
 }
 
+async fn get_payment(
+    State(state): State<AppState>,
+    Path(hold_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    let result = match (
+        state.payments.as_ref(),
+        token_hash_from_cookie(&headers, hold_id),
+    ) {
+        (Some(payments), Ok(token_hash)) => payments
+            .get_payment(hold_id, token_hash)
+            .await
+            .map_err(ApiError::from),
+        (None, _) => Err(ApiError::internal()),
+        (_, Err(error)) => Err(error),
+    };
+    private_no_store(match result {
+        Ok(context) => Json(context).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CreatePaymentAttemptRequest {
+    request_id: Uuid,
+    method: PaymentMethod,
+    scenario: Option<CardScenario>,
+}
+
+async fn create_payment_attempt(
+    State(state): State<AppState>,
+    Path(hold_id): Path<Uuid>,
+    headers: HeaderMap,
+    payload: Result<Json<CreatePaymentAttemptRequest>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let payments = state.payments.as_ref().ok_or_else(ApiError::internal)?;
+        let token_hash = token_hash_from_cookie(&headers, hold_id)?;
+        let request = payload.map_err(|_| ApiError::payment_bad_request())?.0;
+        payments
+            .create_attempt(
+                hold_id,
+                token_hash,
+                CreatePaymentRequest {
+                    request_id: request.request_id,
+                    method: request.method,
+                    scenario: request.scenario,
+                },
+            )
+            .await
+            .map_err(ApiError::from)
+    }
+    .await;
+    private_no_store(match result {
+        Ok(attempt) => (StatusCode::CREATED, Json(attempt)).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SimulatePaymentAttemptRequest {
+    outcome: PaymentSimulationOutcome,
+}
+
+async fn simulate_payment_attempt(
+    State(state): State<AppState>,
+    Path((hold_id, attempt_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    payload: Result<Json<SimulatePaymentAttemptRequest>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let payments = state.payments.as_ref().ok_or_else(ApiError::internal)?;
+        let token_hash = token_hash_from_cookie(&headers, hold_id)?;
+        let request = payload.map_err(|_| ApiError::payment_bad_request())?.0;
+        payments
+            .simulate(hold_id, token_hash, attempt_id, request.outcome)
+            .await
+            .map_err(ApiError::from)
+    }
+    .await;
+    private_no_store(match result {
+        Ok(attempt) => Json(attempt).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+fn private_no_store(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, private"),
+    );
+    response
+}
+
 async fn validate_hold_for_continue(
     State(state): State<AppState>,
     Path(hold_id): Path<Uuid>,
@@ -432,6 +538,98 @@ impl ApiError {
             message: "Travel extras are invalid.",
             conflicting_seats: Vec::new(),
             field_errors: Vec::new(),
+        }
+    }
+
+    fn payment_bad_request() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "PAYMENT_REQUEST_INVALID",
+            message: "The payment request is invalid.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+}
+
+impl From<PaymentRepositoryError> for ApiError {
+    fn from(error: PaymentRepositoryError) -> Self {
+        let conflict = |code, message| Self {
+            status: StatusCode::CONFLICT,
+            code,
+            message,
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        };
+        match error {
+            PaymentRepositoryError::HoldNotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "HOLD_NOT_FOUND",
+                message: "The seat hold could not be found.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PaymentRepositoryError::Unauthorized => Self::unauthorized(),
+            PaymentRepositoryError::HoldExpired => Self {
+                status: StatusCode::GONE,
+                code: "HOLD_EXPIRED",
+                message: "The seat hold expired before payment completed.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PaymentRepositoryError::HoldReleased => Self {
+                status: StatusCode::GONE,
+                code: "HOLD_RELEASED",
+                message: "The seat hold has been released.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PaymentRepositoryError::HoldConsumed => {
+                conflict("HOLD_CONSUMED", "The seat hold has already been finalized.")
+            }
+            PaymentRepositoryError::AlreadySucceeded => conflict(
+                "PAYMENT_ALREADY_SUCCEEDED",
+                "A payment has already succeeded for this seat hold.",
+            ),
+            PaymentRepositoryError::SeatsNotReady => {
+                conflict("SEATS_NOT_READY", "Held seats are not ready for payment.")
+            }
+            PaymentRepositoryError::PassengersNotReady => conflict(
+                "PASSENGERS_NOT_READY",
+                "Passenger information must be completed before payment.",
+            ),
+            PaymentRepositoryError::ExtrasNotReady => conflict(
+                "EXTRAS_NOT_READY",
+                "Travel extras must be saved before payment.",
+            ),
+            PaymentRepositoryError::ReviewNotReady => conflict(
+                "REVIEW_NOT_READY",
+                "Return to Review to confirm the current authoritative price.",
+            ),
+            PaymentRepositoryError::AttemptInProgress => conflict(
+                "PAYMENT_IN_PROGRESS",
+                "Another payment attempt is still in progress.",
+            ),
+            PaymentRepositoryError::AttemptNotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "PAYMENT_ATTEMPT_NOT_FOUND",
+                message: "The payment attempt could not be found.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            PaymentRepositoryError::InvalidTransition => conflict(
+                "PAYMENT_TRANSITION_INVALID",
+                "The payment attempt cannot make that status transition.",
+            ),
+            PaymentRepositoryError::IdempotencyKeyReused => conflict(
+                "IDEMPOTENCY_KEY_REUSED",
+                "The payment request ID was already used for different input.",
+            ),
+            PaymentRepositoryError::InvalidRequest => Self::payment_bad_request(),
+            PaymentRepositoryError::Infrastructure(_error) => {
+                tracing::error!("payment repository failure");
+                Self::internal()
+            }
         }
     }
 }

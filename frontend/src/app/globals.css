@@ -58,6 +58,42 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes payment-panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes payment-status-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes payment-total-emphasis {
+  from { opacity: 0.72; transform: translateY(3px) scale(0.995); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes payment-invalid-emphasis {
+  0% { box-shadow: 0 0 0 rgb(229 72 77 / 0); }
+  55% { box-shadow: 0 0 0 3px rgb(229 72 77 / 16%); }
+  100% { box-shadow: 0 0 0 rgb(229 72 77 / 0); }
+}
+
+@keyframes payment-invoice-item-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes payment-success-icon-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes payment-success-sweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(110%); }
+}
+
 :root {
   color-scheme: dark;
 
@@ -300,6 +336,119 @@ html[data-initial-hash-positioning] body {
   animation: review-payment-note-in 220ms ease-out both;
 }
 
+.payment-method-card {
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.payment-method-card[data-selected="true"] {
+  border-color: var(--brand);
+  background-color: rgb(255 212 0 / 7%);
+  box-shadow: inset 0 0 0 1px rgb(255 212 0 / 8%);
+  transform: scale(1.006);
+}
+
+@media (hover: hover) {
+  .payment-method-card:hover {
+    border-color: rgb(255 212 0 / 38%);
+    transform: translateY(-1px);
+  }
+
+  .payment-method-card[data-selected="true"]:hover {
+    transform: translateY(-1px) scale(1.006);
+  }
+}
+
+.payment-method-card:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 2px rgb(255 212 0 / 28%);
+}
+
+.payment-card-field {
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.payment-card-field:focus-visible {
+  background-color: rgb(255 212 0 / 2.5%);
+}
+
+.payment-card-field[aria-invalid="true"] {
+  animation: payment-invalid-emphasis 200ms ease-out both;
+}
+
+.payment-submit-button {
+  transition:
+    background-color 180ms ease,
+    opacity 180ms ease,
+    transform 120ms ease;
+}
+
+.payment-submit-button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.998);
+}
+
+.payment-submit-button[aria-busy="true"] {
+  opacity: 0.78;
+}
+
+.payment-panel-in {
+  animation: payment-panel-in 220ms ease-out both;
+}
+
+.payment-status-in,
+.payment-success-in,
+.payment-failure-in {
+  animation: payment-status-in 240ms ease-out both;
+}
+
+.payment-success-in::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 38%;
+  content: "";
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgb(255 212 0 / 7%), transparent);
+  animation: payment-success-sweep 440ms ease-out both;
+}
+
+.payment-success-icon {
+  animation: payment-success-icon-in 240ms ease-out both;
+}
+
+.payment-success-reference {
+  animation: payment-invoice-item-in 220ms 70ms ease-out both;
+}
+
+.payment-invoice [data-payment-invoice-item] {
+  animation: payment-invoice-item-in 210ms ease-out both;
+}
+
+.payment-invoice [data-payment-invoice-item]:nth-child(2) {
+  animation-delay: 45ms;
+}
+
+.payment-invoice [data-payment-invoice-item]:nth-child(3) {
+  animation-delay: 90ms;
+}
+
+.payment-invoice [data-payment-invoice-item]:nth-child(4) {
+  animation-delay: 135ms;
+}
+
+.payment-total-emphasis {
+  animation: payment-total-emphasis 220ms ease-out both;
+}
+
+.payment-summary-status {
+  animation: payment-status-in 200ms ease-out both;
+}
+
 ::selection {
   background: var(--brand);
   color: var(--brand-foreground);
@@ -328,8 +477,33 @@ html[data-initial-hash-positioning] body {
   }
 
   .review-interactive-card:hover,
-  .review-interactive-card:focus-within {
+  .review-interactive-card:focus-within,
+  .payment-method-card:hover,
+  .payment-method-card[data-selected="true"],
+  .payment-submit-button:active:not(:disabled) {
     transform: none;
+  }
+
+  .payment-card-field[aria-invalid="true"],
+  .payment-invoice [data-payment-invoice-item],
+  .payment-panel-in,
+  .payment-status-in,
+  .payment-success-in,
+  .payment-failure-in,
+  .payment-success-icon,
+  .payment-success-reference,
+  .payment-total-emphasis,
+  .payment-summary-status {
+    transform: none !important;
+  }
+
+  .payment-invoice [data-payment-invoice-item],
+  .payment-success-reference {
+    animation-delay: 0s !important;
+  }
+
+  .payment-success-in::before {
+    display: none;
   }
 
   [data-journey-desktop] {

@@ -1,6 +1,7 @@
 pub mod entities;
 pub mod extras;
 pub mod passengers;
+pub mod payment;
 pub mod pricing;
 pub mod repositories;
 pub mod review;

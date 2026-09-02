@@ -4,10 +4,12 @@ use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use x_fly_api::{
+    application::use_cases::PaymentApplication,
     config::AppConfig,
     infrastructure::{
         database::{prepare_database, SqlxSeatHoldRepository},
         http::build_router,
+        payment::{MockBitcoinPaymentGateway, MockCardPaymentGateway},
     },
     state::AppState,
 };
@@ -32,6 +34,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     prepare_database(&pool).await?;
 
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
+    let payments = PaymentApplication::new(
+        repository.clone(),
+        Arc::new(MockCardPaymentGateway),
+        Arc::new(MockBitcoinPaymentGateway),
+    );
     let state = AppState::new(
         repository.clone(),
         repository.clone(),
@@ -40,7 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.seat_hold_ttl,
         config.secure_cookies,
         config.frontend_origin,
-    );
+    )
+    .with_payments(payments);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
     tracing::info!(address = %config.bind_address, "X-Fly API listening");
     axum::serve(listener, build_router(state))
