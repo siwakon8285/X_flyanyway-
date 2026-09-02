@@ -23,7 +23,10 @@ use crate::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
         extras::ExtraSelectionInput,
         passengers::{PassengerFieldError, PassengerInput},
-        repositories::{ExtraRepositoryError, PassengerRepositoryError, SeatHoldRepositoryError},
+        repositories::{
+            ExtraRepositoryError, PassengerRepositoryError, ReviewRepositoryError,
+            SeatHoldRepositoryError,
+        },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
         DomainError,
     },
@@ -53,6 +56,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/seat-holds/{hold_id}/extras",
             get(get_extras).put(save_extras),
         )
+        .route("/api/v1/seat-holds/{hold_id}/review", get(get_review))
         .route(
             "/api/v1/seat-holds/{hold_id}/validation",
             post(validate_hold_for_continue),
@@ -258,6 +262,30 @@ async fn save_extras(
         [(header::CACHE_CONTROL, "no-store, private")],
         Json(context),
     ))
+}
+
+async fn get_review(
+    State(state): State<AppState>,
+    Path(hold_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Response {
+    let result = match token_hash_from_cookie(&headers, hold_id) {
+        Ok(token_hash) => state
+            .reviews
+            .get_review(hold_id, token_hash)
+            .await
+            .map_err(ApiError::from),
+        Err(error) => Err(error),
+    };
+    let mut response = match result {
+        Ok(context) => Json(context).into_response(),
+        Err(error) => error.into_response(),
+    };
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, private"),
+    );
+    response
 }
 
 async fn validate_hold_for_continue(
@@ -478,6 +506,67 @@ impl From<ExtraRepositoryError> for ApiError {
             ),
             ExtraRepositoryError::Infrastructure(_error) => {
                 tracing::error!("extras repository failure");
+                Self::internal()
+            }
+        }
+    }
+}
+
+impl From<ReviewRepositoryError> for ApiError {
+    fn from(error: ReviewRepositoryError) -> Self {
+        let state_error = |code, message| Self {
+            status: StatusCode::CONFLICT,
+            code,
+            message,
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        };
+        match error {
+            ReviewRepositoryError::HoldNotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "HOLD_NOT_FOUND",
+                message: "The seat hold could not be found.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ReviewRepositoryError::Unauthorized => Self::unauthorized(),
+            ReviewRepositoryError::HoldExpired => Self {
+                status: StatusCode::GONE,
+                code: "HOLD_EXPIRED",
+                message: "The seat hold has expired.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ReviewRepositoryError::HoldReleased => Self {
+                status: StatusCode::GONE,
+                code: "HOLD_RELEASED",
+                message: "The seat hold has been released.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ReviewRepositoryError::HoldConsumed => {
+                state_error("HOLD_CONSUMED", "The seat hold has already been consumed.")
+            }
+            ReviewRepositoryError::SeatsNotReady => {
+                state_error("SEATS_NOT_READY", "Held seats are not ready for review.")
+            }
+            ReviewRepositoryError::PassengersNotReady => state_error(
+                "PASSENGERS_NOT_READY",
+                "Passenger information must be completed before review.",
+            ),
+            ReviewRepositoryError::ExtrasNotReady => state_error(
+                "EXTRAS_NOT_READY",
+                "Travel extras must be explicitly saved before review.",
+            ),
+            ReviewRepositoryError::PricingUnavailable => Self {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                code: "REVIEW_PRICING_UNAVAILABLE",
+                message: "Authoritative review pricing is temporarily unavailable.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            ReviewRepositoryError::Infrastructure(_error) => {
+                tracing::error!("review repository failure");
                 Self::internal()
             }
         }

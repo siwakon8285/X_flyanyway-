@@ -38,6 +38,9 @@ DELETE /api/v1/seat-holds/{hold_id}
 POST   /api/v1/seat-holds/{hold_id}/validation
 GET    /api/v1/seat-holds/{hold_id}/passengers
 PUT    /api/v1/seat-holds/{hold_id}/passengers
+GET    /api/v1/seat-holds/{hold_id}/extras
+PUT    /api/v1/seat-holds/{hold_id}/extras
+GET    /api/v1/seat-holds/{hold_id}/review
 ```
 
 The validation endpoint is the Continue gate: it revalidates authorization and expiry and independently requires held seats to equal adults + children. Lap infants do not consume seats. Conflicting inventory returns HTTP 409 with `SEAT_UNAVAILABLE` and `conflictingSeats`.
@@ -110,6 +113,16 @@ Included cabin fixtures are:
 | First | 14 kg | 50 kg | Included | Signature |
 
 `seat_holds.extras_saved_at` is strictly a Travel Extras workflow-readiness marker. It means the customer explicitly reviewed and saved the Extras step, including an explicit save with no selections. It does **not** mean payment completed, a booking was confirmed, or a ticket was issued. Later booking, payment, and ticketing branches must use their own state and timestamps and must never reuse `extras_saved_at` for those meanings.
+
+## Booking Review and demo pricing
+
+`GET /api/v1/seat-holds/{hold_id}/review` requires the authorized hold to be active, all seated inventory to remain held, the complete passenger draft to match the hold party, and `extras_saved_at` to exist. It reads passenger-facing summary fields and persisted Extras only; passport numbers, contact details, and emergency contacts are not included in the Review response.
+
+The backend owns the Review amount. Demo flight-service schedules and whole-baht cabin fares are stored in PostgreSQL. Adults and children each pay 100% of the selected cabin fare, while the explicitly modeled lap-infant fare is THB 0. Deterministic fixture charges are `DEMO_PASSENGER_TAX` = THB 700 per seated passenger, `DEMO_AIRPORT_FEE` = THB 500 per seated passenger, and `DEMO_BOOKING_FEE` = THB 300 per hold. These are academic demo fixtures, not real government, airport, or airline charges.
+
+The first ready Review GET idempotently materializes one row in `hold_review_pricing`. This row is an internal cache/materialization of authoritative Review pricing so repeated reads and a future payment use case receive the same amount. It is **not** payment, booking confirmation, ticket issuance, or a general pattern for arbitrary GET side effects. Repeated GETs do not add rows or change prices. A successful Passenger or Extras re-save explicitly invalidates the row; the next ready Review GET materializes a new snapshot from current authoritative state. None of these operations updates `seat_holds.expires_at`.
+
+The returned `DEMO_FIXTURE_NONREFUNDABLE_NO_CHANGES` condition is a project demo configuration only. It must always be presented as a fixture policy and never represented as a real airline fare rule.
 
 ## Isolated PostgreSQL tests
 

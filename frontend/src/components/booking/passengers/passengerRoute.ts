@@ -53,12 +53,35 @@ const buildExtrasHandoffHref = ({
   return `/booking/extras?${params.toString()}`;
 };
 
-const buildReviewHandoffHref = (holdId: string) =>
-  `/booking/review?${new URLSearchParams({ holdId }).toString()}`;
+const buildReviewHandoffHref = ({
+  holdId,
+  query,
+}: {
+  holdId: string;
+  query: string;
+}) => {
+  const params = allowlistedRecoveryParams(query);
+  params.set("holdId", holdId);
+  return `/booking/review?${params.toString()}`;
+};
+
+// Prepared for Branch 15 only. No Branch 14 production flow invokes this helper.
+const buildPaymentHandoffHref = ({
+  holdId,
+  query,
+}: {
+  holdId: string;
+  query: string;
+}) => {
+  const params = allowlistedRecoveryParams(query);
+  params.set("holdId", holdId);
+  return `/booking/payment?${params.toString()}`;
+};
 
 export {
   allowlistedRecoveryParams,
   buildExtrasHandoffHref,
+  buildPaymentHandoffHref,
   buildPassengerInformationHref,
   buildReviewHandoffHref,
 };

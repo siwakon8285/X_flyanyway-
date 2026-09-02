@@ -8,14 +8,16 @@ use crate::domain::{
     passengers::{PassengerContext, PassengerInput},
     repositories::{
         ExtraRepository, ExtraRepositoryError, PassengerRepository, PassengerRepositoryError,
-        SeatHoldRepository, SeatHoldRepositoryError,
+        ReviewRepository, ReviewRepositoryError, SeatHoldRepository, SeatHoldRepositoryError,
     },
+    review::ReviewContext,
     value_objects::SeatNumber,
 };
 
 mod create_seat_hold;
 mod get_extras;
 mod get_passengers;
+mod get_review;
 mod get_seat_hold;
 mod get_seat_map;
 mod release_seat_hold;
@@ -38,6 +40,25 @@ pub struct PassengerApplication {
 #[derive(Clone)]
 pub struct ExtraApplication {
     repository: Arc<dyn ExtraRepository>,
+}
+
+#[derive(Clone)]
+pub struct ReviewApplication {
+    repository: Arc<dyn ReviewRepository>,
+}
+
+impl ReviewApplication {
+    pub fn new(repository: Arc<dyn ReviewRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub async fn get_review(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+    ) -> Result<ReviewContext, ReviewRepositoryError> {
+        get_review::execute(self.repository.as_ref(), hold_id, token_hash).await
+    }
 }
 
 impl ExtraApplication {
