@@ -135,6 +135,12 @@ impl PassengerRepository for SqlxSeatHoldRepository {
             .map_err(PassengerRepositoryError::Infrastructure)?;
         }
 
+        sqlx::query("DELETE FROM hold_review_pricing WHERE seat_hold_id = $1")
+            .bind(hold_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(PassengerRepositoryError::Infrastructure)?;
+
         let expected_passengers = expected_passenger_slots(counts);
         transaction
             .commit()
@@ -149,7 +155,7 @@ impl PassengerRepository for SqlxSeatHoldRepository {
     }
 }
 
-async fn load_passengers(
+pub(super) async fn load_passengers(
     transaction: &mut Transaction<'_, Postgres>,
     hold_id: Uuid,
 ) -> Result<Vec<Passenger>, PassengerRepositoryError> {

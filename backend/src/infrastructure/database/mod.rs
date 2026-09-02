@@ -16,6 +16,7 @@ use crate::domain::{
 
 mod extras;
 mod passengers;
+mod review;
 
 #[derive(Debug, Error)]
 pub enum DatabaseInitError {

@@ -20,8 +20,8 @@ const formatDate = (value: string, locale: Locale) => {
   }).format(new Date(Date.UTC(year, month - 1, day)));
 };
 
-const formatPrice = (amount: number, locale: Locale) =>
-  `THB ${new Intl.NumberFormat(numberLocales[locale], {
+const formatPrice = (amount: number, locale: Locale, currencyCode = "THB") =>
+  `${currencyCode} ${new Intl.NumberFormat(numberLocales[locale], {
     maximumFractionDigits: 0,
   }).format(amount)}`;
 

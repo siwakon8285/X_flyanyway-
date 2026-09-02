@@ -1,7 +1,9 @@
 pub mod entities;
 pub mod extras;
 pub mod passengers;
+pub mod pricing;
 pub mod repositories;
+pub mod review;
 pub mod value_objects;
 
 use thiserror::Error;

@@ -8,6 +8,12 @@ import type {
 } from "@/components/booking/extras/extrasTypes";
 import { render } from "@/tests/renderWithLanguage";
 
+const mockPush = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
 const money = (amount: number) => ({ amount, currencyCode: "THB" });
 const product = (
   code: string,
@@ -101,6 +107,7 @@ describe("TravelExtrasPage", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
+    mockPush.mockReset();
     if (originalFetch) {
       Object.defineProperty(global, "fetch", {
         configurable: true,
@@ -132,7 +139,7 @@ describe("TravelExtrasPage", () => {
     expect(screen.getByText("20A")).toBeInTheDocument();
   });
 
-  it("updates baggage meal assistance and total then saves on the current route", async () => {
+  it("updates baggage meal assistance and total then navigates after the server confirms save", async () => {
     const saved: ExtrasContext = {
       ...context,
       readyToContinue: true,
@@ -166,7 +173,9 @@ describe("TravelExtrasPage", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(await screen.findByText("Extras saved. Ready for review.")).toBeInTheDocument();
     expect(saveButton).toHaveAttribute("data-save-state", "saved");
-    expect(window.location.pathname).not.toBe("/booking/review");
+    expect(mockPush).toHaveBeenCalledWith(
+      "/booking/review?flightId=xf-201&holdId=hold-123",
+    );
 
     fireEvent.click(noBaggage);
     expect(saveButton).toHaveAttribute("data-save-state", "dirty");
@@ -277,6 +286,7 @@ describe("TravelExtrasPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "We couldn't save your extras. Your choices are still here. Please try again.",
     );
+    expect(mockPush).not.toHaveBeenCalled();
     expect(baggage).toBeChecked();
     expect(screen.getByLabelText("Extras total THB 2,800")).toBeInTheDocument();
 
@@ -284,5 +294,6 @@ describe("TravelExtrasPage", () => {
 
     expect(await screen.findByText("Extras saved. Ready for review.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(mockPush).toHaveBeenCalledTimes(1);
   });
 });

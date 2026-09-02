@@ -87,6 +87,11 @@ impl ExtraRepository for SqlxSeatHoldRepository {
         .execute(&mut *transaction)
         .await
         .map_err(ExtraRepositoryError::Infrastructure)?;
+        sqlx::query("DELETE FROM hold_review_pricing WHERE seat_hold_id = $1")
+            .bind(hold_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(ExtraRepositoryError::Infrastructure)?;
 
         let context = load_context_with_passengers(&mut transaction, hold_row, passengers).await?;
         transaction
@@ -184,7 +189,7 @@ async fn load_ready_passengers(
     Ok(passengers)
 }
 
-async fn load_selections(
+pub(super) async fn load_selections(
     transaction: &mut Transaction<'_, Postgres>,
     hold_id: Uuid,
 ) -> Result<Vec<PricedExtraSelection>, ExtraRepositoryError> {

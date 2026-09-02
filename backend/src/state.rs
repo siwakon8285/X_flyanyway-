@@ -1,14 +1,19 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    application::use_cases::{ExtraApplication, PassengerApplication, SeatHoldApplication},
-    domain::repositories::{ExtraRepository, PassengerRepository, SeatHoldRepository},
+    application::use_cases::{
+        ExtraApplication, PassengerApplication, ReviewApplication, SeatHoldApplication,
+    },
+    domain::repositories::{
+        ExtraRepository, PassengerRepository, ReviewRepository, SeatHoldRepository,
+    },
 };
 
 #[derive(Clone)]
 pub struct AppState {
     pub extras: ExtraApplication,
     pub passengers: PassengerApplication,
+    pub reviews: ReviewApplication,
     pub seat_holds: SeatHoldApplication,
     pub secure_cookies: bool,
     pub frontend_origin: String,
@@ -19,6 +24,7 @@ impl AppState {
         repository: Arc<dyn SeatHoldRepository>,
         passenger_repository: Arc<dyn PassengerRepository>,
         extra_repository: Arc<dyn ExtraRepository>,
+        review_repository: Arc<dyn ReviewRepository>,
         hold_ttl: Duration,
         secure_cookies: bool,
         frontend_origin: String,
@@ -26,6 +32,7 @@ impl AppState {
         Self {
             extras: ExtraApplication::new(extra_repository),
             passengers: PassengerApplication::new(passenger_repository),
+            reviews: ReviewApplication::new(review_repository),
             seat_holds: SeatHoldApplication::new(repository, hold_ttl),
             secure_cookies,
             frontend_origin,

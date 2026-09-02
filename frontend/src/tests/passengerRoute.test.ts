@@ -1,4 +1,5 @@
 import {
+  buildPaymentHandoffHref,
   buildExtrasHandoffHref,
   buildPassengerInformationHref,
   buildReviewHandoffHref,
@@ -32,8 +33,22 @@ describe("passenger route contracts", () => {
   });
 
   it("prepares but does not navigate to the future Review route", () => {
-    expect(buildReviewHandoffHref("hold-123")).toBe(
-      "/booking/review?holdId=hold-123",
+    expect(
+      buildReviewHandoffHref({
+        holdId: "hold-123",
+        query: "flightId=xf-201&departure=2030-05-10&email=private%40example.com&grandTotal=1",
+      }),
+    ).toBe(
+      "/booking/review?flightId=xf-201&departure=2030-05-10&holdId=hold-123",
     );
+  });
+
+  it("prepares a future Payment URL without carrying sensitive or monetary state", () => {
+    expect(
+      buildPaymentHandoffHref({
+        holdId: "hold-123",
+        query: "flightId=xf-201&passport=private&grandTotal=1",
+      }),
+    ).toBe("/booking/payment?flightId=xf-201&holdId=hold-123");
   });
 });

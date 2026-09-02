@@ -2,6 +2,7 @@
 
 import { ArrowLeft, Check } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -16,7 +17,10 @@ import type {
   ExtraSelectionInput,
   ExtrasContext,
 } from "@/components/booking/extras/extrasTypes";
-import { allowlistedRecoveryParams } from "@/components/booking/passengers/passengerRoute";
+import {
+  allowlistedRecoveryParams,
+  buildReviewHandoffHref,
+} from "@/components/booking/passengers/passengerRoute";
 import { getRemainingHoldMilliseconds } from "@/components/booking/seats/seatHoldClient";
 import { Container } from "@/components/layout/Container";
 import { Button } from "@/components/ui/Button";
@@ -73,6 +77,7 @@ const TravelExtrasPage = ({
   holdId: string;
 }) => {
   const { t } = useLanguage();
+  const router = useRouter();
   const page = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
   const [context, setContext] = useState<ExtrasContext | null>(null);
@@ -203,6 +208,16 @@ const TravelExtrasPage = ({
       const saved = await saveExtras(holdId, selections);
       applyContext(saved);
       setRecentlySaved(true);
+      const receivedAt = Date.now();
+      const savedRemaining = getRemainingHoldMilliseconds({
+        clientNow: receivedAt,
+        expiresAt: saved.hold.expiresAt,
+        serverTime: saved.hold.serverTime,
+        serverTimeReceivedAt: receivedAt,
+      });
+      if (saved.readyToContinue && savedRemaining > 0) {
+        router.push(buildReviewHandoffHref({ holdId, query: backQuery }));
+      }
     } catch (error) {
       const terminal =
         error instanceof BookingApiError ? lifecycleMessage(error) : null;

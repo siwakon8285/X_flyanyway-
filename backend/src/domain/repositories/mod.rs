@@ -9,6 +9,7 @@ use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput, ExtraValidationError},
     passengers::{PassengerContext, PassengerFieldError, PassengerInput},
+    review::ReviewContext,
 };
 
 #[derive(Debug, Error)]
@@ -167,4 +168,37 @@ pub trait PassengerRepository: Send + Sync {
         token_hash: [u8; 32],
         passengers: Vec<PassengerInput>,
     ) -> Result<PassengerContext, PassengerRepositoryError>;
+}
+
+#[derive(Debug, Error)]
+pub enum ReviewRepositoryError {
+    #[error("seat hold not found")]
+    HoldNotFound,
+    #[error("seat hold authorization failed")]
+    Unauthorized,
+    #[error("seat hold has expired")]
+    HoldExpired,
+    #[error("seat hold has been released")]
+    HoldReleased,
+    #[error("seat hold has already been consumed")]
+    HoldConsumed,
+    #[error("held seats are not ready for review")]
+    SeatsNotReady,
+    #[error("passenger information is not ready for review")]
+    PassengersNotReady,
+    #[error("travel extras have not been explicitly saved")]
+    ExtrasNotReady,
+    #[error("authoritative review pricing is unavailable")]
+    PricingUnavailable,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+#[async_trait]
+pub trait ReviewRepository: Send + Sync {
+    async fn get_review(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+    ) -> Result<ReviewContext, ReviewRepositoryError>;
 }
