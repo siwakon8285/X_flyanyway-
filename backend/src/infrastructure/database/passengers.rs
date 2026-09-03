@@ -69,6 +69,9 @@ impl PassengerRepository for SqlxSeatHoldRepository {
         let hold_row = Self::locked_hold(&mut transaction, hold_id, token_hash)
             .await
             .map_err(map_hold_error)?;
+        Self::ensure_no_protected_payment(&mut transaction, hold_id)
+            .await
+            .map_err(map_hold_error)?;
         let counts = PassengerCounts::new(
             hold_row.adults as u8,
             hold_row.children as u8,
@@ -218,6 +221,9 @@ fn map_hold_error(error: SeatHoldRepositoryError) -> PassengerRepositoryError {
         SeatHoldRepositoryError::HoldExpired => PassengerRepositoryError::HoldExpired,
         SeatHoldRepositoryError::HoldReleased => PassengerRepositoryError::HoldReleased,
         SeatHoldRepositoryError::HoldConsumed => PassengerRepositoryError::HoldConsumed,
+        SeatHoldRepositoryError::PaymentFinalizationInProgress => {
+            PassengerRepositoryError::PaymentFinalizationInProgress
+        }
         SeatHoldRepositoryError::SeatCountMismatch => PassengerRepositoryError::SeatCountMismatch,
         SeatHoldRepositoryError::Infrastructure(error) => {
             PassengerRepositoryError::Infrastructure(error)

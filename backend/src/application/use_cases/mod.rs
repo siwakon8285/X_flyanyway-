@@ -8,7 +8,8 @@ use crate::domain::{
     passengers::{PassengerContext, PassengerInput},
     payment::{
         build_demo_bitcoin_invoice, CreatePaymentRequest, PaymentAttempt, PaymentContext,
-        PaymentGateway, PaymentMethod, PaymentSimulationOutcome,
+        PaymentGateway, PaymentMethod, PaymentProviderReconciler, PaymentSimulationOutcome,
+        ProcessStripeWebhookCommand, StripeWebhookResult,
     },
     repositories::{
         ExtraRepository, ExtraRepositoryError, PassengerRepository, PassengerRepositoryError,
@@ -27,6 +28,8 @@ mod get_payment;
 mod get_review;
 mod get_seat_hold;
 mod get_seat_map;
+mod process_stripe_webhook;
+mod reconcile_stripe_payment;
 mod release_seat_hold;
 mod replace_seat_hold_seats;
 mod save_extras;
@@ -60,6 +63,7 @@ pub struct PaymentApplication {
     repository: Arc<dyn PaymentRepository>,
     card_gateway: Arc<dyn PaymentGateway>,
     bitcoin_gateway: Arc<dyn PaymentGateway>,
+    stripe_provider: Option<Arc<dyn PaymentProviderReconciler>>,
 }
 
 impl PaymentApplication {
@@ -72,7 +76,13 @@ impl PaymentApplication {
             repository,
             card_gateway,
             bitcoin_gateway,
+            stripe_provider: None,
         }
+    }
+
+    pub fn with_stripe_provider(mut self, provider: Arc<dyn PaymentProviderReconciler>) -> Self {
+        self.stripe_provider = Some(provider);
+        self
     }
 
     pub async fn get_payment(
@@ -82,6 +92,30 @@ impl PaymentApplication {
     ) -> Result<PaymentContext, PaymentRepositoryError> {
         let mut context =
             get_payment::execute(self.repository.as_ref(), hold_id, token_hash).await?;
+        if let Some(provider) = self.stripe_provider.as_deref() {
+            if let Some(attempt) = context.attempts.iter().find(|attempt| {
+                attempt.provider == crate::domain::payment::PaymentProvider::Stripe
+                    && matches!(
+                        attempt.status,
+                        crate::domain::payment::PaymentStatus::Created
+                            | crate::domain::payment::PaymentStatus::Processing
+                            | crate::domain::payment::PaymentStatus::AwaitingPayment
+                    )
+            }) {
+                let changed = reconcile_stripe_payment::execute(
+                    self.repository.as_ref(),
+                    provider,
+                    hold_id,
+                    token_hash,
+                    attempt,
+                )
+                .await?;
+                if changed {
+                    context =
+                        get_payment::execute(self.repository.as_ref(), hold_id, token_hash).await?;
+                }
+            }
+        }
         context
             .attempts
             .iter_mut()
@@ -125,6 +159,13 @@ impl PaymentApplication {
         .await?;
         decorate_bitcoin_attempt(&mut attempt);
         Ok(attempt)
+    }
+
+    pub async fn process_stripe_webhook(
+        &self,
+        command: ProcessStripeWebhookCommand,
+    ) -> Result<StripeWebhookResult, PaymentRepositoryError> {
+        process_stripe_webhook::execute(self.repository.as_ref(), command).await
     }
 }
 

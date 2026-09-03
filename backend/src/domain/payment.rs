@@ -54,10 +54,10 @@ impl PaymentStatus {
                 Self::Processing | Self::AwaitingPayment | Self::Failed
             ) | (
                 Self::Processing,
-                Self::Succeeded | Self::Failed | Self::Cancelled
+                Self::AwaitingPayment | Self::Succeeded | Self::Failed | Self::Cancelled
             ) | (
                 Self::AwaitingPayment,
-                Self::Processing | Self::Failed | Self::Cancelled
+                Self::Processing | Self::Succeeded | Self::Failed | Self::Cancelled
             )
         );
         allowed
@@ -93,21 +93,21 @@ impl PaymentMethod {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PaymentProvider {
-    MockCard,
+    Stripe,
     MockBitcoin,
 }
 
 impl PaymentProvider {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::MockCard => "MOCK_CARD",
+            Self::Stripe => "STRIPE",
             Self::MockBitcoin => "MOCK_BITCOIN",
         }
     }
 
     pub fn parse_database(value: &str) -> Option<Self> {
         match value {
-            "MOCK_CARD" => Some(Self::MockCard),
+            "STRIPE" => Some(Self::Stripe),
             "MOCK_BITCOIN" => Some(Self::MockBitcoin),
             _ => None,
         }
@@ -142,6 +142,9 @@ pub struct PaymentAttempt {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub succeeded_at: Option<DateTime<Utc>>,
+    pub payment_finalization_deadline: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_payment_session: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub demo_bitcoin_invoice: Option<DemoBitcoinInvoice>,
 }
@@ -175,29 +178,10 @@ pub struct PaymentContext {
     pub ready_for_payment: bool,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum CardScenario {
-    Success,
-    Declined,
-    ProcessingError,
-}
-
-impl CardScenario {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Success => "SUCCESS",
-            Self::Declined => "DECLINED",
-            Self::ProcessingError => "PROCESSING_ERROR",
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct CreatePaymentRequest {
     pub request_id: Uuid,
     pub method: PaymentMethod,
-    pub scenario: Option<CardScenario>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -212,7 +196,6 @@ pub enum PaymentSimulationOutcome {
 pub struct PaymentGatewayRequest {
     pub attempt_id: Uuid,
     pub amount: Money,
-    pub scenario: Option<CardScenario>,
 }
 
 #[derive(Clone, Debug)]
@@ -227,12 +210,58 @@ pub enum PaymentGatewayOutcome {
     },
     AwaitingPayment {
         provider_reference: String,
+        client_payment_session: Option<String>,
     },
 }
 
 #[async_trait::async_trait]
 pub trait PaymentGateway: Send + Sync {
     async fn initiate(&self, request: PaymentGatewayRequest) -> PaymentGatewayOutcome;
+}
+
+/// Provider-neutral reconciliation categories. Stripe's raw status strings stay
+/// inside infrastructure: requires_payment_method/confirmation/action map to
+/// AwaitingCustomer, processing maps to Processing, succeeded maps to
+/// Succeeded, and canceled or a terminal payment error map to Cancelled/Failed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PaymentReconciliationStatus {
+    AwaitingCustomer,
+    Processing,
+    Succeeded,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaymentProviderState {
+    pub provider_reference: String,
+    pub status: PaymentReconciliationStatus,
+    pub amount: i64,
+    pub currency: String,
+    pub failure: Option<PaymentFailure>,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum PaymentProviderError {
+    #[error("Stripe payment provider is temporarily unavailable")]
+    Unavailable,
+    #[error("Stripe returned an invalid PaymentIntent")]
+    InvalidResponse,
+}
+
+#[async_trait::async_trait]
+pub trait PaymentProviderReconciler: Send + Sync {
+    async fn retrieve_payment_intent(
+        &self,
+        provider_reference: &str,
+    ) -> Result<PaymentProviderState, PaymentProviderError>;
+
+    /// A successful request is not a local terminal state: callers must use
+    /// the returned state and only close the attempt after confirmed cancelled.
+    async fn cancel_payment_intent(
+        &self,
+        provider_reference: &str,
+    ) -> Result<PaymentProviderState, PaymentProviderError>;
 }
 
 #[derive(Clone, Debug)]
@@ -335,4 +364,23 @@ pub fn build_demo_bitcoin_invoice(
         invoice_reference: invoice_reference.into(),
         rate_thb_per_btc: DEMO_BTC_RATE_THB_PER_BTC,
     })
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcessStripeWebhookCommand {
+    pub event_id: String,
+    pub event_type: String,
+    pub payment_intent_id: String,
+    pub amount: Option<i64>,
+    pub currency: Option<String>,
+    pub status: Option<String>,
+    pub failure_code: Option<String>,
+    pub failure_message: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StripeWebhookResult {
+    Processed,
+    AlreadyProcessed,
+    Ignored,
 }

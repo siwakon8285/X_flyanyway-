@@ -11,7 +11,7 @@ import { PaymentMethodSelector } from "@/components/booking/payment/PaymentMetho
 import { PaymentStatusPanel } from "@/components/booking/payment/PaymentStatusPanel";
 import { PaymentSummary } from "@/components/booking/payment/PaymentSummary";
 import { BookingApiError, createPaymentAttempt, getPaymentContext, simulateBitcoinPayment } from "@/components/booking/payment/paymentClient";
-import type { BitcoinSimulationOutcome, CardScenario, PaymentAttempt, PaymentContext, PaymentMethod } from "@/components/booking/payment/paymentTypes";
+import type { BitcoinSimulationOutcome, PaymentAttempt, PaymentContext, PaymentMethod } from "@/components/booking/payment/paymentTypes";
 import { getRemainingHoldMilliseconds } from "@/components/booking/seats/seatHoldClient";
 import { Container } from "@/components/layout/Container";
 import { Button } from "@/components/ui/Button";
@@ -70,6 +70,10 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
   const [busy, setBusy] = useState(false);
   const [receivedAt, setReceivedAt] = useState(0);
   const [remainingMilliseconds, setRemainingMilliseconds] = useState(0);
+  const [cardSession, setCardSession] = useState<string | undefined>();
+  const [cardConfirming, setCardConfirming] = useState(false);
+  const [stillConfirming, setStillConfirming] = useState(false);
+  const pollCount = useRef(0);
 
   const applyContext = useCallback((next: PaymentContext) => {
     const now = Date.now();
@@ -96,6 +100,33 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
 
   const latestAttempt = context?.attempts[0] ?? null;
   const succeeded = latestAttempt?.status === "SUCCEEDED";
+  const cardAttemptOpen = latestAttempt?.provider === "STRIPE" && ["CREATED", "PROCESSING", "AWAITING_PAYMENT"].includes(latestAttempt.status);
+
+  const checkPaymentStatus = useCallback(async () => {
+    if (!holdId) return;
+    try {
+      const next = await getPaymentContext(holdId);
+      applyContext(next);
+      const current = next.attempts[0];
+      if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(current?.status ?? "")) {
+        setCardConfirming(false);
+        setStillConfirming(false);
+      }
+    } catch {
+      // A provider or transport outage is not a payment failure. Keep the
+      // current protected attempt visibly confirming and let the customer retry.
+    }
+  }, [applyContext, holdId]);
+
+  useEffect(() => {
+    if (!cardConfirming || !cardAttemptOpen || stillConfirming) return;
+    if (pollCount.current >= 15) { setStillConfirming(true); return; }
+    const timeout = window.setTimeout(() => {
+      pollCount.current += 1;
+      void checkPaymentStatus();
+    }, 2_000);
+    return () => window.clearTimeout(timeout);
+  }, [cardAttemptOpen, cardConfirming, checkPaymentStatus, stillConfirming, latestAttempt?.updatedAt]);
 
   useEffect(() => {
     if (!context || !receivedAt || recovery || succeeded) return;
@@ -117,7 +148,12 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
       else setRecovery(error instanceof BookingApiError ? recoveryForError(error) : { action: "retry", message: "payment.recovery.unavailable" });
     } finally { setBusy(false); }
   };
-  const submitCard = (scenario: CardScenario) => run(() => createPaymentAttempt(holdId, { method: "CARD", requestId: createRequestId(), scenario }));
+  const submitCard = async () => {
+    setBusy(true);
+    try { const attempt = await createPaymentAttempt(holdId, { method: "CARD", requestId: createRequestId() }); updateAttempt(attempt); setCardSession(attempt.clientPaymentSession); setCardConfirming(false); setStillConfirming(false); }
+    catch (error) { setRecovery(error instanceof BookingApiError ? recoveryForError(error) : { action: "retry", message: "payment.recovery.unavailable" }); }
+    finally { setBusy(false); }
+  };
   const createBitcoin = () => run(() => createPaymentAttempt(holdId, { method: "BITCOIN", requestId: createRequestId() }));
   const simulateBitcoin = (outcome: BitcoinSimulationOutcome) => latestAttempt ? run(() => simulateBitcoinPayment(holdId, latestAttempt.id, outcome)) : Promise.resolve();
   const amount = useMemo(() => context ? formatPrice(context.pricing.grandTotal.amount, locale, context.pricing.currencyCode) : "", [context, locale]);
@@ -168,7 +204,7 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
           <ol aria-label={t("payment.progress.label")} className="mt-8 flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{["seat", "passenger", "extras", "review"].map((step) => <li className="flex items-center gap-2 text-foreground" key={step}><Check aria-hidden="true" className="size-4 text-brand" />{t(`payment.progress.${step}` as TranslationKey)}</li>)}<li aria-current="step" className="text-brand">{t("payment.progress.payment")}</li></ol>
         </div>
         <div className="mt-10" data-payment-reveal="heading"><p className="text-label text-brand">{t("payment.eyebrow")}</p><h1 className="mt-3 text-h1">{t("payment.heading")}</h1><p className="mt-5 max-w-2xl text-body-lg text-muted-foreground">{t("payment.intro")}</p></div>
-        {loading ? <div aria-label={t("payment.loading")} className="mt-10 min-h-72 animate-pulse rounded-surface border border-border bg-surface/60 motion-reduce:animate-none" role="status" /> : recovery ? <section className="payment-failure-in mt-10 rounded-surface border border-destructive/45 bg-destructive/10 p-7" data-payment-failure="true"><p role="alert">{t(recovery.message)}</p>{recovery.action === "retry" ? <Button className="mt-5" onClick={() => setLoadAttempt((value) => value + 1)}>{t("payment.recovery.retry")}</Button> : <Link className="mt-5 inline-flex min-h-11 items-center gap-2 font-medium text-brand focus-visible:ring-2 focus-visible:ring-focus" href={recoveryHref}><ArrowLeft aria-hidden="true" />{t(recoveryLabel)}</Link>}</section> : context ? <div className="mt-10 grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start" data-payment-layout><div className="min-w-0"><div className="rounded-control border border-brand/35 bg-brand/5 p-4" data-payment-reveal="notice"><p className="flex items-center gap-2 text-sm font-semibold text-brand"><ShieldCheck aria-hidden="true" className="size-5" />{t("payment.demo.badge")}</p><p className="mt-2 text-sm text-muted-foreground">{t("payment.demo.notice")}</p></div><div className="md:min-h-[31rem]" data-payment-reveal="checkout">{succeeded && latestAttempt ? <div className="mt-7"><PaymentStatusPanel attempt={latestAttempt} /></div> : <><div className="mt-7"><PaymentMethodSelector disabled={busy || open} onChange={setMethod} value={method} /></div>{latestAttempt && ["FAILED", "CANCELLED"].includes(latestAttempt.status) ? <div className="mt-6"><PaymentStatusPanel attempt={latestAttempt} /></div> : null}{method === "CARD" ? <CardPaymentForm amount={amount} disabled={busy || open || remainingMilliseconds === 0} onSubmit={submitCard} /> : <BitcoinPaymentPanel attempt={latestAttempt?.paymentMethod === "BITCOIN" ? latestAttempt : null} busy={busy} onCreate={createBitcoin} onSimulate={simulateBitcoin} sourceAmount={amount} />}</>}</div></div><PaymentSummary context={context} remainingMilliseconds={remainingMilliseconds} /></div> : null}
+        {loading ? <div aria-label={t("payment.loading")} className="mt-10 min-h-72 animate-pulse rounded-surface border border-border bg-surface/60 motion-reduce:animate-none" role="status" /> : recovery ? <section className="payment-failure-in mt-10 rounded-surface border border-destructive/45 bg-destructive/10 p-7" data-payment-failure="true"><p role="alert">{t(recovery.message)}</p>{recovery.action === "retry" ? <Button className="mt-5" onClick={() => setLoadAttempt((value) => value + 1)}>{t("payment.recovery.retry")}</Button> : <Link className="mt-5 inline-flex min-h-11 items-center gap-2 font-medium text-brand focus-visible:ring-2 focus-visible:ring-focus" href={recoveryHref}><ArrowLeft aria-hidden="true" />{t(recoveryLabel)}</Link>}</section> : context ? <div className="mt-10 grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start" data-payment-layout><div className="min-w-0"><div className="rounded-control border border-brand/35 bg-brand/5 p-4" data-payment-reveal="notice"><p className="flex items-center gap-2 text-sm font-semibold text-brand"><ShieldCheck aria-hidden="true" className="size-5" />{t("payment.demo.badge")}</p><p className="mt-2 text-sm text-muted-foreground">{t("payment.demo.notice")}</p></div><div className="md:min-h-[31rem]" data-payment-reveal="checkout">{succeeded && latestAttempt ? <div className="mt-7"><PaymentStatusPanel attempt={latestAttempt} /></div> : <><div className="mt-7"><PaymentMethodSelector disabled={busy || open} onChange={setMethod} value={method} /></div>{latestAttempt && ["FAILED", "CANCELLED"].includes(latestAttempt.status) ? <div className="mt-6"><PaymentStatusPanel attempt={latestAttempt} /></div> : null}{stillConfirming ? <section aria-live="polite" className="mt-6 rounded-control border border-border bg-surface p-5" role="status"><p>{t("payment.card.stillConfirming")}</p><Button className="mt-4" onClick={() => { pollCount.current = 0; setStillConfirming(false); void checkPaymentStatus(); }}>{t("payment.card.checkStatus")}</Button></section> : null}{method === "CARD" ? <CardPaymentForm amount={amount} clientSecret={cardSession} confirming={cardConfirming} disabled={busy || remainingMilliseconds === 0 || (open && !cardSession)} onStart={submitCard} onConfirmed={() => { pollCount.current = 0; setStillConfirming(false); setCardConfirming(true); }} /> : <BitcoinPaymentPanel attempt={latestAttempt?.paymentMethod === "BITCOIN" ? latestAttempt : null} busy={busy} onCreate={createBitcoin} onSimulate={simulateBitcoin} sourceAmount={amount} />}</>}</div></div><PaymentSummary context={context} remainingMilliseconds={remainingMilliseconds} /></div> : null}
       </Container>
     </main>
   );

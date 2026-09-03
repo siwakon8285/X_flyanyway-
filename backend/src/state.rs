@@ -19,6 +19,7 @@ pub struct AppState {
     pub seat_holds: SeatHoldApplication,
     pub secure_cookies: bool,
     pub frontend_origin: String,
+    pub stripe_webhook_secret: Option<String>,
 }
 
 impl AppState {
@@ -39,11 +40,17 @@ impl AppState {
             seat_holds: SeatHoldApplication::new(repository, hold_ttl),
             secure_cookies,
             frontend_origin,
+            stripe_webhook_secret: None,
         }
     }
 
     pub fn with_payments(mut self, payments: PaymentApplication) -> Self {
         self.payments = Some(payments);
+        self
+    }
+
+    pub fn with_stripe_webhook_secret(mut self, secret: Option<String>) -> Self {
+        self.stripe_webhook_secret = secret;
         self
     }
 }

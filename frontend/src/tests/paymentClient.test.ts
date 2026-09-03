@@ -30,23 +30,21 @@ describe("payment client", () => {
     );
   });
 
-  it("submits only a safe Card scenario and request identifier", async () => {
+  it("starts a Stripe Card attempt without accepting raw card data or a mock scenario", async () => {
     const fetchMock = jest.fn().mockResolvedValue({ json: async () => attempt, ok: true, status: 201 });
     Object.defineProperty(global, "fetch", { configurable: true, value: fetchMock, writable: true });
 
     await createPaymentAttempt("hold-123", {
       method: "CARD",
       requestId: "request-1",
-      scenario: "DECLINED",
     });
 
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({
       method: "CARD",
       requestId: "request-1",
-      scenario: "DECLINED",
     });
-    expect(String(init.body)).not.toMatch(/card(number|holder)|cvc|expiry|amount|currency/i);
+    expect(String(init.body)).not.toMatch(/card(number|holder)|cvc|expiry|scenario|amount|currency/i);
   });
 
   it("creates and simulates Bitcoin with no wallet or amount input", async () => {

@@ -1,28 +1,17 @@
-use crate::domain::payment::{
-    CardScenario, PaymentGateway, PaymentGatewayOutcome, PaymentGatewayRequest,
-};
+use crate::domain::payment::{PaymentGateway, PaymentGatewayOutcome, PaymentGatewayRequest};
+
+pub mod stripe;
 
 #[derive(Clone, Debug, Default)]
-pub struct MockCardPaymentGateway;
+pub struct UnavailableCardPaymentGateway;
 
 #[async_trait::async_trait]
-impl PaymentGateway for MockCardPaymentGateway {
-    async fn initiate(&self, request: PaymentGatewayRequest) -> PaymentGatewayOutcome {
-        let reference = format!("XFCARD-{}", request.attempt_id.simple());
-        match request.scenario.unwrap_or(CardScenario::ProcessingError) {
-            CardScenario::Success => PaymentGatewayOutcome::Succeeded {
-                provider_reference: reference,
-            },
-            CardScenario::Declined => PaymentGatewayOutcome::Failed {
-                provider_reference: reference,
-                code: "MOCK_CARD_DECLINED",
-                message: "The demo card was declined.",
-            },
-            CardScenario::ProcessingError => PaymentGatewayOutcome::Failed {
-                provider_reference: reference,
-                code: "MOCK_CARD_PROCESSING_ERROR",
-                message: "The demo card processor returned an error.",
-            },
+impl PaymentGateway for UnavailableCardPaymentGateway {
+    async fn initiate(&self, _request: PaymentGatewayRequest) -> PaymentGatewayOutcome {
+        PaymentGatewayOutcome::Failed {
+            provider_reference: String::new(),
+            code: "PAYMENT_CONFIGURATION_MISSING",
+            message: "Card payment is unavailable.",
         }
     }
 }
@@ -35,6 +24,7 @@ impl PaymentGateway for MockBitcoinPaymentGateway {
     async fn initiate(&self, request: PaymentGatewayRequest) -> PaymentGatewayOutcome {
         PaymentGatewayOutcome::AwaitingPayment {
             provider_reference: format!("XFBTC-{}", request.attempt_id.simple()),
+            client_payment_session: None,
         }
     }
 }

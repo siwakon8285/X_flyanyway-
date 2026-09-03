@@ -4,12 +4,26 @@ import { PaymentPage } from "@/components/booking/payment/PaymentPage";
 import type { PaymentAttempt, PaymentContext } from "@/components/booking/payment/paymentTypes";
 import { render } from "@/tests/renderWithLanguage";
 
+const mockConfirmPayment = jest.fn();
+
+jest.mock("@stripe/stripe-js", () => {
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_test_payment_page";
+  return { loadStripe: jest.fn(() => Promise.resolve({})) };
+});
+
+jest.mock("@stripe/react-stripe-js", () => ({
+  Elements: ({ children }: { children: React.ReactNode }) => children,
+  PaymentElement: () => <div aria-label="Stripe Payment Element" />,
+  useElements: () => ({}),
+  useStripe: () => ({ confirmPayment: mockConfirmPayment }),
+}));
+
 const baseAttempt: PaymentAttempt = {
   amount: { amount: 49_300, currencyCode: "THB" },
   createdAt: "2099-05-01T09:55:00Z",
   id: "attempt-1",
   paymentMethod: "CARD",
-  provider: "MOCK_CARD",
+  provider: "STRIPE",
   providerReference: "XFCARD-DEMO",
   status: "SUCCEEDED",
   succeededAt: "2099-05-01T09:56:00Z",
@@ -62,6 +76,7 @@ describe("Payment page", () => {
   const originalMatchMedia = window.matchMedia;
 
   afterEach(() => {
+    mockConfirmPayment.mockReset();
     jest.useRealTimers();
     Object.defineProperty(global, "fetch", { configurable: true, value: originalFetch, writable: true });
     window.matchMedia = originalMatchMedia;
@@ -91,78 +106,67 @@ describe("Payment page", () => {
     expect(container.querySelector('[data-payment-panel="CARD"]')).toBeInTheDocument();
   });
 
-  it("validates transient Card fields before sending a selected demo scenario", async () => {
-    const fetchMock = setFetchResponses(
-      { body: context },
-      { body: { ...baseAttempt, status: "FAILED", failure: { code: "MOCK_CARD_DECLINED", message: "declined" } } },
-    );
-    render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />);
-    await screen.findByLabelText("Cardholder name");
-
-    fireEvent.click(screen.getByRole("button", { name: "Pay THB 49,300 in demo" }));
-    expect(screen.getAllByRole("alert").length).toBeGreaterThanOrEqual(4);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    fireEvent.change(screen.getByLabelText("Cardholder name"), { target: { value: "Demo Traveller" } });
-    fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242 4242 4242 4242" } });
-    fireEvent.change(screen.getByLabelText("Expiry"), { target: { value: "12/30" } });
-    fireEvent.change(screen.getByLabelText("CVC"), { target: { value: "123" } });
-    fireEvent.change(screen.getByLabelText("Test payment scenario"), { target: { value: "DECLINED" } });
-    fireEvent.click(screen.getByRole("button", { name: "Pay THB 49,300 in demo" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("The demo card was declined");
-    expect(screen.getByLabelText("Card number")).toHaveValue("");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("submits a successful Card scenario and leaves the customer on Payment", async () => {
-    const fetchMock = setFetchResponses({ body: context }, { body: baseAttempt });
-    render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />);
-    await screen.findByLabelText("Cardholder name");
-
-    fireEvent.change(screen.getByLabelText("Cardholder name"), { target: { value: "Demo Traveller" } });
-    fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242 4242 4242 4242" } });
-    fireEvent.change(screen.getByLabelText("Expiry"), { target: { value: "12/30" } });
-    fireEvent.change(screen.getByLabelText("CVC"), { target: { value: "123" } });
-    fireEvent.click(screen.getByRole("button", { name: "Pay THB 49,300 in demo" }));
-
-    expect(await screen.findByRole("status", { name: "Demo payment successful" })).toBeInTheDocument();
-    const ticketAction = screen.getByRole("button", { name: "Ticket available in the next step" });
-    expect(ticketAction).toBeDisabled();
-    expect(ticketAction.closest("a")).toBeNull();
-    expect(screen.getByRole("status", { name: "Demo payment successful" }))
-      .toHaveAttribute("data-payment-status", "SUCCEEDED");
-    expect(screen.getByRole("status", { name: "Demo payment successful" }))
-      .toHaveAttribute("data-payment-success", "true");
-    expect(fetchMock).toHaveBeenLastCalledWith(
-      "http://localhost:8080/api/v1/seat-holds/hold-123/payment-attempts",
-      expect.objectContaining({ body: expect.stringContaining('"scenario":"SUCCESS"') }),
-    );
-  });
-
-  it("presents a processing error and permits a fresh retry", async () => {
-    const failed = {
+  it("starts Stripe Card payment without rendering raw card fields or a mock scenario", async () => {
+    const stripeAttempt: PaymentAttempt = {
       ...baseAttempt,
-      failure: { code: "MOCK_CARD_PROCESSING_ERROR", message: "processing error" },
-      status: "FAILED" as const,
+      clientPaymentSession: "pi_test_secret_123",
+      providerReference: "pi_test_123",
+      status: "CREATED",
       succeededAt: undefined,
     };
-    setFetchResponses({ body: context }, { body: failed });
+    const fetchMock = setFetchResponses(
+      { body: context },
+      { body: stripeAttempt },
+    );
     render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />);
-    await screen.findByLabelText("Cardholder name");
+    await screen.findByRole("button", { name: "Pay THB 49,300 in demo" });
 
-    fireEvent.change(screen.getByLabelText("Cardholder name"), { target: { value: "Demo Traveller" } });
-    fireEvent.change(screen.getByLabelText("Card number"), { target: { value: "4242 4242 4242 4242" } });
-    fireEvent.change(screen.getByLabelText("Expiry"), { target: { value: "12/30" } });
-    fireEvent.change(screen.getByLabelText("CVC"), { target: { value: "123" } });
-    fireEvent.change(screen.getByLabelText("Test payment scenario"), { target: { value: "PROCESSING_ERROR" } });
+    expect(screen.queryByLabelText("Cardholder name")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Card number")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Expiry")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("CVC")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Test payment scenario")).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Pay THB 49,300 in demo" }));
 
-    const failure = await screen.findByRole("alert");
-    expect(failure).toHaveTextContent("processor returned an error");
-    expect(failure).toHaveAttribute("data-payment-status", "FAILED");
-    expect(failure).toHaveAttribute("data-payment-failure", "true");
+    expect(await screen.findByLabelText("Stripe Payment Element")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pay THB 49,300 in demo" })).toBeEnabled();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://localhost:8080/api/v1/seat-holds/hold-123/payment-attempts",
+      expect.objectContaining({
+        body: expect.not.stringContaining("scenario"),
+      }),
+    );
+  });
+
+  it("waits for authoritative payment context after Stripe confirmation", async () => {
+    jest.useFakeTimers();
+    const stripeAttempt: PaymentAttempt = {
+      ...baseAttempt,
+      clientPaymentSession: "pi_test_secret_123",
+      providerReference: "pi_test_123",
+      status: "AWAITING_PAYMENT",
+      succeededAt: undefined,
+    };
+    const authoritativeSuccess = { ...context, attempts: [{ ...stripeAttempt, status: "SUCCEEDED", succeededAt: "2099-05-01T10:01:00Z" }], readyForPayment: false };
+    const fetchMock = setFetchResponses({ body: context }, { body: stripeAttempt }, { body: authoritativeSuccess });
+    mockConfirmPayment.mockResolvedValue({});
+    render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pay THB 49,300 in demo" }));
+    await screen.findByLabelText("Stripe Payment Element");
+
+    await act(async () => {
+      fireEvent.submit(screen.getByRole("button", { name: "Pay THB 49,300 in demo" }).closest("form") as HTMLFormElement);
+    });
+    expect(await screen.findByRole("status", { name: "Confirming payment" })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Demo payment successful" })).not.toBeInTheDocument();
+
+    await act(async () => { jest.advanceTimersByTime(2_000); });
+    expect(await screen.findByRole("status", { name: "Demo payment successful" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/seat-holds/hold-123/payment",
+      expect.objectContaining({ cache: "no-store", credentials: "include" }),
+    );
   });
 
   it("creates a Bitcoin invoice and simulates payment received", async () => {
@@ -247,7 +251,7 @@ describe("Payment page", () => {
       },
     });
     render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />);
-    await screen.findByLabelText("Cardholder name");
+    await screen.findByRole("button", { name: "Pay THB 49,300 in demo" });
 
     act(() => { jest.advanceTimersByTime(1_000); });
 
@@ -258,11 +262,13 @@ describe("Payment page", () => {
 
   it("translates customer-facing content to Thai while preserving identifiers", async () => {
     setFetchResponses({ body: context });
-    render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />, { locale: "th" });
+    const { container } = render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />, { locale: "th" });
 
     expect(await screen.findByRole("heading", { name: "การชำระเงินตัวอย่างที่ปลอดภัย" })).toBeInTheDocument();
     expect(await screen.findByText("THB 49,300")).toBeInTheDocument();
     expect(screen.getByText(/XF 201/)).toBeInTheDocument();
+    expect(within(container.querySelector('[data-payment-panel="CARD"]') as HTMLElement)
+      .getByRole("heading", { name: "บัตรเครดิตหรือเดบิต" })).toBeInTheDocument();
   });
 
   it("exposes the reduced-motion state without changing payment content", async () => {

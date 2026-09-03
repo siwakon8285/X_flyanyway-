@@ -17,17 +17,9 @@ pub async fn execute(
     token_hash: [u8; 32],
     request: CreatePaymentRequest,
 ) -> Result<PaymentAttempt, PaymentRepositoryError> {
-    if (request.method == PaymentMethod::Card) != request.scenario.is_some() {
-        return Err(PaymentRepositoryError::InvalidRequest);
-    }
-    let fingerprint: [u8; 32] = Sha256::digest(format!(
-        "{}:{}",
-        request.method.as_str(),
-        request.scenario.map(|value| value.as_str()).unwrap_or("")
-    ))
-    .into();
+    let fingerprint: [u8; 32] = Sha256::digest(request.method.as_str()).into();
     let provider = match request.method {
-        PaymentMethod::Card => PaymentProvider::MockCard,
+        PaymentMethod::Card => PaymentProvider::Stripe,
         PaymentMethod::Bitcoin => PaymentProvider::MockBitcoin,
     };
     let attempt = repository
@@ -63,30 +55,39 @@ pub async fn execute(
         .initiate(PaymentGatewayRequest {
             attempt_id: attempt.id,
             amount: attempt.amount,
-            scenario: request.scenario,
         })
         .await;
-    let transition = match outcome {
-        PaymentGatewayOutcome::Succeeded { provider_reference } => {
-            PaymentAttemptTransition::succeeded(provider_reference)
-        }
+    let (transition, session) = match outcome {
+        PaymentGatewayOutcome::Succeeded { provider_reference } => (
+            PaymentAttemptTransition::succeeded(provider_reference),
+            None,
+        ),
         PaymentGatewayOutcome::Failed {
             provider_reference,
             code,
             message,
-        } => PaymentAttemptTransition {
-            status: PaymentStatus::Failed,
-            provider_reference: Some(provider_reference),
-            failure: Some(crate::domain::payment::PaymentFailure {
-                code: code.to_owned(),
-                message: message.to_owned(),
-            }),
-        },
-        PaymentGatewayOutcome::AwaitingPayment { provider_reference } => {
-            PaymentAttemptTransition::awaiting_payment(provider_reference)
-        }
+        } => (
+            PaymentAttemptTransition {
+                status: PaymentStatus::Failed,
+                provider_reference: Some(provider_reference),
+                failure: Some(crate::domain::payment::PaymentFailure {
+                    code: code.to_owned(),
+                    message: message.to_owned(),
+                }),
+            },
+            None,
+        ),
+        PaymentGatewayOutcome::AwaitingPayment {
+            provider_reference,
+            client_payment_session,
+        } => (
+            PaymentAttemptTransition::awaiting_payment(provider_reference),
+            client_payment_session,
+        ),
     };
-    repository
+    let mut attempt = repository
         .transition_payment_attempt(hold_id, token_hash, attempt.id, transition)
-        .await
+        .await?;
+    attempt.client_payment_session = session;
+    Ok(attempt)
 }

@@ -52,6 +52,9 @@ impl ExtraRepository for SqlxSeatHoldRepository {
         let hold_row = Self::locked_hold(&mut transaction, hold_id, token_hash)
             .await
             .map_err(map_hold_error)?;
+        Self::ensure_no_protected_payment(&mut transaction, hold_id)
+            .await
+            .map_err(map_hold_error)?;
         let passengers = load_ready_passengers(&mut transaction, &hold_row).await?;
         let priced = price_extra_selections(&inputs, &passengers)?;
 
@@ -234,6 +237,9 @@ fn map_hold_error(error: SeatHoldRepositoryError) -> ExtraRepositoryError {
         SeatHoldRepositoryError::HoldExpired => ExtraRepositoryError::HoldExpired,
         SeatHoldRepositoryError::HoldReleased => ExtraRepositoryError::HoldReleased,
         SeatHoldRepositoryError::HoldConsumed => ExtraRepositoryError::HoldConsumed,
+        SeatHoldRepositoryError::PaymentFinalizationInProgress => {
+            ExtraRepositoryError::PaymentFinalizationInProgress
+        }
         SeatHoldRepositoryError::SeatCountMismatch => ExtraRepositoryError::SeatCountMismatch,
         SeatHoldRepositoryError::Infrastructure(error) => {
             ExtraRepositoryError::Infrastructure(error)

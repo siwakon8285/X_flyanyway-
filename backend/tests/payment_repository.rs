@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use x_fly_api::{
     domain::{
-        entities::{CreateSeatHold, FlightSelection},
+        entities::{CreateSeatHold, FlightSelection, SeatAvailability},
         extras::ExtraSelectionInput,
         passengers::{Gender, PassengerInput, PassengerType, Title},
         payment::{
@@ -16,7 +16,7 @@ use x_fly_api::{
         },
         repositories::{
             ExtraRepository, PassengerRepository, PaymentRepository, PaymentRepositoryError,
-            ReviewRepository, SeatHoldRepository,
+            ReviewRepository, SeatHoldRepository, SeatHoldRepositoryError,
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
@@ -107,10 +107,57 @@ fn command(method: PaymentMethod) -> PaymentRepositoryCommand {
         request_fingerprint: [7; 32],
         method,
         provider: match method {
-            PaymentMethod::Card => PaymentProvider::MockCard,
+            PaymentMethod::Card => PaymentProvider::Stripe,
             PaymentMethod::Bitcoin => PaymentProvider::MockBitcoin,
         },
     }
+}
+
+fn stripe_reference(state: &str) -> String {
+    format!("pi_{}_{}", state, Uuid::new_v4())
+}
+
+async fn expire_hold(repository: &SqlxSeatHoldRepository, hold_id: Uuid) {
+    sqlx::query("UPDATE seat_holds SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = $1")
+        .bind(hold_id)
+        .execute(repository.pool())
+        .await
+        .unwrap();
+}
+
+async fn hold_departure(repository: &SqlxSeatHoldRepository, hold_id: Uuid) -> NaiveDate {
+    sqlx::query_scalar(
+        "SELECT instance.departure_date
+         FROM seat_holds AS hold
+         JOIN flight_instances AS instance ON instance.id = hold.flight_instance_id
+         WHERE hold.id = $1",
+    )
+    .bind(hold_id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap()
+}
+
+async fn competing_hold(
+    repository: &SqlxSeatHoldRepository,
+    departure: NaiveDate,
+    token: [u8; 32],
+) -> Result<x_fly_api::domain::entities::SeatHold, SeatHoldRepositoryError> {
+    repository
+        .create_hold(
+            CreateSeatHold {
+                selection: FlightSelection {
+                    flight_id: "xf-201".to_owned(),
+                    departure_date: departure,
+                    cabin: CabinClass::Economy,
+                },
+                passengers: PassengerCounts::new(1, 0, 0).unwrap(),
+                seats: vec![SeatNumber::parse("20A").unwrap()],
+                token_hash: token,
+            },
+            Duration::from_secs(600),
+        )
+        .await
 }
 
 #[tokio::test]
@@ -143,7 +190,7 @@ async fn successful_payment_atomically_consumes_the_hold_and_books_its_seat() {
             hold_id,
             token,
             attempt.id,
-            PaymentAttemptTransition::processing("XFCARD-PROCESSING"),
+            PaymentAttemptTransition::processing(stripe_reference("processing")),
         )
         .await
         .unwrap();
@@ -153,7 +200,7 @@ async fn successful_payment_atomically_consumes_the_hold_and_books_its_seat() {
             hold_id,
             token,
             attempt.id,
-            PaymentAttemptTransition::succeeded("XFCARD-SUCCESS"),
+            PaymentAttemptTransition::succeeded(stripe_reference("succeeded")),
         )
         .await
         .unwrap();
@@ -240,7 +287,7 @@ async fn failed_inventory_finalization_cannot_leave_payment_succeeded() {
             hold_id,
             token,
             attempt.id,
-            PaymentAttemptTransition::processing("XFCARD-PROCESSING"),
+            PaymentAttemptTransition::processing(stripe_reference("processing")),
         )
         .await
         .unwrap();
@@ -256,7 +303,7 @@ async fn failed_inventory_finalization_cannot_leave_payment_succeeded() {
                 hold_id,
                 token,
                 attempt.id,
-                PaymentAttemptTransition::succeeded("XFCARD-SUCCESS"),
+                PaymentAttemptTransition::succeeded(stripe_reference("succeeded")),
             )
             .await,
         Err(PaymentRepositoryError::SeatsNotReady)
@@ -277,7 +324,7 @@ async fn failed_inventory_finalization_cannot_leave_payment_succeeded() {
 }
 
 #[tokio::test]
-async fn expiry_before_success_persists_failure_without_finalizing_inventory() {
+async fn stripe_success_after_normal_expiry_still_atomically_finalizes_inventory() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
     let token = [125; 32];
     let hold_id = ready_hold(&repository, token).await;
@@ -290,7 +337,7 @@ async fn expiry_before_success_persists_failure_without_finalizing_inventory() {
             hold_id,
             token,
             attempt.id,
-            PaymentAttemptTransition::processing("XFCARD-PROCESSING"),
+            PaymentAttemptTransition::processing(stripe_reference("processing")),
         )
         .await
         .unwrap();
@@ -300,27 +347,23 @@ async fn expiry_before_success_persists_failure_without_finalizing_inventory() {
         .await
         .unwrap();
 
-    assert!(matches!(
-        repository
-            .transition_payment_attempt(
-                hold_id,
-                token,
-                attempt.id,
-                PaymentAttemptTransition::succeeded("XFCARD-SUCCESS"),
-            )
-            .await,
-        Err(PaymentRepositoryError::HoldExpired)
-    ));
+    let succeeded = repository
+        .transition_payment_attempt(
+            hold_id,
+            token,
+            attempt.id,
+            PaymentAttemptTransition::succeeded(stripe_reference("succeeded")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(succeeded.status, PaymentStatus::Succeeded);
     let persisted: (String, Option<String>) =
         sqlx::query_as("SELECT status, failure_code FROM payment_attempts WHERE id = $1")
             .bind(attempt.id)
             .fetch_one(repository.pool())
             .await
             .unwrap();
-    assert_eq!(
-        persisted,
-        ("FAILED".to_owned(), Some("HOLD_EXPIRED".to_owned()))
-    );
+    assert_eq!(persisted, ("SUCCEEDED".to_owned(), None));
     let inventory: (Option<chrono::DateTime<Utc>>, String, Option<Uuid>) = sqlx::query_as(
         "SELECT hold.consumed_at, seat.booking_status, seat.hold_id
          FROM seat_holds AS hold
@@ -331,7 +374,9 @@ async fn expiry_before_success_persists_failure_without_finalizing_inventory() {
     .fetch_one(repository.pool())
     .await
     .unwrap();
-    assert_eq!(inventory, (None, "AVAILABLE".to_owned(), Some(hold_id)));
+    assert!(inventory.0.is_some());
+    assert_eq!(inventory.1, "BOOKED");
+    assert_eq!(inventory.2, None);
 }
 
 #[tokio::test]
@@ -348,7 +393,7 @@ async fn paid_seat_stays_booked_after_the_original_hold_expiry() {
             hold_id,
             token,
             attempt.id,
-            PaymentAttemptTransition::processing("XFCARD-PROCESSING"),
+            PaymentAttemptTransition::processing(stripe_reference("processing")),
         )
         .await
         .unwrap();
@@ -357,7 +402,7 @@ async fn paid_seat_stays_booked_after_the_original_hold_expiry() {
             hold_id,
             token,
             attempt.id,
-            PaymentAttemptTransition::succeeded("XFCARD-SUCCESS"),
+            PaymentAttemptTransition::succeeded(stripe_reference("succeeded")),
         )
         .await
         .unwrap();
@@ -471,7 +516,7 @@ async fn concurrent_payment_requests_produce_one_success_and_one_finalization() 
                     hold_id,
                     token,
                     attempt.id,
-                    PaymentAttemptTransition::processing("XFCARD-PROCESSING"),
+                    PaymentAttemptTransition::processing(stripe_reference("processing")),
                 )
                 .await?;
             repository
@@ -479,7 +524,7 @@ async fn concurrent_payment_requests_produce_one_success_and_one_finalization() 
                     hold_id,
                     token,
                     attempt.id,
-                    PaymentAttemptTransition::succeeded("XFCARD-SUCCESS"),
+                    PaymentAttemptTransition::succeeded(stripe_reference("succeeded")),
                 )
                 .await
         })
@@ -566,7 +611,7 @@ async fn a_different_request_after_success_is_rejected_without_a_second_payment(
             hold_id,
             token,
             attempt.id,
-            PaymentAttemptTransition::processing("XFCARD-PROCESSING"),
+            PaymentAttemptTransition::processing(stripe_reference("processing")),
         )
         .await
         .unwrap();
@@ -575,7 +620,7 @@ async fn a_different_request_after_success_is_rejected_without_a_second_payment(
             hold_id,
             token,
             attempt.id,
-            PaymentAttemptTransition::succeeded("XFCARD-SUCCESS"),
+            PaymentAttemptTransition::succeeded(stripe_reference("succeeded")),
         )
         .await
         .unwrap();
@@ -621,4 +666,306 @@ async fn inactive_holds_cannot_start_payment() {
             .await;
         assert_eq!(result.unwrap_err().to_string(), expected.to_string());
     }
+}
+
+#[tokio::test]
+async fn stripe_attempt_deadline_is_fixed_from_original_expiry_and_idempotent() {
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+    let token = [135; 32];
+    let hold_id = ready_hold(&repository, token).await;
+    let stripe_command = command(PaymentMethod::Card);
+    let original_expiry: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT expires_at FROM seat_holds WHERE id = $1")
+            .bind(hold_id)
+            .fetch_one(repository.pool())
+            .await
+            .unwrap();
+
+    let first = repository
+        .create_payment_attempt(hold_id, token, stripe_command.clone())
+        .await
+        .unwrap();
+    let first_deadline: chrono::DateTime<Utc> = sqlx::query_scalar(
+        "SELECT payment_finalization_deadline FROM payment_attempts WHERE id = $1",
+    )
+    .bind(first.id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(first_deadline, original_expiry + ChronoDuration::minutes(5));
+    let unchanged_expiry: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT expires_at FROM seat_holds WHERE id = $1")
+            .bind(hold_id)
+            .fetch_one(repository.pool())
+            .await
+            .unwrap();
+    assert_eq!(unchanged_expiry, original_expiry);
+
+    expire_hold(&repository, hold_id).await;
+    let replay = repository
+        .create_payment_attempt(hold_id, token, stripe_command.clone())
+        .await
+        .unwrap();
+    assert_eq!(replay.id, first.id);
+    let replayed_deadline: chrono::DateTime<Utc> = sqlx::query_scalar(
+        "SELECT payment_finalization_deadline FROM payment_attempts WHERE id = $1",
+    )
+    .bind(first.id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(replayed_deadline, first_deadline);
+
+    assert!(matches!(
+        repository
+            .create_payment_attempt(hold_id, token, command(PaymentMethod::Card))
+            .await,
+        Err(PaymentRepositoryError::HoldExpired)
+    ));
+    let conflicting = PaymentRepositoryCommand {
+        method: PaymentMethod::Bitcoin,
+        provider: PaymentProvider::MockBitcoin,
+        request_fingerprint: [8; 32],
+        ..stripe_command
+    };
+    assert!(matches!(
+        repository
+            .create_payment_attempt(hold_id, token, conflicting)
+            .await,
+        Err(PaymentRepositoryError::IdempotencyKeyReused)
+    ));
+}
+
+#[tokio::test]
+async fn unresolved_stripe_attempt_protects_expired_inventory_even_after_its_deadline() {
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+    let token = [136; 32];
+    let hold_id = ready_hold(&repository, token).await;
+    let departure = hold_departure(&repository, hold_id).await;
+    let attempt = repository
+        .create_payment_attempt(hold_id, token, command(PaymentMethod::Card))
+        .await
+        .unwrap();
+    repository
+        .transition_payment_attempt(
+            hold_id,
+            token,
+            attempt.id,
+            PaymentAttemptTransition::processing(stripe_reference("protected")),
+        )
+        .await
+        .unwrap();
+    expire_hold(&repository, hold_id).await;
+    sqlx::query(
+        "UPDATE payment_attempts
+         SET payment_finalization_deadline = NOW() - INTERVAL '1 minute'
+         WHERE id = $1",
+    )
+    .bind(attempt.id)
+    .execute(repository.pool())
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        competing_hold(&repository, departure, [137; 32]).await,
+        Err(SeatHoldRepositoryError::SeatConflict(_))
+    ));
+    let map = repository
+        .seat_map(
+            &FlightSelection {
+                flight_id: "xf-201".to_owned(),
+                departure_date: departure,
+                cabin: CabinClass::Economy,
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        map.seats
+            .iter()
+            .find(|seat| seat.seat_number.as_str() == "20A")
+            .unwrap()
+            .status,
+        SeatAvailability::Unavailable
+    );
+    let assigned_hold: Option<Uuid> = sqlx::query_scalar(
+        "SELECT hold_id FROM flight_seats
+         WHERE flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1)
+           AND seat_number = '20A'",
+    )
+    .bind(hold_id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(assigned_hold, Some(hold_id));
+    assert!(repository.release_hold(hold_id, token).await.is_err());
+}
+
+#[tokio::test]
+async fn terminal_stripe_attempts_and_bitcoin_do_not_receive_inventory_grace() {
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+
+    for (token_byte, terminal) in [
+        (138, PaymentStatus::Failed),
+        (140, PaymentStatus::Cancelled),
+    ] {
+        let token = [token_byte; 32];
+        let hold_id = ready_hold(&repository, token).await;
+        let departure = hold_departure(&repository, hold_id).await;
+        let attempt = repository
+            .create_payment_attempt(hold_id, token, command(PaymentMethod::Card))
+            .await
+            .unwrap();
+        if terminal == PaymentStatus::Cancelled {
+            repository
+                .transition_payment_attempt(
+                    hold_id,
+                    token,
+                    attempt.id,
+                    PaymentAttemptTransition::processing(stripe_reference("cancel")),
+                )
+                .await
+                .unwrap();
+        }
+        expire_hold(&repository, hold_id).await;
+        let transition = if terminal == PaymentStatus::Failed {
+            PaymentAttemptTransition::failed("CARD_FAILED", "Card payment failed.")
+        } else {
+            PaymentAttemptTransition::cancelled("CARD_CANCELLED", "Card payment cancelled.")
+        };
+        repository
+            .transition_payment_attempt(hold_id, token, attempt.id, transition)
+            .await
+            .unwrap();
+        competing_hold(&repository, departure, [token_byte + 1; 32])
+            .await
+            .unwrap();
+    }
+
+    let bitcoin_token = [142; 32];
+    let bitcoin_hold = ready_hold(&repository, bitcoin_token).await;
+    let bitcoin_departure = hold_departure(&repository, bitcoin_hold).await;
+    let bitcoin_attempt = repository
+        .create_payment_attempt(bitcoin_hold, bitcoin_token, command(PaymentMethod::Bitcoin))
+        .await
+        .unwrap();
+    let bitcoin_deadline: Option<chrono::DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT payment_finalization_deadline FROM payment_attempts WHERE id = $1",
+    )
+    .bind(bitcoin_attempt.id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    assert!(bitcoin_deadline.is_none());
+    expire_hold(&repository, bitcoin_hold).await;
+    competing_hold(&repository, bitcoin_departure, [143; 32])
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn protected_stripe_attempt_blocks_upstream_mutations_and_explicit_release() {
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+
+    let seat_token = [144; 32];
+    let seat_hold = ready_hold(&repository, seat_token).await;
+    repository
+        .create_payment_attempt(seat_hold, seat_token, command(PaymentMethod::Card))
+        .await
+        .unwrap();
+    assert_eq!(
+        repository
+            .replace_seats(
+                seat_hold,
+                seat_token,
+                vec![SeatNumber::parse("20B").unwrap()],
+            )
+            .await
+            .unwrap_err()
+            .to_string(),
+        "payment finalization is in progress"
+    );
+    assert_eq!(
+        repository
+            .release_hold(seat_hold, seat_token)
+            .await
+            .unwrap_err()
+            .to_string(),
+        "payment finalization is in progress"
+    );
+
+    let passenger_token = [145; 32];
+    let passenger_hold = ready_hold(&repository, passenger_token).await;
+    repository
+        .create_payment_attempt(
+            passenger_hold,
+            passenger_token,
+            command(PaymentMethod::Card),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        repository
+            .save_passengers(passenger_hold, passenger_token, vec![passenger()])
+            .await
+            .err()
+            .unwrap()
+            .to_string(),
+        "payment finalization is in progress"
+    );
+
+    let extras_token = [146; 32];
+    let extras_hold = ready_hold(&repository, extras_token).await;
+    repository
+        .create_payment_attempt(extras_hold, extras_token, command(PaymentMethod::Card))
+        .await
+        .unwrap();
+    assert_eq!(
+        repository
+            .save_extras(extras_hold, extras_token, Vec::new())
+            .await
+            .err()
+            .unwrap()
+            .to_string(),
+        "payment finalization is in progress"
+    );
+
+    expire_hold(&repository, passenger_hold).await;
+    assert!(matches!(
+        repository
+            .save_passengers(passenger_hold, passenger_token, vec![passenger()])
+            .await,
+        Err(x_fly_api::domain::repositories::PassengerRepositoryError::HoldExpired)
+    ));
+    expire_hold(&repository, extras_hold).await;
+    assert!(matches!(
+        repository
+            .save_extras(extras_hold, extras_token, Vec::new())
+            .await,
+        Err(x_fly_api::domain::repositories::ExtraRepositoryError::HoldExpired)
+    ));
+}
+
+#[tokio::test]
+async fn existing_stripe_attempt_can_enter_processing_after_normal_expiry() {
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+    let token = [147; 32];
+    let hold_id = ready_hold(&repository, token).await;
+    let attempt = repository
+        .create_payment_attempt(hold_id, token, command(PaymentMethod::Card))
+        .await
+        .unwrap();
+    expire_hold(&repository, hold_id).await;
+
+    let processing = repository
+        .transition_payment_attempt(
+            hold_id,
+            token,
+            attempt.id,
+            PaymentAttemptTransition::processing(stripe_reference("after_expiry")),
+        )
+        .await
+        .unwrap();
+    assert_eq!(processing.status, PaymentStatus::Processing);
 }

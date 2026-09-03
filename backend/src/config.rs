@@ -7,6 +7,8 @@ pub struct AppConfig {
     pub frontend_origin: String,
     pub seat_hold_ttl: Duration,
     pub secure_cookies: bool,
+    pub stripe_secret_key: Option<String>,
+    pub stripe_webhook_secret: Option<String>,
 }
 
 impl AppConfig {
@@ -27,11 +29,38 @@ impl AppConfig {
             .unwrap_or(false);
         let frontend_origin =
             env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_owned());
+        let stripe_secret_key = env::var("STRIPE_SECRET_KEY").ok();
+        let stripe_webhook_secret = env::var("STRIPE_WEBHOOK_SECRET").ok();
+        for (name, value, prefix) in [
+            (
+                "STRIPE_SECRET_KEY",
+                stripe_secret_key.as_deref(),
+                "sk_test_",
+            ),
+            (
+                "STRIPE_WEBHOOK_SECRET",
+                stripe_webhook_secret.as_deref(),
+                "whsec_",
+            ),
+        ] {
+            if let Some(value) = value {
+                if value.starts_with("sk_live_") || !value.starts_with(prefix) {
+                    return Err(format!(
+                        "{name} must be a Stripe Test Mode key with the required prefix"
+                    ));
+                }
+            }
+        }
+        if stripe_secret_key.is_some() != stripe_webhook_secret.is_some() {
+            return Err("STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be configured together to enable Card payments".to_owned());
+        }
 
         Ok(Self {
             database_url,
             bind_address,
             frontend_origin,
+            stripe_secret_key,
+            stripe_webhook_secret,
             seat_hold_ttl,
             secure_cookies,
         })
