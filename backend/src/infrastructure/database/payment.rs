@@ -44,15 +44,26 @@ impl PaymentRepository for SqlxSeatHoldRepository {
         if hold_row.consumed_at.is_some() && !has_success {
             return Err(PaymentRepositoryError::HoldConsumed);
         }
+        let attempts = load_attempts(&mut transaction, hold_id).await?;
+        let has_protected_open_stripe_attempt = attempts.iter().any(|attempt| {
+            attempt.provider == PaymentProvider::Stripe
+                && attempt.payment_method == PaymentMethod::Card
+                && matches!(
+                    attempt.status,
+                    PaymentStatus::Created
+                        | PaymentStatus::Processing
+                        | PaymentStatus::AwaitingPayment
+                )
+                && attempt.payment_finalization_deadline.is_some()
+        });
         if !has_success {
-            if hold_row.expires_at <= server_time {
+            if hold_row.expires_at <= server_time && !has_protected_open_stripe_attempt {
                 return Err(PaymentRepositoryError::HoldExpired);
             }
             ensure_ready(&mut transaction, &hold_row).await?;
         }
         let snapshot = load_snapshot(&mut transaction, hold_id).await?;
         let journey = load_journey(&mut transaction, hold_id).await?;
-        let attempts = load_attempts(&mut transaction, hold_id).await?;
         let mut hold = Self::hold_entity(&mut transaction, hold_row)
             .await
             .map_err(map_hold_error)?;
@@ -159,15 +170,18 @@ impl PaymentRepository for SqlxSeatHoldRepository {
         }
 
         let snapshot = load_snapshot(&mut transaction, hold_id).await?;
+        let payment_finalization_deadline = (command.provider == PaymentProvider::Stripe
+            && command.method == PaymentMethod::Card)
+            .then_some(hold.expires_at + chrono::Duration::minutes(5));
         let row = sqlx::query_as::<_, PaymentAttemptRow>(
             "INSERT INTO payment_attempts (
                 seat_hold_id, request_id, request_fingerprint, provider, payment_method,
-                status, amount, currency_code, review_priced_at
-             ) VALUES ($1, $2, $3, $4, $5, 'CREATED', $6, $7, $8)
+                status, amount, currency_code, review_priced_at, payment_finalization_deadline
+             ) VALUES ($1, $2, $3, $4, $5, 'CREATED', $6, $7, $8, $9)
              RETURNING id, seat_hold_id, request_id, request_fingerprint, provider,
                 payment_method, status, amount, currency_code, review_priced_at,
                 provider_reference, failure_code, failure_message, created_at, updated_at,
-                succeeded_at",
+                succeeded_at, payment_finalization_deadline",
         )
         .bind(hold_id)
         .bind(command.request_id)
@@ -177,6 +191,7 @@ impl PaymentRepository for SqlxSeatHoldRepository {
         .bind(snapshot.amount)
         .bind(&snapshot.currency_code)
         .bind(snapshot.priced_at)
+        .bind(payment_finalization_deadline)
         .fetch_one(&mut *transaction)
         .await
         .map_err(map_insert_error)?;
@@ -209,6 +224,7 @@ impl PaymentRepository for SqlxSeatHoldRepository {
             .map_err(|_| PaymentRepositoryError::InvalidTransition)?;
 
         if hold.expires_at <= server_time
+            && !current.has_protected_stripe_card_finalization()
             && !matches!(
                 transition.status,
                 PaymentStatus::Failed | PaymentStatus::Cancelled
@@ -264,59 +280,15 @@ impl PaymentRepository for SqlxSeatHoldRepository {
         }
 
         if transition.status == PaymentStatus::Succeeded {
-            ensure_ready(&mut transaction, &hold).await?;
-            let snapshot = load_snapshot(&mut transaction, hold_id).await?;
-            if snapshot.amount != current.amount
-                || snapshot.currency_code != current.currency_code
-                || snapshot.priced_at != current.review_priced_at
-            {
-                return Err(PaymentRepositoryError::ReviewNotReady);
-            }
-            let prior_success: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM payment_attempts WHERE seat_hold_id = $1 AND status = 'SUCCEEDED' AND id <> $2)",
+            finalize_seats_and_hold(
+                &mut transaction,
+                &hold,
+                attempt_id,
+                current.amount,
+                &current.currency_code,
+                current.review_priced_at,
             )
-            .bind(hold_id)
-            .bind(attempt_id)
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(PaymentRepositoryError::Infrastructure)?;
-            if prior_success {
-                return Err(PaymentRepositoryError::AlreadySucceeded);
-            }
-
-            let required = required_seats(&hold);
-            let linked = sqlx::query(
-                "INSERT INTO payment_attempt_seats (payment_attempt_id, flight_seat_id)
-                 SELECT $2, id FROM flight_seats
-                 WHERE hold_id = $1 AND sellable = TRUE AND booking_status = 'AVAILABLE'",
-            )
-            .bind(hold_id)
-            .bind(attempt_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(PaymentRepositoryError::Infrastructure)?;
-            if linked.rows_affected() != required as u64 {
-                return Err(PaymentRepositoryError::SeatsNotReady);
-            }
-            let booked = sqlx::query(
-                "UPDATE flight_seats
-                 SET booking_status = 'BOOKED', booked_at = NOW(), hold_id = NULL, updated_at = NOW()
-                 WHERE hold_id = $1 AND sellable = TRUE AND booking_status = 'AVAILABLE'",
-            )
-            .bind(hold_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(PaymentRepositoryError::Infrastructure)?;
-            if booked.rows_affected() != required as u64 {
-                return Err(PaymentRepositoryError::SeatsNotReady);
-            }
-            sqlx::query(
-                "UPDATE seat_holds SET consumed_at = NOW(), updated_at = NOW() WHERE id = $1",
-            )
-            .bind(hold_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(PaymentRepositoryError::Infrastructure)?;
+            .await?;
         }
 
         let failure_code = transition
@@ -339,7 +311,7 @@ impl PaymentRepository for SqlxSeatHoldRepository {
              RETURNING id, seat_hold_id, request_id, request_fingerprint, provider,
                 payment_method, status, amount, currency_code, review_priced_at,
                 provider_reference, failure_code, failure_message, created_at, updated_at,
-                succeeded_at",
+                succeeded_at, payment_finalization_deadline",
         )
         .bind(hold_id)
         .bind(attempt_id)
@@ -356,6 +328,277 @@ impl PaymentRepository for SqlxSeatHoldRepository {
             .map_err(PaymentRepositoryError::Infrastructure)?;
         Ok(row.into_domain())
     }
+
+    async fn process_stripe_webhook(
+        &self,
+        command: crate::domain::payment::ProcessStripeWebhookCommand,
+    ) -> Result<crate::domain::payment::StripeWebhookResult, PaymentRepositoryError> {
+        if command.event_type != "payment_intent.succeeded"
+            && command.event_type != "payment_intent.payment_failed"
+        {
+            return Ok(crate::domain::payment::StripeWebhookResult::Ignored);
+        }
+
+        let mut transaction = self
+            .pool()
+            .begin()
+            .await
+            .map_err(PaymentRepositoryError::Infrastructure)?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+            .bind(&command.event_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(PaymentRepositoryError::Infrastructure)?;
+
+        let already_processed: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM stripe_webhook_events WHERE stripe_event_id = $1)",
+        )
+        .bind(&command.event_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(PaymentRepositoryError::Infrastructure)?;
+
+        if already_processed {
+            transaction
+                .commit()
+                .await
+                .map_err(PaymentRepositoryError::Infrastructure)?;
+            return Ok(crate::domain::payment::StripeWebhookResult::AlreadyProcessed);
+        }
+
+        let attempt_row = sqlx::query_as::<_, PaymentAttemptRow>(
+            "SELECT id, seat_hold_id, request_id, request_fingerprint, provider,
+                payment_method, status, amount, currency_code, review_priced_at,
+                provider_reference, failure_code, failure_message, created_at, updated_at,
+                succeeded_at, payment_finalization_deadline
+             FROM payment_attempts
+             WHERE provider = 'STRIPE' AND provider_reference = $1
+             FOR UPDATE",
+        )
+        .bind(&command.payment_intent_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(PaymentRepositoryError::Infrastructure)?;
+
+        let Some(current) = attempt_row else {
+            return Err(PaymentRepositoryError::AttemptNotFound);
+        };
+
+        if current.provider != "STRIPE" || current.payment_method != "CARD" {
+            return Err(PaymentRepositoryError::InvalidRequest);
+        }
+
+        let (hold, _server_time) =
+            locked_payment_hold_by_id(&mut transaction, current.seat_hold_id).await?;
+
+        match command.event_type.as_str() {
+            "payment_intent.succeeded" => {
+                if current.status == "SUCCEEDED" {
+                    sqlx::query(
+                        "INSERT INTO stripe_webhook_events (stripe_event_id, event_type, payment_intent_id, processed_at)
+                         VALUES ($1, $2, $3, NOW())
+                         ON CONFLICT (stripe_event_id) DO NOTHING",
+                    )
+                    .bind(&command.event_id)
+                    .bind(&command.event_type)
+                    .bind(&command.payment_intent_id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(PaymentRepositoryError::Infrastructure)?;
+
+                    transaction
+                        .commit()
+                        .await
+                        .map_err(PaymentRepositoryError::Infrastructure)?;
+                    return Ok(crate::domain::payment::StripeWebhookResult::Processed);
+                }
+
+                let expected_stripe =
+                    crate::infrastructure::payment::stripe::StripeAmount::from_xfly_money(&Money {
+                        amount: current.amount,
+                        currency_code: current.currency_code.clone(),
+                    })
+                    .map_err(|_| PaymentRepositoryError::InvalidRequest)?;
+
+                let amount_matches = command
+                    .amount
+                    .is_some_and(|amount| amount == expected_stripe.amount());
+                let currency_matches = command
+                    .currency
+                    .as_deref()
+                    .is_some_and(|curr| curr.eq_ignore_ascii_case(expected_stripe.currency()));
+
+                if !amount_matches || !currency_matches {
+                    return Err(PaymentRepositoryError::AmountMismatch);
+                }
+
+                let current_status = PaymentStatus::parse_database(&current.status)
+                    .expect("database payment status constraint is valid");
+                current_status
+                    .transition(PaymentStatus::Succeeded)
+                    .map_err(|_| PaymentRepositoryError::InvalidTransition)?;
+
+                let lifecycle_error = if hold.consumed_at.is_some() {
+                    Some((PaymentRepositoryError::HoldConsumed, "HOLD_CONSUMED"))
+                } else if hold.released_at.is_some() {
+                    Some((PaymentRepositoryError::HoldReleased, "HOLD_RELEASED"))
+                } else {
+                    None
+                };
+                if let Some((error, code)) = lifecycle_error {
+                    sqlx::query(
+                        "UPDATE payment_attempts SET status = 'FAILED', failure_code = $3,
+                            failure_message = 'The seat hold is no longer active.', updated_at = NOW()
+                         WHERE seat_hold_id = $1 AND id = $2",
+                    )
+                    .bind(hold.id)
+                    .bind(current.id)
+                    .bind(code)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(PaymentRepositoryError::Infrastructure)?;
+                    transaction
+                        .commit()
+                        .await
+                        .map_err(PaymentRepositoryError::Infrastructure)?;
+                    return Err(error);
+                }
+
+                finalize_seats_and_hold(
+                    &mut transaction,
+                    &hold,
+                    current.id,
+                    current.amount,
+                    &current.currency_code,
+                    current.review_priced_at,
+                )
+                .await?;
+
+                sqlx::query(
+                    "UPDATE payment_attempts SET
+                        status = 'SUCCEEDED',
+                        succeeded_at = NOW(),
+                        updated_at = NOW()
+                     WHERE id = $1",
+                )
+                .bind(current.id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(PaymentRepositoryError::Infrastructure)?;
+
+                sqlx::query(
+                    "INSERT INTO stripe_webhook_events (stripe_event_id, event_type, payment_intent_id, processed_at)
+                     VALUES ($1, $2, $3, NOW())",
+                )
+                .bind(&command.event_id)
+                .bind(&command.event_type)
+                .bind(&command.payment_intent_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(PaymentRepositoryError::Infrastructure)?;
+
+                transaction
+                    .commit()
+                    .await
+                    .map_err(PaymentRepositoryError::Infrastructure)?;
+                Ok(crate::domain::payment::StripeWebhookResult::Processed)
+            }
+            "payment_intent.payment_failed" => {
+                if current.status == "FAILED" || current.status == "CANCELLED" {
+                    sqlx::query(
+                        "INSERT INTO stripe_webhook_events (stripe_event_id, event_type, payment_intent_id, processed_at)
+                         VALUES ($1, $2, $3, NOW())
+                         ON CONFLICT (stripe_event_id) DO NOTHING",
+                    )
+                    .bind(&command.event_id)
+                    .bind(&command.event_type)
+                    .bind(&command.payment_intent_id)
+                    .execute(&mut *transaction)
+                    .await
+                    .map_err(PaymentRepositoryError::Infrastructure)?;
+
+                    transaction
+                        .commit()
+                        .await
+                        .map_err(PaymentRepositoryError::Infrastructure)?;
+                    return Ok(crate::domain::payment::StripeWebhookResult::Processed);
+                }
+
+                if let Some(cmd_amount) = command.amount {
+                    if let Ok(expected_stripe) =
+                        crate::infrastructure::payment::stripe::StripeAmount::from_xfly_money(
+                            &Money {
+                                amount: current.amount,
+                                currency_code: current.currency_code.clone(),
+                            },
+                        )
+                    {
+                        if cmd_amount != expected_stripe.amount() {
+                            return Err(PaymentRepositoryError::AmountMismatch);
+                        }
+                    }
+                }
+                if let Some(ref cmd_currency) = command.currency {
+                    if !cmd_currency.eq_ignore_ascii_case("thb") {
+                        return Err(PaymentRepositoryError::AmountMismatch);
+                    }
+                }
+
+                let current_status = PaymentStatus::parse_database(&current.status)
+                    .expect("database payment status constraint is valid");
+                current_status
+                    .transition(PaymentStatus::Failed)
+                    .map_err(|_| PaymentRepositoryError::InvalidTransition)?;
+
+                let failure_code = command
+                    .failure_code
+                    .unwrap_or_else(|| "PROCESSING_ERROR".to_owned());
+                let failure_message = command
+                    .failure_message
+                    .unwrap_or_else(|| "The payment could not be processed.".to_owned());
+
+                sqlx::query(
+                    "UPDATE payment_attempts SET
+                        status = 'FAILED',
+                        failure_code = $2,
+                        failure_message = $3,
+                        updated_at = NOW()
+                     WHERE id = $1",
+                )
+                .bind(current.id)
+                .bind(&failure_code)
+                .bind(&failure_message)
+                .execute(&mut *transaction)
+                .await
+                .map_err(PaymentRepositoryError::Infrastructure)?;
+
+                sqlx::query(
+                    "INSERT INTO stripe_webhook_events (stripe_event_id, event_type, payment_intent_id, processed_at)
+                     VALUES ($1, $2, $3, NOW())",
+                )
+                .bind(&command.event_id)
+                .bind(&command.event_type)
+                .bind(&command.payment_intent_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(PaymentRepositoryError::Infrastructure)?;
+
+                transaction
+                    .commit()
+                    .await
+                    .map_err(PaymentRepositoryError::Infrastructure)?;
+                Ok(crate::domain::payment::StripeWebhookResult::Processed)
+            }
+            _ => {
+                transaction
+                    .commit()
+                    .await
+                    .map_err(PaymentRepositoryError::Infrastructure)?;
+                Ok(crate::domain::payment::StripeWebhookResult::Ignored)
+            }
+        }
+    }
 }
 
 async fn load_attempts(
@@ -366,7 +609,7 @@ async fn load_attempts(
         "SELECT id, seat_hold_id, request_id, request_fingerprint, provider,
             payment_method, status, amount, currency_code, review_priced_at,
             provider_reference, failure_code, failure_message, created_at, updated_at,
-            succeeded_at
+            succeeded_at, payment_finalization_deadline
          FROM payment_attempts WHERE seat_hold_id = $1 ORDER BY created_at DESC",
     )
     .bind(hold_id)
@@ -452,10 +695,9 @@ async fn load_journey(
     })
 }
 
-async fn locked_payment_hold(
+async fn locked_payment_hold_by_id(
     transaction: &mut Transaction<'_, Postgres>,
     hold_id: Uuid,
-    token_hash: [u8; 32],
 ) -> Result<(HoldRow, DateTime<Utc>), PaymentRepositoryError> {
     let hold = sqlx::query_as::<_, HoldRow>(
         "SELECT hold.id, service.public_id AS flight_id, instance.departure_date,
@@ -471,14 +713,85 @@ async fn locked_payment_hold(
     .await
     .map_err(PaymentRepositoryError::Infrastructure)?
     .ok_or(PaymentRepositoryError::HoldNotFound)?;
-    if hold.access_token_hash.as_slice() != token_hash {
-        return Err(PaymentRepositoryError::Unauthorized);
-    }
     let server_time: DateTime<Utc> = sqlx::query_scalar("SELECT NOW()")
         .fetch_one(&mut **transaction)
         .await
         .map_err(PaymentRepositoryError::Infrastructure)?;
     Ok((hold, server_time))
+}
+
+async fn locked_payment_hold(
+    transaction: &mut Transaction<'_, Postgres>,
+    hold_id: Uuid,
+    token_hash: [u8; 32],
+) -> Result<(HoldRow, DateTime<Utc>), PaymentRepositoryError> {
+    let (hold, server_time) = locked_payment_hold_by_id(transaction, hold_id).await?;
+    if hold.access_token_hash.as_slice() != token_hash {
+        return Err(PaymentRepositoryError::Unauthorized);
+    }
+    Ok((hold, server_time))
+}
+
+async fn finalize_seats_and_hold(
+    transaction: &mut Transaction<'_, Postgres>,
+    hold: &HoldRow,
+    current_attempt_id: Uuid,
+    expected_amount: i64,
+    expected_currency_code: &str,
+    expected_priced_at: DateTime<Utc>,
+) -> Result<(), PaymentRepositoryError> {
+    ensure_ready(transaction, hold).await?;
+    let snapshot = load_snapshot(transaction, hold.id).await?;
+    if snapshot.amount != expected_amount
+        || snapshot.currency_code != expected_currency_code
+        || snapshot.priced_at != expected_priced_at
+    {
+        return Err(PaymentRepositoryError::ReviewNotReady);
+    }
+    let prior_success: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM payment_attempts WHERE seat_hold_id = $1 AND status = 'SUCCEEDED' AND id <> $2)",
+    )
+    .bind(hold.id)
+    .bind(current_attempt_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(PaymentRepositoryError::Infrastructure)?;
+    if prior_success {
+        return Err(PaymentRepositoryError::AlreadySucceeded);
+    }
+
+    let required = required_seats(hold);
+    let linked = sqlx::query(
+        "INSERT INTO payment_attempt_seats (payment_attempt_id, flight_seat_id)
+         SELECT $2, id FROM flight_seats
+         WHERE hold_id = $1 AND sellable = TRUE AND booking_status = 'AVAILABLE'",
+    )
+    .bind(hold.id)
+    .bind(current_attempt_id)
+    .execute(&mut **transaction)
+    .await
+    .map_err(PaymentRepositoryError::Infrastructure)?;
+    if linked.rows_affected() != required as u64 {
+        return Err(PaymentRepositoryError::SeatsNotReady);
+    }
+    let booked = sqlx::query(
+        "UPDATE flight_seats
+         SET booking_status = 'BOOKED', booked_at = NOW(), hold_id = NULL, updated_at = NOW()
+         WHERE hold_id = $1 AND sellable = TRUE AND booking_status = 'AVAILABLE'",
+    )
+    .bind(hold.id)
+    .execute(&mut **transaction)
+    .await
+    .map_err(PaymentRepositoryError::Infrastructure)?;
+    if booked.rows_affected() != required as u64 {
+        return Err(PaymentRepositoryError::SeatsNotReady);
+    }
+    sqlx::query("UPDATE seat_holds SET consumed_at = NOW(), updated_at = NOW() WHERE id = $1")
+        .bind(hold.id)
+        .execute(&mut **transaction)
+        .await
+        .map_err(PaymentRepositoryError::Infrastructure)?;
+    Ok(())
 }
 
 async fn ensure_ready(
@@ -559,7 +872,7 @@ async fn load_by_request(
         "SELECT id, seat_hold_id, request_id, request_fingerprint, provider,
             payment_method, status, amount, currency_code, review_priced_at,
             provider_reference, failure_code, failure_message, created_at, updated_at,
-            succeeded_at
+            succeeded_at, payment_finalization_deadline
          FROM payment_attempts WHERE seat_hold_id = $1 AND request_id = $2",
     )
     .bind(hold_id)
@@ -578,7 +891,7 @@ async fn load_attempt_for_update(
         "SELECT id, seat_hold_id, request_id, request_fingerprint, provider,
             payment_method, status, amount, currency_code, review_priced_at,
             provider_reference, failure_code, failure_message, created_at, updated_at,
-            succeeded_at
+            succeeded_at, payment_finalization_deadline
          FROM payment_attempts WHERE seat_hold_id = $1 AND id = $2 FOR UPDATE",
     )
     .bind(hold_id)
@@ -655,9 +968,20 @@ struct PaymentAttemptRow {
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     succeeded_at: Option<DateTime<Utc>>,
+    payment_finalization_deadline: Option<DateTime<Utc>>,
 }
 
 impl PaymentAttemptRow {
+    fn has_protected_stripe_card_finalization(&self) -> bool {
+        self.provider == "STRIPE"
+            && self.payment_method == "CARD"
+            && matches!(
+                self.status.as_str(),
+                "CREATED" | "PROCESSING" | "AWAITING_PAYMENT"
+            )
+            && self.payment_finalization_deadline.is_some()
+    }
+
     fn into_domain(self) -> PaymentAttempt {
         PaymentAttempt {
             id: self.id,
@@ -679,6 +1003,8 @@ impl PaymentAttemptRow {
             created_at: self.created_at,
             updated_at: self.updated_at,
             succeeded_at: self.succeeded_at,
+            payment_finalization_deadline: self.payment_finalization_deadline,
+            client_payment_session: None,
             demo_bitcoin_invoice: None,
         }
     }

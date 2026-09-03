@@ -10,7 +10,6 @@ type PaymentStatus =
   | "SUCCEEDED"
   | "FAILED"
   | "CANCELLED";
-type CardScenario = "SUCCESS" | "DECLINED" | "PROCESSING_ERROR";
 type BitcoinSimulationOutcome = "RECEIVED" | "FAILED" | "CANCELLED";
 
 type PaymentAttempt = {
@@ -26,7 +25,8 @@ type PaymentAttempt = {
   failure?: { code: string; message: string };
   id: string;
   paymentMethod: PaymentMethod;
-  provider: "MOCK_CARD" | "MOCK_BITCOIN";
+  clientPaymentSession?: string;
+  provider: "STRIPE" | "MOCK_BITCOIN";
   providerReference?: string;
   status: PaymentStatus;
   succeededAt?: string;
@@ -47,12 +47,11 @@ type PaymentContext = {
 };
 
 type CreatePaymentAttemptInput =
-  | { method: "CARD"; requestId: string; scenario: CardScenario }
+  | { method: "CARD"; requestId: string }
   | { method: "BITCOIN"; requestId: string };
 
 export type {
   BitcoinSimulationOutcome,
-  CardScenario,
   CreatePaymentAttemptInput,
   PaymentAttempt,
   PaymentContext,

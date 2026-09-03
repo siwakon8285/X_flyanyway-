@@ -51,10 +51,11 @@ Passenger details are stored in `hold_passengers` and cascade with their tempora
 
 ## Local development
 
-Copy the example environment once from the repository root:
+Copy the Compose environment from the repository root and the API environment into `backend/`:
 
 ```bash
 cp .env.example .env
+cp backend/.env.example backend/.env
 ```
 
 The normal development topology runs PostgreSQL in Docker and the Rust API directly on the Mac. Start only the development database from the repository root:
@@ -63,7 +64,7 @@ The normal development topology runs PostgreSQL in Docker and the Rust API direc
 docker compose up -d db
 ```
 
-Then start Axum in another terminal:
+Then start Axum in another terminal. It reads backend secrets from `backend/.env`:
 
 ```bash
 cd backend
@@ -124,15 +125,19 @@ The first ready Review GET idempotently materializes one row in `hold_review_pri
 
 The returned `DEMO_FIXTURE_NONREFUNDABLE_NO_CHANGES` condition is a project demo configuration only. It must always be presented as a fixture policy and never represented as a real airline fare rule.
 
-## Mock payment and paid inventory lifecycle
+## Stripe Test Mode payment and paid inventory lifecycle
 
-Payment is available only for an HttpOnly-cookie-authorized, active hold whose seats, passengers, saved Extras marker, and current `hold_review_pricing` snapshot all remain valid. `GET /api/v1/seat-holds/{hold_id}/payment` returns that server-owned amount and currency; create and simulation requests never accept pricing or card fields. Card details exist only as transient browser demo state. The backend receives a UUID request ID, payment method, and (for Card) a safe mock scenario.
+Payment is available only for an HttpOnly-cookie-authorized, active hold whose seats, passengers, saved Extras marker, and current `hold_review_pricing` snapshot all remain valid. `GET /api/v1/seat-holds/{hold_id}/payment` returns that server-owned amount and currency; create and simulation requests never accept pricing or card fields. Stripe Elements collects Card details directly; X-Fly receives only a UUID request ID and payment method.
 
-`PaymentApplication` depends on the provider-neutral `PaymentGateway` boundary. The branch supplies `MockCardPaymentGateway` and `MockBitcoinPaymentGateway`; a future provider can replace a gateway without adding provider SDK types to the domain or application layer. Bitcoin uses an invalid, deterministic demo destination and a fixed display conversion of 1 BTC = THB 2,000,000. It never generates key material or contacts a blockchain.
+`PaymentApplication` depends on a provider-neutral payment/reconciliation boundary. Stripe’s HTTP DTOs and API details remain in infrastructure; Bitcoin uses an invalid, deterministic demo destination and a fixed display conversion of 1 BTC = THB 2,000,000. It never generates key material or contacts a blockchain.
 
 Payment attempts use `CREATED`, `PROCESSING`, `AWAITING_PAYMENT`, `SUCCEEDED`, `FAILED`, and `CANCELLED`. Failed and cancelled attempts are historical and retryable while the hold remains active. Request IDs are idempotent and protected by a request fingerprint. Partial unique indexes allow only one open attempt and one successful attempt per hold.
 
 A transition to `SUCCEEDED` is also the paid-inventory finalization boundary. One guarded PostgreSQL transaction locks the authorized hold and attempt, revalidates the Review snapshot and held seats, records the paid seat association in `payment_attempt_seats`, changes those seats from `AVAILABLE` with this hold ID to `BOOKED` with `booked_at` set and `hold_id` cleared, sets `seat_holds.consumed_at`, and finally records the payment as `SUCCEEDED`. Any failure rolls the whole transaction back, so successful payment cannot coexist with expirable inventory. Expiry before this transition persists the attempt as `FAILED` with `HOLD_EXPIRED`; it never extends or replaces the hold. Ticket and QR representation remain a later concern and will consume the successful attempt, its finalized-seat association, the consumed hold, and BOOKED inventory state.
+
+## Stripe Test Mode manual QA (next checkpoint)
+
+Use only Stripe Test Mode: `backend/.env` holds `sk_test_` and the Stripe CLI-generated `whsec_`, while `frontend/.env.local` holds the public `pk_test_` value. The frontend key, backend key, and `stripe listen` session must all belong to the same Stripe sandbox/account context. Run `stripe login`, then `stripe listen --forward-to localhost:8080/api/v1/payments/stripe/webhook`, and place its generated webhook secret manually in `backend/.env`. Confirm a successful test card, a declined card, and a 3DS card; refresh while confirmation is pending; and verify both webhook delivery and payment-context reconciliation. In the Stripe Dashboard, confirm the PaymentIntent matches the DB `provider_reference`; on success the seat is `BOOKED` and the hold is consumed. For failed or confirmed-cancelled attempts, verify ordinary hold expiry/release can reclaim inventory. No real card must be charged. Bitcoin remains mock-only.
 
 ## Isolated PostgreSQL tests
 

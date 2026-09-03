@@ -9,7 +9,9 @@ use x_fly_api::{
     infrastructure::{
         database::{prepare_database, SqlxSeatHoldRepository},
         http::build_router,
-        payment::{MockBitcoinPaymentGateway, MockCardPaymentGateway},
+        payment::{
+            stripe::StripePaymentGateway, MockBitcoinPaymentGateway, UnavailableCardPaymentGateway,
+        },
     },
     state::AppState,
 };
@@ -34,11 +36,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     prepare_database(&pool).await?;
 
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
-    let payments = PaymentApplication::new(
-        repository.clone(),
-        Arc::new(MockCardPaymentGateway),
-        Arc::new(MockBitcoinPaymentGateway),
-    );
+    let payments = match config.stripe_secret_key.clone() {
+        Some(key) => {
+            let stripe = Arc::new(StripePaymentGateway::new(key));
+            PaymentApplication::new(
+                repository.clone(),
+                stripe.clone(),
+                Arc::new(MockBitcoinPaymentGateway),
+            )
+            .with_stripe_provider(stripe)
+        }
+        None => PaymentApplication::new(
+            repository.clone(),
+            Arc::new(UnavailableCardPaymentGateway),
+            Arc::new(MockBitcoinPaymentGateway),
+        ),
+    };
     let state = AppState::new(
         repository.clone(),
         repository.clone(),
@@ -48,7 +61,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.secure_cookies,
         config.frontend_origin,
     )
-    .with_payments(payments);
+    .with_payments(payments)
+    .with_stripe_webhook_secret(config.stripe_webhook_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
     tracing::info!(address = %config.bind_address, "X-Fly API listening");
     axum::serve(listener, build_router(state))

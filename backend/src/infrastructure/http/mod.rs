@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use axum::{
+    body::Bytes,
     extract::{rejection::JsonRejection, Path, Query, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::{IntoResponse, Response},
@@ -23,7 +24,7 @@ use crate::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
         extras::ExtraSelectionInput,
         passengers::{PassengerFieldError, PassengerInput},
-        payment::{CardScenario, CreatePaymentRequest, PaymentMethod, PaymentSimulationOutcome},
+        payment::{CreatePaymentRequest, PaymentMethod, PaymentSimulationOutcome},
         repositories::{
             ExtraRepositoryError, PassengerRepositoryError, PaymentRepositoryError,
             ReviewRepositoryError, SeatHoldRepositoryError,
@@ -75,6 +76,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/seat-holds/{hold_id}",
             get(get_hold).put(replace_seats).delete(release_hold),
         )
+        .route("/api/v1/payments/stripe/webhook", post(stripe_webhook))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -325,7 +327,6 @@ async fn get_payment(
 struct CreatePaymentAttemptRequest {
     request_id: Uuid,
     method: PaymentMethod,
-    scenario: Option<CardScenario>,
 }
 
 async fn create_payment_attempt(
@@ -345,7 +346,6 @@ async fn create_payment_attempt(
                 CreatePaymentRequest {
                     request_id: request.request_id,
                     method: request.method,
-                    scenario: request.scenario,
                 },
             )
             .await
@@ -382,6 +382,132 @@ async fn simulate_payment_attempt(
     .await;
     private_no_store(match result {
         Ok(attempt) => Json(attempt).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+async fn stripe_webhook(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let result: Result<serde_json::Value, ApiError> = async {
+        let secret = state
+            .stripe_webhook_secret
+            .as_deref()
+            .ok_or_else(|| {
+                ApiError::stripe_webhook_bad_request(
+                    "STRIPE_WEBHOOK_UNCONFIGURED",
+                    "Stripe webhook is not configured.",
+                )
+            })?;
+
+        let signature_header = headers
+            .get("stripe-signature")
+            .and_then(|h| h.to_str().ok())
+            .ok_or_else(|| {
+                ApiError::stripe_webhook_bad_request(
+                    "STRIPE_SIGNATURE_MISSING",
+                    "Missing Stripe-Signature header.",
+                )
+            })?;
+
+        let now = chrono::Utc::now().timestamp();
+        crate::infrastructure::payment::stripe::verify_stripe_signature(
+            signature_header,
+            &body,
+            secret,
+            now,
+            crate::infrastructure::payment::stripe::STRIPE_SIGNATURE_TOLERANCE_SECONDS,
+        )
+        .map_err(|err| match err {
+            crate::infrastructure::payment::stripe::WebhookVerificationError::MissingHeader => {
+                ApiError::stripe_webhook_bad_request(
+                    "STRIPE_SIGNATURE_MISSING",
+                    "Missing Stripe-Signature header.",
+                )
+            }
+            crate::infrastructure::payment::stripe::WebhookVerificationError::MalformedHeader => {
+                ApiError::stripe_webhook_bad_request(
+                    "STRIPE_SIGNATURE_MALFORMED",
+                    "Malformed Stripe-Signature header.",
+                )
+            }
+            crate::infrastructure::payment::stripe::WebhookVerificationError::TimestampOutOfTolerance => {
+                ApiError::stripe_webhook_bad_request(
+                    "STRIPE_TIMESTAMP_OUT_OF_TOLERANCE",
+                    "Stripe webhook timestamp is outside tolerance.",
+                )
+            }
+            crate::infrastructure::payment::stripe::WebhookVerificationError::InvalidSignature => {
+                ApiError::stripe_webhook_bad_request(
+                    "STRIPE_SIGNATURE_INVALID",
+                    "Invalid Stripe signature.",
+                )
+            }
+            crate::infrastructure::payment::stripe::WebhookVerificationError::InvalidSecret => {
+                ApiError::internal()
+            }
+        })?;
+
+        let envelope = crate::infrastructure::payment::stripe::parse_stripe_webhook(&body)
+            .map_err(|_| {
+                ApiError::stripe_webhook_bad_request(
+                    "STRIPE_PAYLOAD_INVALID",
+                    "Invalid Stripe webhook payload.",
+                )
+            })?;
+
+        if envelope.event_type != "payment_intent.succeeded"
+            && envelope.event_type != "payment_intent.payment_failed"
+        {
+            return Ok(json!({ "received": true }));
+        }
+
+        let intent = crate::infrastructure::payment::stripe::parse_payment_intent_object(
+            &envelope.data.object,
+        )
+        .map_err(|_| {
+            ApiError::stripe_webhook_bad_request(
+                "STRIPE_PAYLOAD_INVALID",
+                "Invalid PaymentIntent object in webhook.",
+            )
+        })?;
+
+        let payments = state.payments.as_ref().ok_or_else(ApiError::internal)?;
+
+        let (failure_code, failure_message) =
+            crate::infrastructure::payment::stripe::map_stripe_failure(
+                intent.last_payment_error.as_ref(),
+            );
+
+        let command = crate::domain::payment::ProcessStripeWebhookCommand {
+            event_id: envelope.id,
+            event_type: envelope.event_type,
+            payment_intent_id: intent.id,
+            amount: intent.amount,
+            currency: intent.currency,
+            status: intent.status,
+            failure_code: Some(failure_code),
+            failure_message: Some(failure_message),
+        };
+
+        match payments.process_stripe_webhook(command).await {
+            Ok(_) => {}
+            // A signed event for an internal PaymentIntent can race the
+            // transaction that persists provider_reference. Returning 5xx
+            // asks Stripe to retry; we neither create a booking nor mark the
+            // event processed, so the later retry remains safe.
+            Err(PaymentRepositoryError::AttemptNotFound) => return Err(ApiError::internal()),
+            Err(error) => return Err(ApiError::from(error)),
+        }
+
+        Ok(json!({ "received": true }))
+    }
+    .await;
+
+    private_no_store(match result {
+        Ok(payload) => (StatusCode::OK, Json(payload)).into_response(),
         Err(error) => error.into_response(),
     })
 }
@@ -550,6 +676,26 @@ impl ApiError {
             field_errors: Vec::new(),
         }
     }
+
+    fn payment_finalization_conflict() -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: "PAYMENT_IN_PROGRESS",
+            message: "Payment finalization is in progress for this seat hold.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+
+    fn stripe_webhook_bad_request(code: &'static str, message: &'static str) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code,
+            message,
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
 }
 
 impl From<PaymentRepositoryError> for ApiError {
@@ -586,6 +732,9 @@ impl From<PaymentRepositoryError> for ApiError {
             },
             PaymentRepositoryError::HoldConsumed => {
                 conflict("HOLD_CONSUMED", "The seat hold has already been finalized.")
+            }
+            PaymentRepositoryError::PaymentFinalizationInProgress => {
+                Self::payment_finalization_conflict()
             }
             PaymentRepositoryError::AlreadySucceeded => conflict(
                 "PAYMENT_ALREADY_SUCCEEDED",
@@ -626,6 +775,13 @@ impl From<PaymentRepositoryError> for ApiError {
                 "The payment request ID was already used for different input.",
             ),
             PaymentRepositoryError::InvalidRequest => Self::payment_bad_request(),
+            PaymentRepositoryError::AmountMismatch => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: "AMOUNT_MISMATCH",
+                message: "Payment amount or currency mismatch.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
             PaymentRepositoryError::Infrastructure(_error) => {
                 tracing::error!("payment repository failure");
                 Self::internal()
@@ -673,6 +829,9 @@ impl From<ExtraRepositoryError> for ApiError {
                 conflicting_seats: Vec::new(),
                 field_errors: Vec::new(),
             },
+            ExtraRepositoryError::PaymentFinalizationInProgress => {
+                Self::payment_finalization_conflict()
+            }
             ExtraRepositoryError::SeatCountMismatch => {
                 validation("SEAT_COUNT_MISMATCH", "Held seats are incomplete.")
             }
@@ -838,6 +997,9 @@ impl From<SeatHoldRepositoryError> for ApiError {
                 conflicting_seats: Vec::new(),
                 field_errors: Vec::new(),
             },
+            SeatHoldRepositoryError::PaymentFinalizationInProgress => {
+                Self::payment_finalization_conflict()
+            }
             SeatHoldRepositoryError::Infrastructure(error) => {
                 tracing::error!(?error, "seat hold repository failure");
                 Self::internal()
@@ -878,6 +1040,9 @@ impl From<PassengerRepositoryError> for ApiError {
                 conflicting_seats: Vec::new(),
                 field_errors: Vec::new(),
             },
+            PassengerRepositoryError::PaymentFinalizationInProgress => {
+                Self::payment_finalization_conflict()
+            }
             PassengerRepositoryError::SeatCountMismatch => Self {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 code: "SEAT_COUNT_MISMATCH",

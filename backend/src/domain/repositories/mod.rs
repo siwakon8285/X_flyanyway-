@@ -25,6 +25,8 @@ pub enum PaymentRepositoryError {
     HoldReleased,
     #[error("seat hold has already been consumed")]
     HoldConsumed,
+    #[error("payment finalization is in progress")]
+    PaymentFinalizationInProgress,
     #[error("held seats are not ready for payment")]
     SeatsNotReady,
     #[error("passenger information is not ready for payment")]
@@ -45,6 +47,8 @@ pub enum PaymentRepositoryError {
     IdempotencyKeyReused,
     #[error("payment request is invalid")]
     InvalidRequest,
+    #[error("payment amount or currency mismatch")]
+    AmountMismatch,
     #[error("database operation failed")]
     Infrastructure(#[source] sqlx::Error),
 }
@@ -78,6 +82,11 @@ pub trait PaymentRepository: Send + Sync {
         attempt_id: Uuid,
         transition: PaymentAttemptTransition,
     ) -> Result<PaymentAttempt, PaymentRepositoryError>;
+
+    async fn process_stripe_webhook(
+        &self,
+        command: crate::domain::payment::ProcessStripeWebhookCommand,
+    ) -> Result<crate::domain::payment::StripeWebhookResult, PaymentRepositoryError>;
 }
 
 #[derive(Debug, Error)]
@@ -92,6 +101,8 @@ pub enum ExtraRepositoryError {
     HoldReleased,
     #[error("seat hold has already been consumed")]
     HoldConsumed,
+    #[error("payment finalization is in progress")]
+    PaymentFinalizationInProgress,
     #[error("held seat count no longer matches the passenger party")]
     SeatCountMismatch,
     #[error("passenger information must be completed before extras")]
@@ -160,6 +171,8 @@ pub enum SeatHoldRepositoryError {
     HoldReleased,
     #[error("seat hold has already been consumed")]
     HoldConsumed,
+    #[error("payment finalization is in progress")]
+    PaymentFinalizationInProgress,
     #[error("database operation failed")]
     Infrastructure(#[source] sqlx::Error),
 }
@@ -210,6 +223,8 @@ pub enum PassengerRepositoryError {
     HoldReleased,
     #[error("seat hold has already been consumed")]
     HoldConsumed,
+    #[error("payment finalization is in progress")]
+    PaymentFinalizationInProgress,
     #[error("held seat count no longer matches the passenger party")]
     SeatCountMismatch,
     #[error("passenger count does not match the active hold")]

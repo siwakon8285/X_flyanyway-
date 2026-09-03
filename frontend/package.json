@@ -11,6 +11,8 @@
     "test": "jest --runInBand"
   },
   "dependencies": {
+    "@stripe/react-stripe-js": "^5.4.1",
+    "@stripe/stripe-js": "^8.8.0",
     "@gsap/react": "^2.1.2",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-label": "^2.1.15",

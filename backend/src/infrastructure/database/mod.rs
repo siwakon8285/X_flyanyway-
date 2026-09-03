@@ -152,7 +152,8 @@ impl SqlxSeatHoldRepository {
                 seat.hold_id,
                 owner.expires_at AS owner_expires_at,
                 owner.released_at AS owner_released_at,
-                owner.consumed_at AS owner_consumed_at
+                owner.consumed_at AS owner_consumed_at,
+                has_protected_stripe_card_finalization(owner.id) AS owner_payment_protected
              FROM flight_seats AS seat
              LEFT JOIN seat_holds AS owner ON owner.id = seat.hold_id
              WHERE seat.flight_instance_id = $1
@@ -191,9 +192,10 @@ impl SqlxSeatHoldRepository {
 
             let active_other_hold = row.hold_id.is_some_and(|hold_id| {
                 Some(hold_id) != current_hold
-                    && row
+                    && (row
                         .owner_expires_at
                         .is_some_and(|expiry| expiry > server_time)
+                        || row.owner_payment_protected)
                     && row.owner_released_at.is_none()
                     && row.owner_consumed_at.is_none()
             });
@@ -296,6 +298,22 @@ impl SqlxSeatHoldRepository {
             server_time,
         })
     }
+
+    async fn ensure_no_protected_payment(
+        transaction: &mut Transaction<'_, Postgres>,
+        hold_id: Uuid,
+    ) -> Result<(), SeatHoldRepositoryError> {
+        let protected: bool =
+            sqlx::query_scalar("SELECT has_protected_stripe_card_finalization($1)")
+                .bind(hold_id)
+                .fetch_one(&mut **transaction)
+                .await
+                .map_err(SeatHoldRepositoryError::Infrastructure)?;
+        if protected {
+            return Err(SeatHoldRepositoryError::PaymentFinalizationInProgress);
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -328,7 +346,8 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
                 seat.hold_id,
                 owner.expires_at AS owner_expires_at,
                 owner.released_at AS owner_released_at,
-                owner.consumed_at AS owner_consumed_at
+                owner.consumed_at AS owner_consumed_at,
+                has_protected_stripe_card_finalization(owner.id) AS owner_payment_protected
              FROM flight_seats AS seat
              LEFT JOIN seat_holds AS owner ON owner.id = seat.hold_id
              WHERE seat.flight_instance_id = $1 AND seat.cabin = $2
@@ -344,9 +363,10 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
         let seats = rows
             .into_iter()
             .map(|row| {
-                let active_hold = row
+                let active_hold = (row
                     .owner_expires_at
                     .is_some_and(|expiry| expiry > server_time)
+                    || row.owner_payment_protected)
                     && row.owner_released_at.is_none()
                     && row.owner_consumed_at.is_none();
                 let status = if !row.sellable || row.booking_status == "BOOKED" {
@@ -462,6 +482,7 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
             .await
             .map_err(SeatHoldRepositoryError::Infrastructure)?;
         let hold = Self::locked_hold(&mut transaction, hold_id, token_hash).await?;
+        Self::ensure_no_protected_payment(&mut transaction, hold_id).await?;
         let passengers =
             PassengerCounts::new(hold.adults as u8, hold.children as u8, hold.infants as u8)
                 .expect("database passenger constraints are valid");
@@ -539,6 +560,7 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
             .await
             .map_err(SeatHoldRepositoryError::Infrastructure)?;
         Self::locked_hold(&mut transaction, hold_id, token_hash).await?;
+        Self::ensure_no_protected_payment(&mut transaction, hold_id).await?;
         sqlx::query(
             "UPDATE flight_seats SET hold_id = NULL, updated_at = NOW() WHERE hold_id = $1",
         )
@@ -576,6 +598,7 @@ struct LockedSeatRow {
     owner_expires_at: Option<DateTime<Utc>>,
     owner_released_at: Option<DateTime<Utc>>,
     owner_consumed_at: Option<DateTime<Utc>>,
+    owner_payment_protected: bool,
 }
 
 #[derive(FromRow)]
@@ -590,6 +613,7 @@ struct InventoryRow {
     owner_expires_at: Option<DateTime<Utc>>,
     owner_released_at: Option<DateTime<Utc>>,
     owner_consumed_at: Option<DateTime<Utc>>,
+    owner_payment_protected: bool,
 }
 
 #[derive(FromRow)]
