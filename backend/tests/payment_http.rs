@@ -87,6 +87,7 @@ impl PaymentProviderReconciler for TestStripePaymentGateway {
 }
 
 const TEST_WEBHOOK_SECRET: &str = "whsec_test_secret_for_integration_testing_12345";
+const TICKET_QR_SECRET: &str = "ticket-signing-secret-for-http-tests-must-be-long-enough";
 
 async fn app_with_secret(secret: Option<String>) -> (axum::Router, PgPool) {
     dotenvy::dotenv().ok();
@@ -113,13 +114,14 @@ async fn app_with_secret(secret: Option<String>) -> (axum::Router, PgPool) {
             .with_payments({
                 let stripe = Arc::new(TestStripePaymentGateway::default());
                 PaymentApplication::new(
-                    repository,
+                    repository.clone(),
                     stripe.clone(),
                     Arc::new(MockBitcoinPaymentGateway),
                 )
                 .with_stripe_provider(stripe)
             })
-            .with_stripe_webhook_secret(secret),
+            .with_stripe_webhook_secret(secret)
+            .with_tickets(repository, TICKET_QR_SECRET.to_owned()),
         ),
         pool,
     )
@@ -163,13 +165,14 @@ async fn app_with_provider_statuses(
             )
             .with_payments(
                 PaymentApplication::new(
-                    repository,
+                    repository.clone(),
                     stripe.clone(),
                     Arc::new(MockBitcoinPaymentGateway),
                 )
                 .with_stripe_provider(stripe),
             )
-            .with_stripe_webhook_secret(Some(TEST_WEBHOOK_SECRET.to_owned())),
+            .with_stripe_webhook_secret(Some(TEST_WEBHOOK_SECRET.to_owned()))
+            .with_tickets(repository, TICKET_QR_SECRET.to_owned()),
         ),
         pool,
     )
@@ -339,6 +342,182 @@ async fn get_payment_context(
         )
         .await
         .unwrap()
+}
+
+async fn get_ticket(
+    app: &axum::Router,
+    hold_id: &str,
+    attempt_id: &str,
+    cookie: &str,
+) -> axum::response::Response {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/seat-holds/{hold_id}/payment-attempts/{attempt_id}/ticket"
+                ))
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn successful_mock_bitcoin_payment_returns_one_private_ticket_and_public_safe_verification() {
+    let (app, _) = app().await;
+    let (hold_id, cookie) = complete_review(&app).await;
+    let created = create_attempt(&app, &hold_id, &cookie, uuid::Uuid::new_v4(), "BITCOIN").await;
+    let attempt_id = body(created).await["id"].as_str().unwrap().to_owned();
+    let paid = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/seat-holds/{hold_id}/payment-attempts/{attempt_id}/simulate"
+                ))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::COOKIE, &cookie)
+                .body(Body::from(json!({ "outcome": "RECEIVED" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(paid.status(), StatusCode::OK);
+
+    let first = get_ticket(&app, &hold_id, &attempt_id, &cookie).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let first = body(first).await;
+    assert_eq!(first["ticket"]["paymentStatus"], "SUCCEEDED");
+    assert_eq!(first["ticket"]["seats"], json!(["20A"]));
+    assert!(first["ticket"].get("providerReference").is_none());
+    let second = body(get_ticket(&app, &hold_id, &attempt_id, &cookie).await).await;
+    assert_eq!(first["ticket"]["id"], second["ticket"]["id"]);
+    assert_eq!(
+        first["ticket"]["bookingReference"],
+        second["ticket"]["bookingReference"]
+    );
+
+    let verify = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/tickets/verify/{}",
+                    first["qrToken"].as_str().unwrap()
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(verify.status(), StatusCode::OK);
+    let verify = body(verify).await;
+    assert_eq!(verify["valid"], true);
+    assert_eq!(verify["ticketStatus"], "ISSUED");
+    assert_eq!(verify["seats"], json!(["20A"]));
+    assert!(verify.get("passengers").is_none());
+    assert!(verify.get("amount").is_none());
+
+    // Tampered token returns valid: false
+    let tampered_verify = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/tickets/verify/{}x",
+                    first["qrToken"].as_str().unwrap()
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tampered_verify.status(), StatusCode::OK);
+    let tampered_body = body(tampered_verify).await;
+    assert_eq!(tampered_body["valid"], false);
+}
+
+#[tokio::test]
+async fn unsuccessful_or_unauthorized_payment_attempt_cannot_issue_ticket() {
+    let (app, _) = app().await;
+    let (hold_id, cookie) = complete_review(&app).await;
+    let created = create_attempt(&app, &hold_id, &cookie, uuid::Uuid::new_v4(), "BITCOIN").await;
+    let attempt_id = body(created).await["id"].as_str().unwrap().to_owned();
+
+    // 1. Created attempt (not SUCCEEDED) cannot issue ticket -> 409 Conflict
+    let incomplete = get_ticket(&app, &hold_id, &attempt_id, &cookie).await;
+    assert_eq!(incomplete.status(), StatusCode::CONFLICT);
+    let incomplete_body = body(incomplete).await;
+    assert_eq!(
+        incomplete_body["error"]["code"],
+        "TICKET_PAYMENT_INCOMPLETE"
+    );
+
+    // 2. Unauthorized ticket access without cookie -> 401 Unauthorized
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/seat-holds/{hold_id}/payment-attempts/{attempt_id}/ticket"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn concurrent_ticket_requests_after_success_produce_exactly_one_ticket() {
+    let (app, pool) = app().await;
+    let (hold_id, cookie) = complete_review(&app).await;
+    let created = create_attempt(&app, &hold_id, &cookie, uuid::Uuid::new_v4(), "BITCOIN").await;
+    let attempt_id = body(created).await["id"].as_str().unwrap().to_owned();
+    let paid = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/seat-holds/{hold_id}/payment-attempts/{attempt_id}/simulate"
+                ))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::COOKIE, &cookie)
+                .body(Body::from(json!({ "outcome": "RECEIVED" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(paid.status(), StatusCode::OK);
+
+    let (res1, res2) = tokio::join!(
+        get_ticket(&app, &hold_id, &attempt_id, &cookie),
+        get_ticket(&app, &hold_id, &attempt_id, &cookie),
+    );
+    assert_eq!(res1.status(), StatusCode::OK);
+    assert_eq!(res2.status(), StatusCode::OK);
+    let b1 = body(res1).await;
+    let b2 = body(res2).await;
+    assert_eq!(b1["ticket"]["id"], b2["ticket"]["id"]);
+    assert_eq!(
+        b1["ticket"]["bookingReference"],
+        b2["ticket"]["bookingReference"]
+    );
+    assert_eq!(b1["ticket"]["ticketNumber"], b2["ticket"]["ticketNumber"]);
+
+    let attempt_uuid = uuid::Uuid::parse_str(&attempt_id).unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets WHERE payment_attempt_id = $1")
+            .bind(attempt_uuid)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
 }
 
 #[tokio::test]

@@ -14,9 +14,10 @@ use crate::domain::{
     repositories::{
         ExtraRepository, ExtraRepositoryError, PassengerRepository, PassengerRepositoryError,
         PaymentRepository, PaymentRepositoryError, ReviewRepository, ReviewRepositoryError,
-        SeatHoldRepository, SeatHoldRepositoryError,
+        SeatHoldRepository, SeatHoldRepositoryError, TicketRepository, TicketRepositoryError,
     },
     review::ReviewContext,
+    ticket::{Ticket, TicketVerification},
     value_objects::SeatNumber,
 };
 
@@ -28,6 +29,7 @@ mod get_payment;
 mod get_review;
 mod get_seat_hold;
 mod get_seat_map;
+mod get_ticket;
 mod process_stripe_webhook;
 mod reconcile_stripe_payment;
 mod release_seat_hold;
@@ -36,6 +38,7 @@ mod save_extras;
 mod save_passengers;
 mod simulate_payment_attempt;
 mod validate_seat_hold;
+mod verify_ticket;
 
 #[derive(Clone)]
 pub struct SeatHoldApplication {
@@ -64,6 +67,46 @@ pub struct PaymentApplication {
     card_gateway: Arc<dyn PaymentGateway>,
     bitcoin_gateway: Arc<dyn PaymentGateway>,
     stripe_provider: Option<Arc<dyn PaymentProviderReconciler>>,
+}
+
+#[derive(Clone)]
+pub struct TicketApplication {
+    repository: Arc<dyn TicketRepository>,
+    qr_signing_secret: String,
+}
+
+impl TicketApplication {
+    pub fn new(repository: Arc<dyn TicketRepository>, qr_signing_secret: String) -> Self {
+        Self {
+            repository,
+            qr_signing_secret,
+        }
+    }
+
+    pub async fn get_ticket(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        payment_attempt_id: Uuid,
+    ) -> Result<(Ticket, String), TicketRepositoryError> {
+        let ticket = get_ticket::execute(
+            self.repository.as_ref(),
+            hold_id,
+            token_hash,
+            payment_attempt_id,
+        )
+        .await?;
+        let token = crate::infrastructure::ticket::qr::sign(ticket.id, &self.qr_signing_secret)
+            .map_err(|_| TicketRepositoryError::IdentityGeneration)?;
+        Ok((ticket, token))
+    }
+
+    pub async fn verify_ticket(
+        &self,
+        token: &str,
+    ) -> Result<TicketVerification, TicketRepositoryError> {
+        verify_ticket::execute(self.repository.as_ref(), token, &self.qr_signing_secret).await
+    }
 }
 
 impl PaymentApplication {

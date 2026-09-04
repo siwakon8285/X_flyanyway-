@@ -200,7 +200,10 @@ describe("Payment page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Simulate payment received" }));
 
     expect(await screen.findByRole("status", { name: "Demo payment successful" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ticket available in the next step" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "View Ticket" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("/booking/ticket"),
+    );
   });
 
   it("shows recoverable Bitcoin failure and cancellation states", async () => {

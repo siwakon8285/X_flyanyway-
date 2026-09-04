@@ -11,7 +11,41 @@ use crate::domain::{
     passengers::{PassengerContext, PassengerFieldError, PassengerInput},
     payment::{PaymentAttempt, PaymentAttemptTransition, PaymentContext, PaymentRepositoryCommand},
     review::ReviewContext,
+    ticket::{Ticket, TicketVerification},
 };
+
+#[derive(Debug, Error)]
+pub enum TicketRepositoryError {
+    #[error("seat hold not found")]
+    HoldNotFound,
+    #[error("seat hold authorization failed")]
+    Unauthorized,
+    #[error("payment attempt not found")]
+    PaymentNotFound,
+    #[error("payment has not succeeded")]
+    PaymentIncomplete,
+    #[error("payment finalization state is inconsistent")]
+    FinalizationInconsistent,
+    #[error("ticket identity generation failed")]
+    IdentityGeneration,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+#[async_trait]
+pub trait TicketRepository: Send + Sync {
+    async fn issue_ticket(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        payment_attempt_id: Uuid,
+    ) -> Result<Ticket, TicketRepositoryError>;
+
+    async fn verify_ticket(
+        &self,
+        ticket_id: Uuid,
+    ) -> Result<Option<TicketVerification>, TicketRepositoryError>;
+}
 
 #[derive(Debug, Error)]
 pub enum PaymentRepositoryError {

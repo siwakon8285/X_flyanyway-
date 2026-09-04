@@ -381,7 +381,7 @@ Travel Extras
   ↓
 Booking Review
   ↓
-Mock Payment
+Payment — Stripe Test Mode (Card) / Mock Bitcoin
   ↓
 Booking Confirmed
   ↓
@@ -1051,64 +1051,130 @@ CONTINUE TO PAYMENT
 
 ---
 
-# 21. Mock Payment Experience
+# 21. Payment Experience — Stripe Test Mode + Mock Bitcoin
 
-3 methods:
+X-Fly ใช้ payment architecture แบบ **academic/demo only** โดยไม่รับเงินจริง.
+
+Current supported methods:
 
 ```txt
-Credit Card
-Debit Card
-Bitcoin
+Card — Stripe Test Mode via Stripe Payment Element
+Bitcoin — X-Fly Mock Payment
 ```
 
-เมื่อเลือก provider:
+## Card — Stripe Test Mode
 
-GSAP Flip / Motion expand card แบบ restrained
+Card payment ใช้ Stripe Test Mode จริงแทน raw mock-card form เดิม.
 
-## Card Mock
+Frontend:
 
-มี:
+- ใช้ `@stripe/stripe-js`
+- ใช้ `@stripe/react-stripe-js`
+- Stripe Payment Element เป็นผู้ครอบครองช่องกรอกข้อมูลบัตร
+- X-Fly frontend ไม่มี raw PAN / CVC / expiry fields
+- ไม่ persist `client_secret`
+- ไม่แสดง raw Stripe status/error ให้ customer
 
-- Cardholder Name
-- Card Number
-- Expiry
-- CVV
-- Billing Country
-- Billing Postal Code
+Backend:
 
-Payment state สำหรับ demo:
+- Rust + Axum เป็นผู้สร้าง/retrieve/cancel Stripe PaymentIntent
+- จำนวนเงินและ currency มาจาก authoritative X-Fly Review/payment snapshot ฝั่ง server
+- Stripe amount ใช้ THB whole-baht → minor unit ×100 โดยไม่ใช้ floating point
+- local payment state เป็น source of truth สำหรับ X-Fly UI
+- Stripe webhook + reconciliation สามารถ finalize payment ได้แบบ idempotent
+- successful payment finalization เป็นผู้ BOOK seat และ consume hold แบบ atomic
+- Ticket branch ต้องไม่ finalize inventory ซ้ำ
+
+Current payment statuses:
 
 ```txt
-PENDING
+CREATED
 PROCESSING
-SUCCESS
-DECLINED
+AWAITING_PAYMENT
+SUCCEEDED
 FAILED
+CANCELLED
 ```
 
-ต้องสามารถทดสอบ success และ failure/declined paths ได้โดยไม่เรียกเก็บเงินจริง.
+Stable customer-safe failure codes include:
+
+```txt
+CARD_DECLINED
+AUTHENTICATION_FAILED
+PROCESSING_ERROR
+PAYMENT_CANCELLED
+```
+
+Manual QA ที่ยืนยันแล้ว:
+
+- normal Stripe Test card success
+- declined card
+- 3DS / requires-action COMPLETE
+- Stripe Dashboard correlation
+- real test webhook delivery
+- webhook persistence/replay safety
+- PaymentIntent retrieval
+- seat BOOKED / hold consumed on success
+- no seat booking / no hold consumption on declined payment
 
 ## Bitcoin Mock
 
-มี:
+Bitcoin ยังคงเป็น mock-only flow:
 
 - Mock wallet / address
-- Mock amount
-- Simulate Payment
+- Mock amount / demo conversion
+- Simulate receive / fail / cancel
+- ไม่มี blockchain จริง
+- ไม่มี Stripe crypto
+- ไม่มีเงินจริง
 
-ต้องมี label ชัดเจน:
+ต้องมี disclosure ชัดเจนว่าเป็น demo/mock.
+
+## Local Stripe Development
+
+เวลาทดสอบ Stripe webhook ใน Local ให้เปิด 3 process:
 
 ```txt
-DEMO / MOCK PAYMENT
-NO REAL CHARGE
+Frontend
+npm run dev
+
+Backend
+cargo run
+
+Stripe CLI
+stripe listen --forward-to localhost:8080/api/v1/payments/stripe/webhook
 ```
+
+Stripe CLI, frontend `pk_test_...`, และ backend `sk_test_...` ต้องอยู่ใน **Stripe sandbox/account context เดียวกัน**.
+
+`STRIPE_WEBHOOK_SECRET` ใน Local มาจาก `stripe listen`.
+
+## Self-Hosted Demo Server
+
+งานนี้ใช้ **Stripe Test Mode เท่านั้น** แม้ deploy ขึ้น Ubuntu Server.
+
+บน server:
+
+- ใช้ `pk_test_...`
+- ใช้ `sk_test_...`
+- ไม่ใช้ live keys
+- ไม่ต้องรัน `stripe listen`
+- สร้าง Stripe Test/Sandbox webhook endpoint ให้ชี้ public HTTPS URL ของ X-Fly เช่น:
+
+```txt
+https://<public-demo-host>/api/v1/payments/stripe/webhook
+```
+
+จากนั้นใช้ `whsec_...` ของ webhook endpoint ฝั่ง server เป็น `STRIPE_WEBHOOK_SECRET`.
 
 Security rules:
 
-- ห้าม persist card number / CVV ลง localStorage หรือ client logs
-- ห้ามส่งข้อมูลจริงไป third party
-- mock data only
-- backend later must separate payment status from booking/ticket status
+- never commit Stripe secrets
+- backend secrets อยู่ backend/server environment เท่านั้น
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` เป็น publishable Test Mode key เท่านั้น
+- never persist raw card data
+- never log Stripe secrets / client_secret / payment PII
+- no live payment scope for university/demo deployment
 
 ---
 
@@ -2348,7 +2414,7 @@ Do not claim demo taxes/fees are live government/airport values unless they come
 
 ---
 
-# 55. BRANCH 15 — Mock Payment Experience
+# 55. BRANCH 15 — Mock Payment Foundation
 
 ## Branch
 
@@ -2356,34 +2422,121 @@ Do not claim demo taxes/fees are live government/airport values unless they come
 feat/15-mock-payment-ui
 ```
 
-## Tasks
+## Status
 
-- payment method cards
-- credit card mock
-- debit card mock
-- bitcoin mock
-- cardholder name
-- billing country
-- billing postal code
-- processing state
-- success simulation
-- declined simulation
-- failure simulation
-- booking/payment/ticket state separation in UI state model
-- no-real-charge disclosure
-- prevent accidental sensitive-data retention
+**Completed / merged.**
 
-## Motion
+Branch 15 established the provider-neutral payment foundation and mock payment behavior before Stripe integration.
 
-- method card Flip
-- payment processing
-- success line animation
+Delivered concepts include:
 
-## Security
+- payment method selection
+- payment attempt lifecycle
+- server-authoritative Review/payment snapshot boundary
+- payment/booking/ticket state separation
+- idempotent payment attempts
+- atomic successful inventory finalization
+- Bitcoin mock gateway
+- payment failure/cancellation behavior
+- no sensitive card-data persistence
 
-- never persist CVV
-- never persist raw card number
-- no real charge or third-party transmission
+This branch is historical foundation. The Card mock UI was superseded by Branch 15b.
+
+---
+
+# 55A. BRANCH 15B — Stripe Test Payment
+
+## Branch
+
+```txt
+feat/15b-stripe-test-payment
+```
+
+## Status
+
+**Completed / manually verified / READY TO CLOSE.**
+
+## Goal
+
+Replace the raw mock Card experience with **Stripe Test Mode** while preserving Bitcoin as mock-only.
+
+## Implemented
+
+- Stripe Payment Element
+- backend-created PaymentIntent
+- provider-neutral payment gateway/reconciliation architecture
+- server-authoritative amount/currency
+- Stripe Test Mode only
+- request + Stripe idempotency
+- Stripe webhook signature verification
+- webhook replay persistence
+- PaymentIntent reconciliation
+- safe cancellation
+- finalization reservation for in-flight Stripe payment
+- inventory protection while external payment outcome is unresolved
+- authoritative frontend polling after `stripe.confirmPayment`
+- stable customer-safe failure codes
+- Card success / decline / 3DS support
+- Bitcoin mock regression preserved
+
+## Critical Inventory Rule
+
+Successful payment finalization already owns:
+
+```txt
+payment_attempt = SUCCEEDED
+        ↓
+payment_attempt_seats
+        ↓
+flight_seats = BOOKED
+hold_id = NULL
+booked_at = populated
+        ↓
+seat_holds.consumed_at = populated
+```
+
+Later Ticket/QR code must be downstream-only and must not BOOK seats or consume holds again.
+
+## Manual QA Verified
+
+```txt
+Success Card                  VERIFIED
+Declined Card                 VERIFIED
+3DS COMPLETE                  VERIFIED
+Webhook delivery              VERIFIED
+Webhook persistence           VERIFIED
+Stripe Dashboard correlation  VERIFIED
+PaymentIntent retrieval       VERIFIED
+DB inventory finalization     VERIFIED
+Bitcoin Mock                  VERIFIED
+```
+
+3DS FAIL was not manually tested at branch closure; automated failure-path coverage exists.
+
+## Local Runtime
+
+```txt
+Terminal 1: backend  → cargo run
+Terminal 2: frontend → npm run dev
+Terminal 3: Stripe   → stripe listen --forward-to localhost:8080/api/v1/payments/stripe/webhook
+```
+
+## Server Runtime
+
+University/demo server remains **Stripe Test Mode only**.
+
+```txt
+Browser
+  ↓
+X-Fly Frontend
+  ↓
+Rust Backend
+  ↔ Stripe Test/Sandbox
+  ↑
+public HTTPS Stripe webhook
+```
+
+No `stripe listen` process is required on the deployed server.
 
 ---
 
@@ -2392,7 +2545,7 @@ feat/15-mock-payment-ui
 ## Branch
 
 ```txt
-feat/16-ticket-qr-experience
+feat/16-ticket-qr
 ```
 
 ## Tasks
@@ -2424,6 +2577,31 @@ feat/16-ticket-qr-experience
 
 Booking Reference and Ticket Number are separate identifiers.
 Ticket must not become ISSUED on failed payment.
+
+## Branch 16 Architecture & Invariants
+
+- **Downstream-Only Issuance**: Ticket issuance and retrieval are strictly observational. They never mutate `payment_attempts`, `seat_holds`, `flight_seats`, or `flight_instances`. Tickets are issued only if the payment attempt has status `SUCCEEDED`, the hold has `consumed_at IS NOT NULL`, and the inventory seats are `BOOKED`.
+- **Separate Customer Identifiers**:
+  - `Booking Reference`: 6 uppercase alphanumeric characters (excluding ambiguous letters).
+  - `Ticket Number`: Standard 14-character airline e-ticket format (`026-` + 10 digits).
+  - Stripe PaymentIntent IDs and database UUIDs are never used as customer-facing ticket identifiers.
+- **Idempotency & Concurrency**:
+  - Database constraint `UNIQUE (payment_attempt_id)` prevents duplicate ticket issuance.
+  - Concurrent requests lock hold and payment rows `FOR UPDATE` and return the single authoritative ticket row deterministically.
+- **QR Cryptography & Zero-PII**:
+  - Token scheme: `v1.<ticket_id_uuid>.<hmac_sha256_hex>`.
+  - Signed via backend-only `TICKET_QR_SIGNING_SECRET` (min 32 characters, never exposed to frontend).
+  - Verification uses constant-time comparison (`subtle::ConstantTimeEq`).
+  - Tampered, malformed, or invalid tokens fail cleanly (`valid: false`).
+  - Neither the QR token nor the public verify endpoint exposes passenger names, passport numbers, email, phone, or payment data.
+- **QR URL & Origin Strategy**:
+  - QR encodes the full frontend verification URL: `<frontend-origin>/ticket/verify/<signed-token>`.
+  - In browser: automatically uses `window.location.origin` (seamless on `localhost`, custom ports, or deployed domains).
+  - Configurable via `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` override.
+- **Payment Modes**:
+  - Card payment remains **Stripe Test Mode Card** only.
+  - Bitcoin remains mock simulation only.
+  - No real charge or live payments exist in this environment.
 
 ---
 
@@ -2838,7 +3016,7 @@ Search Flight
 → Passenger + Passport
 → Travel Extras
 → Booking Review
-→ Mock Payment
+→ Stripe Test Payment / Mock Bitcoin
 → Booking Confirmed
 → E-Ticket
 → Manage Booking
@@ -2865,19 +3043,35 @@ Search Flight
 
 ## Nginx Deployment Policy
 
-สำหรับ deployment ของ X-Fly ให้ถือว่า **Nginx เป็นมาตรฐานหลักของโปรเจกต์**
+สำหรับ deployment ของ X-Fly ให้ถือว่า **Nginx เป็น reverse proxy / application gateway หลักของโปรเจกต์**.
 
 Agent ต้อง:
-- ใช้ Nginx เป็น reverse proxy / web edge หลัก
-- ห้ามเปลี่ยนไปใช้ reverse proxy ตัวอื่นโดยพลการ
-- validate ด้วย `nginx -t` ก่อน reload ทุกครั้ง
-- ใช้ Docker DNS/service names สำหรับ upstream
-- ไม่ expose PostgreSQL ผ่าน Nginx
-- ไม่ expose frontend/backend host ports โดยไม่จำเป็น
-- รองรับการเพิ่ม `upstream` สำหรับ load balancing ในอนาคต
-- ใช้ Nginx เป็น gateway หน้า backend หลาย service เมื่อ architecture แตก service เพิ่ม
-- คง Cloudflare Tunnel เป็น public ingress สำหรับ self-hosted server นี้
+
+- ใช้ Nginx เป็น reverse proxy หลัก
+- ห้ามเปลี่ยนไปใช้ Caddy หรือ reverse proxy ตัวอื่นโดยพลการ
+- validate Nginx config ก่อน reload/restart
+- ใช้ Docker DNS/service names สำหรับ container upstream เมื่อ deploy
+- ไม่ expose PostgreSQL สู่ Internet
+- ไม่ expose frontend/backend public ports โดยไม่จำเป็น
+- คง Cloudflare Quick Tunnel เป็น public ingress สำหรับ university/demo deployment
 - คง PostgreSQL เป็น private database หลัง backend เท่านั้น
+- same-origin routing ควรให้ `/` ไป Frontend และ `/api/*` ไป Rust backend
+
+Current deployment direction:
+
+```txt
+Internet
+  ↓
+Cloudflare Quick Tunnel
+  ↓
+Nginx
+  ├── /      → Next.js
+  └── /api/* → Rust + Axum
+                  ↓
+             PostgreSQL
+```
+
+Stripe Test Mode webhook บน server ต้องใช้ public HTTPS URL ที่เข้าถึง backend route ผ่าน Cloudflare/Nginx ได้.
 
 ---
 
@@ -2900,7 +3094,7 @@ Ubuntu Server
 ├── Docker Engine + Docker Compose
 ├── External Docker network: web
 ├── PostgreSQL 18
-├── Nginx reverse proxy / web server / load balancer / gateway
+├── Nginx reverse proxy / application gateway
 ├── UFW
 ├── SSH key authentication
 ├── PostgreSQL daily backup
@@ -3090,6 +3284,10 @@ Servers
 - graceful shutdown
 - production error handling
 - secrets via server `.env`, never committed
+- Stripe remains Test Mode only for university/demo deployment
+- backend server env contains a Test Mode `STRIPE_SECRET_KEY` and the deployed webhook `STRIPE_WEBHOOK_SECRET`
+- frontend contains the matching Test Mode `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- all Stripe keys/webhook configuration must belong to the same Stripe Test/Sandbox account context
 
 ## Reverse Proxy / Routing Preparation
 
@@ -3150,6 +3348,9 @@ Config จริงต้องตรวจ route ของ Next.js และ Ax
 - UFW remains deny-incoming by default
 - public traffic enters through Cloudflare Tunnel → Nginx only
 - verify admin/security restrictions before public demo
+- configure Stripe Test/Sandbox webhook endpoint to public HTTPS `/api/v1/payments/stripe/webhook`
+- do not run `stripe listen` as the deployed webhook transport
+- never use live Stripe keys for this university/demo deployment
 
 ## Backup / Data Preparation
 
@@ -3402,7 +3603,7 @@ Application containers ต้องใช้ restart policy ที่เหม�
 
 ### 6. Nginx Integration
 
-- update `/srv/apps/proxy/Nginxfile`
+- update the existing server-managed Nginx configuration (for example `/etc/nginx/nginx.conf` or the existing site config under `/etc/nginx/sites-available/`)
 - route frontend to the X-Fly frontend service
 - route `/api/*` to the Rust backend where applicable
 - validate config
@@ -3445,6 +3646,8 @@ https://xxxxx.trycloudflare.com
 ### 9. Public Verification
 
 - HTTPS works through Cloudflare
+- Stripe Test/Sandbox webhook can reach `/api/v1/payments/stripe/webhook` through the public HTTPS URL
+- a Test Mode payment can correlate Stripe Dashboard → webhook → X-Fly DB
 - frontend loads from external network
 - API requests work through Nginx
 - no mixed-content errors
@@ -3476,7 +3679,7 @@ https://xxxxx.trycloudflare.com
 - run demo seed if required
 - manual pre-release database backup
 - integrate Nginx routes
-- validate Nginx with `nginx -t`
+- validate Nginx configuration before reload
 - reload Nginx only after validation succeeds
 - local smoke test through Nginx
 - launch Cloudflare Quick Tunnel
@@ -3616,7 +3819,8 @@ Presentation assets:
 ↓
 14 Review + Fare Conditions
 ↓
-15 Mock Payment
+15 Mock Payment Foundation
+15B Stripe Test Payment
 ↓
 16 Booking Success + E-Ticket
 ↓
@@ -3864,15 +4068,15 @@ Ubuntu Server
       ↓
 Docker Compose
       ↓
-Frontend + Rust/Axum Backend
-      ↓
-PostgreSQL 18
-      ↓
-Nginx
-      ↓
 Cloudflare Quick Tunnel
       ↓
-Internet
+Nginx
+   ┌──┴───────────┐
+   ↓              ↓
+Frontend        Backend
+Next.js         Rust + Axum
+                  ↓
+             PostgreSQL 18
 ```
 
 Production database inspection:
@@ -3886,6 +4090,30 @@ Ubuntu Server 127.0.0.1:5432
       ↓
 PostgreSQL 18 / x_fly
 ```
+
+Stripe environment policy:
+
+```txt
+Local:
+Stripe Test/Sandbox
+  ↓
+stripe listen
+  ↓
+localhost:8080/api/v1/payments/stripe/webhook
+
+Self-Hosted University/Demo:
+Stripe Test/Sandbox
+  ↓
+public HTTPS webhook
+  ↓
+Cloudflare Quick Tunnel
+  ↓
+Nginx
+  ↓
+Rust Backend
+```
+
+The project intentionally remains **Stripe Test Mode only**. Live keys and real charging are out of scope.
 
 Deployment principles:
 
@@ -4068,7 +4296,7 @@ X-Fly Anyway ถือว่าประสบความสำเร็จเ�
 | `feat/13a-travel-extras`          | **Terra**      | Medium     | ancillary state + forms                        |
 | `feat/14-booking-review`          | **Luna/Terra** | Low        | summary UI ค่อนข้างง่าย                        |
 | `feat/15-mock-payment-ui`         | **Terra**      | Medium     | state/payment UX                               |
-| `feat/16-ticket-qr-experience`    | **Terra**      | Medium     | QR + print/ticket UI                           |
+| `feat/16-ticket-qr`    | **Terra**      | Medium     | QR + print/ticket UI                           |
 | `feat/17-manage-booking-ui`       | **Terra**      | Medium     | lookup/detail                                  |
 | `feat/18-cancellation-refund-ui`  | **Terra**      | Medium     | business-state UI                              |
 | `feat/18a-online-check-in`        | **Terra**      | Medium     | post-ticket state + forms                      |
