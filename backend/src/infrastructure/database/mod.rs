@@ -18,6 +18,7 @@ mod extras;
 mod passengers;
 mod payment;
 mod review;
+mod ticket;
 
 #[derive(Debug, Error)]
 pub enum DatabaseInitError {

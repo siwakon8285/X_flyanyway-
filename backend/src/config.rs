@@ -9,6 +9,7 @@ pub struct AppConfig {
     pub secure_cookies: bool,
     pub stripe_secret_key: Option<String>,
     pub stripe_webhook_secret: Option<String>,
+    pub ticket_qr_signing_secret: String,
 }
 
 impl AppConfig {
@@ -31,6 +32,11 @@ impl AppConfig {
             env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_owned());
         let stripe_secret_key = env::var("STRIPE_SECRET_KEY").ok();
         let stripe_webhook_secret = env::var("STRIPE_WEBHOOK_SECRET").ok();
+        let ticket_qr_signing_secret = env::var("TICKET_QR_SIGNING_SECRET")
+            .map_err(|_| "TICKET_QR_SIGNING_SECRET must be configured".to_owned())?;
+        if ticket_qr_signing_secret.len() < 32 {
+            return Err("TICKET_QR_SIGNING_SECRET must be at least 32 characters".to_owned());
+        }
         for (name, value, prefix) in [
             (
                 "STRIPE_SECRET_KEY",
@@ -61,6 +67,7 @@ impl AppConfig {
             frontend_origin,
             stripe_secret_key,
             stripe_webhook_secret,
+            ticket_qr_signing_secret,
             seat_hold_ttl,
             secure_cookies,
         })

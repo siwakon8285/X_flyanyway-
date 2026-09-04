@@ -5,6 +5,7 @@ pub mod payment;
 pub mod pricing;
 pub mod repositories;
 pub mod review;
+pub mod ticket;
 pub mod value_objects;
 
 use thiserror::Error;

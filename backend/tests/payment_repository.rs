@@ -16,7 +16,7 @@ use x_fly_api::{
         },
         repositories::{
             ExtraRepository, PassengerRepository, PaymentRepository, PaymentRepositoryError,
-            ReviewRepository, SeatHoldRepository, SeatHoldRepositoryError,
+            ReviewRepository, SeatHoldRepository, SeatHoldRepositoryError, TicketRepository,
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
@@ -233,6 +233,92 @@ async fn successful_payment_atomically_consumes_the_hold_and_books_its_seat() {
     assert_eq!(finalized_seats, 1);
     let context = repository.get_payment(hold_id, token).await.unwrap();
     assert_eq!(context.hold.seats, vec![SeatNumber::parse("20A").unwrap()]);
+}
+
+#[tokio::test]
+async fn paid_attempt_issues_one_ticket_without_changing_finalized_payment_state() {
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+    let token = [220; 32];
+    let hold_id = ready_hold(&repository, token).await;
+    let attempt = repository
+        .create_payment_attempt(hold_id, token, command(PaymentMethod::Bitcoin))
+        .await
+        .unwrap();
+    repository
+        .transition_payment_attempt(
+            hold_id,
+            token,
+            attempt.id,
+            PaymentAttemptTransition::processing("XFBTC-PROCESSING"),
+        )
+        .await
+        .unwrap();
+    let paid = repository
+        .transition_payment_attempt(
+            hold_id,
+            token,
+            attempt.id,
+            PaymentAttemptTransition::succeeded("XFBTC-PAID"),
+        )
+        .await
+        .unwrap();
+    let before: (
+        String,
+        Option<chrono::DateTime<Utc>>,
+        String,
+        Option<Uuid>,
+        Option<chrono::DateTime<Utc>>,
+    ) = sqlx::query_as(
+        "SELECT attempt.status, hold.consumed_at, seat.booking_status, seat.hold_id, seat.booked_at
+         FROM payment_attempts AS attempt
+         JOIN seat_holds AS hold ON hold.id = attempt.seat_hold_id
+         JOIN payment_attempt_seats AS finalized ON finalized.payment_attempt_id = attempt.id
+         JOIN flight_seats AS seat ON seat.id = finalized.flight_seat_id
+         WHERE attempt.id = $1",
+    )
+    .bind(paid.id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+
+    let first = repository
+        .issue_ticket(hold_id, token, paid.id)
+        .await
+        .unwrap();
+    let second = repository
+        .issue_ticket(hold_id, token, paid.id)
+        .await
+        .unwrap();
+
+    assert_eq!(first.id, second.id);
+    assert_eq!(first.booking_reference, second.booking_reference);
+    assert_eq!(first.seats, vec!["20A"]);
+    let after: (
+        String,
+        Option<chrono::DateTime<Utc>>,
+        String,
+        Option<Uuid>,
+        Option<chrono::DateTime<Utc>>,
+    ) = sqlx::query_as(
+        "SELECT attempt.status, hold.consumed_at, seat.booking_status, seat.hold_id, seat.booked_at
+         FROM payment_attempts AS attempt
+         JOIN seat_holds AS hold ON hold.id = attempt.seat_hold_id
+         JOIN payment_attempt_seats AS finalized ON finalized.payment_attempt_id = attempt.id
+         JOIN flight_seats AS seat ON seat.id = finalized.flight_seat_id
+         WHERE attempt.id = $1",
+    )
+    .bind(paid.id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(before, after);
+    let ticket_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets WHERE payment_attempt_id = $1")
+            .bind(paid.id)
+            .fetch_one(repository.pool())
+            .await
+            .unwrap();
+    assert_eq!(ticket_count, 1);
 }
 
 #[tokio::test]

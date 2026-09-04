@@ -27,7 +27,7 @@ use crate::{
         payment::{CreatePaymentRequest, PaymentMethod, PaymentSimulationOutcome},
         repositories::{
             ExtraRepositoryError, PassengerRepositoryError, PaymentRepositoryError,
-            ReviewRepositoryError, SeatHoldRepositoryError,
+            ReviewRepositoryError, SeatHoldRepositoryError, TicketRepositoryError,
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
         DomainError,
@@ -69,6 +69,10 @@ pub fn build_router(state: AppState) -> Router {
             post(simulate_payment_attempt),
         )
         .route(
+            "/api/v1/seat-holds/{hold_id}/payment-attempts/{attempt_id}/ticket",
+            get(get_ticket),
+        )
+        .route(
             "/api/v1/seat-holds/{hold_id}/validation",
             post(validate_hold_for_continue),
         )
@@ -77,6 +81,7 @@ pub fn build_router(state: AppState) -> Router {
             get(get_hold).put(replace_seats).delete(release_hold),
         )
         .route("/api/v1/payments/stripe/webhook", post(stripe_webhook))
+        .route("/api/v1/tickets/verify/{token}", get(verify_ticket))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -382,6 +387,46 @@ async fn simulate_payment_attempt(
     .await;
     private_no_store(match result {
         Ok(attempt) => Json(attempt).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TicketResponse {
+    ticket: crate::domain::ticket::Ticket,
+    qr_token: String,
+}
+
+async fn get_ticket(
+    State(state): State<AppState>,
+    Path((hold_id, attempt_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+) -> Response {
+    let result = async {
+        let tickets = state.tickets.as_ref().ok_or_else(ApiError::internal)?;
+        let token_hash = token_hash_from_cookie(&headers, hold_id)?;
+        let (ticket, qr_token) = tickets
+            .get_ticket(hold_id, token_hash, attempt_id)
+            .await
+            .map_err(ApiError::from)?;
+        Ok::<_, ApiError>(TicketResponse { ticket, qr_token })
+    }
+    .await;
+    private_no_store(match result {
+        Ok(ticket) => Json(ticket).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+async fn verify_ticket(State(state): State<AppState>, Path(token): Path<String>) -> Response {
+    let result = async {
+        let tickets = state.tickets.as_ref().ok_or_else(ApiError::internal)?;
+        tickets.verify_ticket(&token).await.map_err(ApiError::from)
+    }
+    .await;
+    private_no_store(match result {
+        Ok(verification) => Json(verification).into_response(),
         Err(error) => error.into_response(),
     })
 }
@@ -1073,6 +1118,47 @@ impl From<PassengerRepositoryError> for ApiError {
             },
             PassengerRepositoryError::Infrastructure(_error) => {
                 tracing::error!("passenger repository failure");
+                Self::internal()
+            }
+        }
+    }
+}
+
+impl From<TicketRepositoryError> for ApiError {
+    fn from(error: TicketRepositoryError) -> Self {
+        match error {
+            TicketRepositoryError::HoldNotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "HOLD_NOT_FOUND",
+                message: "The seat hold could not be found.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            TicketRepositoryError::Unauthorized => Self::unauthorized(),
+            TicketRepositoryError::PaymentNotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "PAYMENT_ATTEMPT_NOT_FOUND",
+                message: "The payment attempt could not be found.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            TicketRepositoryError::PaymentIncomplete => Self {
+                status: StatusCode::CONFLICT,
+                code: "TICKET_PAYMENT_INCOMPLETE",
+                message: "A ticket is available after payment succeeds.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            TicketRepositoryError::FinalizationInconsistent => Self {
+                status: StatusCode::CONFLICT,
+                code: "TICKET_FINALIZATION_INCONSISTENT",
+                message: "The finalized booking is not ready for ticket issuance.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            TicketRepositoryError::IdentityGeneration
+            | TicketRepositoryError::Infrastructure(_) => {
+                tracing::error!("ticket repository failure");
                 Self::internal()
             }
         }

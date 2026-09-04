@@ -56,13 +56,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         repository.clone(),
         repository.clone(),
         repository.clone(),
-        repository,
+        repository.clone(),
         config.seat_hold_ttl,
         config.secure_cookies,
         config.frontend_origin,
     )
     .with_payments(payments)
-    .with_stripe_webhook_secret(config.stripe_webhook_secret);
+    .with_stripe_webhook_secret(config.stripe_webhook_secret)
+    .with_tickets(repository.clone(), config.ticket_qr_signing_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
     tracing::info!(address = %config.bind_address, "X-Fly API listening");
     axum::serve(listener, build_router(state))

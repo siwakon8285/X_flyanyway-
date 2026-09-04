@@ -77,10 +77,26 @@ const buildPaymentHandoffHref = ({
   return `/booking/payment?${params.toString()}`;
 };
 
+const buildTicketHandoffHref = ({
+  attemptId,
+  holdId,
+  query,
+}: {
+  attemptId: string;
+  holdId: string;
+  query?: string;
+}) => {
+  const params = query ? allowlistedRecoveryParams(query) : new URLSearchParams();
+  params.set("holdId", holdId);
+  params.set("attemptId", attemptId);
+  return `/booking/ticket?${params.toString()}`;
+};
+
 export {
   allowlistedRecoveryParams,
   buildExtrasHandoffHref,
   buildPaymentHandoffHref,
   buildPassengerInformationHref,
   buildReviewHandoffHref,
+  buildTicketHandoffHref,
 };
