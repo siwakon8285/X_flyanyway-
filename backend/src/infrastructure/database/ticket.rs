@@ -16,6 +16,20 @@ const REFERENCE_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 #[async_trait]
 impl TicketRepository for SqlxSeatHoldRepository {
+    async fn ensure_ticket_for_payment_attempt(
+        &self,
+        payment_attempt_id: Uuid,
+    ) -> Result<Ticket, TicketRepositoryError> {
+        let row = sqlx::query_as::<_, InternalTicketAccess>("SELECT attempt.seat_hold_id, hold.access_token_hash FROM payment_attempts AS attempt JOIN seat_holds AS hold ON hold.id = attempt.seat_hold_id WHERE attempt.id = $1")
+            .bind(payment_attempt_id).fetch_optional(self.pool()).await.map_err(TicketRepositoryError::Infrastructure)?.ok_or(TicketRepositoryError::PaymentNotFound)?;
+        let token: [u8; 32] = row
+            .access_token_hash
+            .try_into()
+            .map_err(|_| TicketRepositoryError::Unauthorized)?;
+        self.issue_ticket(row.seat_hold_id, token, payment_attempt_id)
+            .await
+    }
+
     async fn issue_ticket(
         &self,
         hold_id: Uuid,
@@ -268,6 +282,11 @@ struct TicketHoldRow {
     consumed_at: Option<DateTime<Utc>>,
     adults: i16,
     children: i16,
+}
+#[derive(FromRow)]
+struct InternalTicketAccess {
+    seat_hold_id: Uuid,
+    access_token_hash: Vec<u8>,
 }
 #[derive(FromRow)]
 struct TicketAttemptRow {

@@ -14,6 +14,7 @@ use crate::domain::{
     value_objects::{CabinClass, PassengerCounts, SeatNumber},
 };
 
+mod booking_confirmation;
 mod extras;
 mod manage_booking;
 mod passengers;
@@ -235,7 +236,8 @@ impl SqlxSeatHoldRepository {
                 hold.access_token_hash,
                 hold.expires_at,
                 hold.released_at,
-                hold.consumed_at
+                hold.consumed_at,
+                hold.booking_contact_required
              FROM seat_holds AS hold
              JOIN flight_instances AS instance ON instance.id = hold.flight_instance_id
              JOIN flight_services AS service ON service.id = instance.flight_service_id
@@ -632,4 +634,5 @@ struct HoldRow {
     expires_at: DateTime<Utc>,
     released_at: Option<DateTime<Utc>>,
     consumed_at: Option<DateTime<Utc>>,
+    booking_contact_required: bool,
 }

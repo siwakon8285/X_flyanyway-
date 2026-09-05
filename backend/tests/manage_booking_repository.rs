@@ -22,7 +22,7 @@ use x_fly_api::{
         entities::{CreateSeatHold, FlightSelection},
         extras::ExtraSelectionInput,
         manage_booking::{BookingStatus, ManageBookingLookup, TravelDocumentStatus},
-        passengers::{Gender, PassengerInput, PassengerType, Title},
+        passengers::{BookingContactInput, Gender, PassengerInput, PassengerType, Title},
         payment::{
             PaymentAttemptTransition, PaymentMethod, PaymentProvider, PaymentRepositoryCommand,
             PaymentStatus,
@@ -185,6 +185,17 @@ async fn issued_booking_for(
         .await
         .unwrap();
     repository
+        .save_booking_contact(
+            hold.id,
+            token,
+            BookingContactInput {
+                email: "first@example.com".to_owned(),
+                preferred_locale: "EN".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    repository
         .save_extras(
             hold.id,
             token,
@@ -217,6 +228,8 @@ async fn issued_booking_for(
                     PaymentMethod::Card => PaymentProvider::Stripe,
                     PaymentMethod::Bitcoin => PaymentProvider::MockBitcoin,
                 },
+                preferred_locale:
+                    x_fly_api::domain::booking_confirmation::BookingConfirmationLocale::En,
             },
         )
         .await

@@ -4,7 +4,6 @@ import { ArrowLeft, ArrowRight, Check, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
 
 import { CountrySelect } from "@/components/booking/passengers/CountrySelect";
-import { countryCallingCode } from "@/components/booking/passengers/countryCallingCodes";
 import { passengerTypeKeys, validationKeys } from "@/components/booking/passengers/passengerPresentation";
 import type {
   PassengerFieldName,
@@ -124,6 +123,15 @@ const PassengerForm = ({
   recentlySaved,
   saving,
   values,
+  contactEmail,
+  contactPhoneCountryCode,
+  contactPhoneNumber,
+  onContactEmailChange,
+  onContactPhoneCountryCodeChange,
+  onContactPhoneNumberChange,
+  contactEmailError = false,
+  contactPhoneCountryCodeError = false,
+  contactPhoneNumberError = false,
 }: {
   errors: PassengerValidationError[];
   onSave: () => void;
@@ -132,10 +140,18 @@ const PassengerForm = ({
   recentlySaved: boolean;
   saving: boolean;
   values: PassengerFormValue[];
+  contactEmail: string;
+  contactPhoneCountryCode: string;
+  contactPhoneNumber: string;
+  onContactEmailChange: (email: string) => void;
+  onContactPhoneCountryCodeChange: (countryCode: string) => void;
+  onContactPhoneNumberChange: (phoneNumber: string) => void;
+  contactEmailError?: boolean;
+  contactPhoneCountryCodeError?: boolean;
+  contactPhoneNumberError?: boolean;
 }) => {
   const { t } = useLanguage();
   const formRef = useRef<HTMLFormElement>(null);
-  const manuallyEditedPhoneCodes = useRef(new Set(values.filter((value) => value.phoneCountryCode).map((value) => value.ordinal)));
   const [activeIndex, setActiveIndex] = useState(0);
   const [openCountrySelectId, setOpenCountrySelectId] = useState<string | null>(null);
   const [shakeTarget, setShakeTarget] = useState<string | null>(null);
@@ -144,11 +160,21 @@ const PassengerForm = ({
   const firstErrorField = errors[0]?.field;
   useEffect(() => {
     if (firstErrorPassenger === undefined || !firstErrorField) return;
+    const contactFieldIds: Partial<Record<PassengerFieldName, string>> = {
+      email: "booking-contact-email",
+      phoneCountryCode: "booking-contact-phone-country",
+      phoneNumber: "booking-contact-phone-number",
+    };
+    const contactFieldId = contactFieldIds[firstErrorField];
     const index = values.findIndex((value) => value.ordinal === firstErrorPassenger);
     window.requestAnimationFrame(() => {
-      if (index >= 0) setActiveIndex(index);
-      setShakeTarget(`passenger-${firstErrorPassenger}-${firstErrorField}`);
+      if (!contactFieldId && index >= 0) setActiveIndex(index);
+      setShakeTarget(contactFieldId ?? `passenger-${firstErrorPassenger}-${firstErrorField}`);
       window.requestAnimationFrame(() => {
+        if (contactFieldId) {
+          formRef.current?.querySelector<HTMLElement>(`#${contactFieldId}`)?.focus();
+          return;
+        }
         const field = firstErrorField === "emergencyContact" ? "emergencyName" : firstErrorField;
         formRef.current
           ?.querySelector<HTMLElement>(`#passenger-${firstErrorPassenger}-${field}`)
@@ -195,16 +221,9 @@ const PassengerForm = ({
     );
   };
   const updateNationality = (nationalityCode: string) => {
-    const defaultPhoneCode = countryCallingCode(nationalityCode);
     onValuesChange(values.map((item, index) => {
       if (index !== activeIndex) return item;
-      return {
-        ...item,
-        nationalityCode,
-        phoneCountryCode: manuallyEditedPhoneCodes.current.has(item.ordinal)
-          ? item.phoneCountryCode
-          : defaultPhoneCode ?? item.phoneCountryCode,
-      };
+      return { ...item, nationalityCode };
     }));
   };
   const countrySelectState = (id: string) => ({
@@ -294,19 +313,6 @@ const PassengerForm = ({
           </PassengerField>
         </div>
 
-        <h3 className="mt-10 border-t border-border pt-7 text-xl font-semibold">{t("passengerInformation.contact")}</h3>
-        <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-[1fr_10rem_1fr]">
-          <PassengerField id={controlProps("email").id} label={t("passengerInformation.field.email")} error={translatedError("email")}>
-            <Input {...controlProps("email")} autoComplete="email" inputMode="email" onChange={(event) => update("email", event.target.value)} type="email" value={passenger.email} />
-          </PassengerField>
-          <PassengerField id={controlProps("phoneCountryCode").id} label={t("passengerInformation.field.phoneCountryCode")} error={translatedError("phoneCountryCode")} shake={shakeTarget === controlProps("phoneCountryCode").id}>
-            <CountrySelect {...selectControlProps("phoneCountryCode")} {...countrySelectState(controlProps("phoneCountryCode").id)} label={t("passengerInformation.field.phoneCountryCode")} mode="callingCode" onChange={(value) => { manuallyEditedPhoneCodes.current.add(passenger.ordinal); update("phoneCountryCode", value); }} value={passenger.phoneCountryCode} />
-          </PassengerField>
-          <PassengerField id={controlProps("phoneNumber").id} label={t("passengerInformation.field.phoneNumber")} error={translatedError("phoneNumber")}>
-            <Input {...controlProps("phoneNumber")} autoComplete="tel-national" inputMode="tel" onChange={(event) => update("phoneNumber", event.target.value)} value={passenger.phoneNumber} />
-          </PassengerField>
-        </div>
-
         <div className="mt-10 border-t border-border pt-7">
           <div className="flex items-center justify-between gap-4">
             <h3 className="text-xl font-semibold">{t("passengerInformation.emergency")}</h3>
@@ -350,6 +356,22 @@ const PassengerForm = ({
           </Button>
         ) : null}
       </div>
+
+      <section aria-labelledby="contact-details-heading" className="mt-7 rounded-surface border border-border bg-surface/55 p-5 sm:p-7">
+        <h2 className="text-xl font-semibold" id="contact-details-heading">{t("passengerInformation.contact")}</h2>
+        <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-[1fr_10rem_1fr]">
+          <PassengerField error={contactEmailError ? t("passengerInformation.validation.invalidEmail") : undefined} id="booking-contact-email" label={t("passengerInformation.field.email")}>
+            <Input aria-describedby="booking-contact-email-helper" aria-invalid={contactEmailError || undefined} autoComplete="email" id="booking-contact-email" inputMode="email" onChange={(event) => onContactEmailChange(event.target.value)} type="email" value={contactEmail} />
+            <p className="mt-2 text-xs text-muted-foreground" id="booking-contact-email-helper">{t("passengerInformation.contactEmailHelper")}</p>
+          </PassengerField>
+          <PassengerField error={contactPhoneCountryCodeError ? t("passengerInformation.validation.invalidPhone") : undefined} id="booking-contact-phone-country" label={t("passengerInformation.field.phoneCountryCode")}>
+            <CountrySelect error={contactPhoneCountryCodeError} {...countrySelectState("booking-contact-phone-country")} id="booking-contact-phone-country" label={t("passengerInformation.field.phoneCountryCode")} mode="callingCode" onChange={onContactPhoneCountryCodeChange} value={contactPhoneCountryCode} />
+          </PassengerField>
+          <PassengerField error={contactPhoneNumberError ? t("passengerInformation.validation.invalidPhone") : undefined} id="booking-contact-phone-number" label={t("passengerInformation.field.phoneNumber")}>
+            <Input aria-invalid={contactPhoneNumberError || undefined} autoComplete="tel-national" id="booking-contact-phone-number" inputMode="tel" onChange={(event) => onContactPhoneNumberChange(event.target.value)} value={contactPhoneNumber} />
+          </PassengerField>
+        </div>
+      </section>
 
       {errors.length > 0 ? (
         <p className="mt-5 text-sm text-destructive" role="alert">{t("passengerInformation.validation.review")}</p>

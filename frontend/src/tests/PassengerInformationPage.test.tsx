@@ -63,6 +63,10 @@ const emptyContext: PassengerContext = {
 
 const savedContext: PassengerContext = {
   ...emptyContext,
+  bookingContact: {
+    email: "booking@example.com",
+    preferredLocale: "EN",
+  },
   passengers: [
     savedPassenger(1, "ADULT"),
     savedPassenger(2, "CHILD"),
@@ -120,6 +124,53 @@ describe("PassengerInformationPage", () => {
     expect(screen.getByText("20B")).toBeInTheDocument();
     expect(screen.getByText("Infant · No seat assigned")).toBeInTheDocument();
     expect(screen.queryByText("99 passengers")).not.toBeInTheDocument();
+  });
+
+  it("collects one booking-level Contact Details email and maps it explicitly to bookingContact", async () => {
+    const fetchMock = setFetch(
+      { body: savedContext, ok: true, status: 200 },
+      {
+        body: {
+          ...savedContext,
+          bookingContact: {
+            email: "customer@example.com",
+            preferredLocale: "EN",
+          },
+        },
+        ok: true,
+        status: 200,
+      },
+    );
+    render(
+      <PassengerInformationPage backQuery="flightId=xf-201" holdId="hold-123" />,
+    );
+
+    const passengerGroup = await screen.findByRole("group", { name: "Passenger 1 — Adult" });
+    expect(within(passengerGroup).queryByLabelText("Email")).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText("Email")).toHaveLength(1);
+    expect(screen.queryByRole("heading", { name: "Booking contact" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Confirmation email address")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Enter an email address you can access. X-Fly will send your booking confirmation and ticket details to this address.",
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "customer@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save passenger information" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const request = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    const payload = JSON.parse(String(request.body));
+    expect(payload.bookingContact).toEqual({
+      email: "customer@example.com",
+      preferredLocale: "EN",
+    });
+    expect(payload.passengers).toHaveLength(3);
+    expect(payload.passengers.every((passenger: Passenger) => passenger.email === "customer@example.com")).toBe(true);
+    expect(new Set(payload.passengers.map((passenger: Passenger) => passenger.phoneNumber))).toEqual(new Set(["812345671"]));
   });
 
   it("navigates to the real Extras route only after Passenger save succeeds", async () => {
@@ -193,7 +244,17 @@ describe("PassengerInformationPage", () => {
   });
 
   it("renders the Passenger workflow in Thai while preserving passport and seat values", async () => {
-    setFetch({ body: savedContext, ok: true, status: 200 });
+    const fetchMock = setFetch(
+      { body: savedContext, ok: true, status: 200 },
+      {
+        body: {
+          ...savedContext,
+          bookingContact: { email: "booking@example.com", preferredLocale: "TH" },
+        },
+        ok: true,
+        status: 200,
+      },
+    );
     render(
       <PassengerInformationPage backQuery="flightId=xf-201" holdId="hold-123" />,
       { locale: "th" },
@@ -202,6 +263,19 @@ describe("PassengerInformationPage", () => {
     expect(await screen.findByText("ชื่อต้องตรงกับหนังสือเดินทางทุกตัวอักษร")).toBeInTheDocument();
     expect(screen.getByDisplayValue("TH1234567")).toBeInTheDocument();
     expect(screen.getByText("20A")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "กรุณากรอกอีเมลที่สามารถใช้งานได้ X-Fly จะส่งข้อมูลยืนยันการจองและรายละเอียดตั๋วไปยังอีเมลนี้",
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกข้อมูลผู้โดยสาร" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const request = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body)).bookingContact).toEqual({
+      email: "booking@example.com",
+      preferredLocale: "TH",
+    });
   });
 
   it("connects required errors to controls and focuses the first invalid field", async () => {

@@ -146,6 +146,10 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
         passenger(2, "CHILD", departure),
         passenger(3, "INFANT", departure),
     ];
+    let booking_contact = json!({
+        "email": "booking-contact@example.com",
+        "preferredLocale": "TH"
+    });
     let saved = app
         .clone()
         .oneshot(
@@ -154,7 +158,13 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
                 .uri(format!("/api/v1/seat-holds/{hold_id}/passengers"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::COOKIE, &cookie)
-                .body(Body::from(json!({ "passengers": passengers }).to_string()))
+                .body(Body::from(
+                    json!({
+                        "passengers": passengers,
+                        "bookingContact": booking_contact
+                    })
+                    .to_string(),
+                ))
                 .unwrap(),
         )
         .await
@@ -168,6 +178,11 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
     assert_eq!(saved["readyToContinue"], true);
     assert_eq!(saved["passengers"][0]["givenName"], "Nara");
     assert_eq!(saved["expectedPassengers"][2]["passengerType"], "INFANT");
+    assert_eq!(
+        saved["bookingContact"]["email"],
+        "booking-contact@example.com"
+    );
+    assert_eq!(saved["bookingContact"]["preferredLocale"], "TH");
 
     let loaded = app
         .oneshot(
@@ -184,13 +199,13 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
         loaded.headers().get(header::CACHE_CONTROL).unwrap(),
         "no-store, private"
     );
+    let loaded = json_body(loaded).await;
+    assert_eq!(loaded["passengers"].as_array().unwrap().len(), 3);
     assert_eq!(
-        json_body(loaded).await["passengers"]
-            .as_array()
-            .unwrap()
-            .len(),
-        3
+        loaded["bookingContact"]["email"],
+        "booking-contact@example.com"
     );
+    assert_eq!(loaded["bookingContact"]["preferredLocale"], "TH");
 }
 
 #[tokio::test]

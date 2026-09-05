@@ -6,14 +6,58 @@ use uuid::Uuid;
 
 use crate::domain::value_objects::SeatNumber;
 use crate::domain::{
+    booking_confirmation::{BookingConfirmationLocale, DeliveryFailure},
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput, ExtraValidationError},
     manage_booking::{ManageBookingLookup, ManageBookingRecord},
-    passengers::{PassengerContext, PassengerFieldError, PassengerInput},
+    passengers::{BookingContactInput, PassengerContext, PassengerFieldError, PassengerInput},
     payment::{PaymentAttempt, PaymentAttemptTransition, PaymentContext, PaymentRepositoryCommand},
     review::ReviewContext,
     ticket::{Ticket, TicketVerification},
 };
+
+#[derive(Clone, Debug)]
+pub struct BookingConfirmationIntent {
+    pub id: Uuid,
+    pub payment_attempt_id: Uuid,
+    pub recipient_email: String,
+    pub locale: BookingConfirmationLocale,
+    pub attempt_count: u8,
+}
+
+#[async_trait]
+pub trait BookingConfirmationRepository: Send + Sync {
+    async fn claim_due_booking_confirmation(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<BookingConfirmationIntent>, sqlx::Error>;
+    async fn mark_booking_confirmation_sent(
+        &self,
+        id: Uuid,
+        provider_message_id: &str,
+    ) -> Result<(), sqlx::Error>;
+    async fn mark_booking_confirmation_retry(
+        &self,
+        id: Uuid,
+        next_attempt_at: chrono::DateTime<chrono::Utc>,
+        failure: DeliveryFailure,
+    ) -> Result<(), sqlx::Error>;
+    async fn mark_booking_confirmation_permanent(
+        &self,
+        id: Uuid,
+        failure: DeliveryFailure,
+    ) -> Result<(), sqlx::Error>;
+}
+
+#[async_trait]
+pub trait EmailDeliveryGateway: Send + Sync {
+    async fn send(
+        &self,
+        recipient: &str,
+        idempotency_key: &str,
+        email: &crate::domain::booking_confirmation::RenderedBookingConfirmationEmail,
+    ) -> Result<String, DeliveryFailure>;
+}
 
 #[derive(Debug, Error)]
 pub enum ManageBookingRepositoryError {
@@ -74,6 +118,11 @@ pub trait TicketRepository: Send + Sync {
         &self,
         ticket_id: Uuid,
     ) -> Result<Option<TicketVerification>, TicketRepositoryError>;
+
+    async fn ensure_ticket_for_payment_attempt(
+        &self,
+        payment_attempt_id: Uuid,
+    ) -> Result<Ticket, TicketRepositoryError>;
 }
 
 #[derive(Debug, Error)]
@@ -96,6 +145,8 @@ pub enum PaymentRepositoryError {
     PassengersNotReady,
     #[error("travel extras are not ready for payment")]
     ExtrasNotReady,
+    #[error("booking contact is not ready for payment")]
+    BookingContactNotReady,
     #[error("review snapshot is not ready for payment")]
     ReviewNotReady,
     #[error("a payment has already succeeded")]
@@ -313,6 +364,13 @@ pub trait PassengerRepository: Send + Sync {
         hold_id: Uuid,
         token_hash: [u8; 32],
         passengers: Vec<PassengerInput>,
+    ) -> Result<PassengerContext, PassengerRepositoryError>;
+
+    async fn save_booking_contact(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        booking_contact: BookingContactInput,
     ) -> Result<PassengerContext, PassengerRepositoryError>;
 }
 

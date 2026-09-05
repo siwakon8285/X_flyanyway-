@@ -111,6 +111,20 @@ pub struct EmergencyContactInput {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BookingContactInput {
+    pub email: String,
+    pub preferred_locale: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookingContact {
+    pub email: String,
+    pub preferred_locale: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PassengerInput {
     pub ordinal: u8,
     pub passenger_type: PassengerType,
@@ -166,6 +180,7 @@ pub struct PassengerContext {
     pub hold: SeatHold,
     pub expected_passengers: Vec<PassengerSlot>,
     pub passengers: Vec<Passenger>,
+    pub booking_contact: Option<BookingContact>,
     pub ready_to_continue: bool,
 }
 

@@ -24,7 +24,7 @@ use crate::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
         extras::ExtraSelectionInput,
         manage_booking::ManageBookingLookup,
-        passengers::{PassengerFieldError, PassengerInput},
+        passengers::{BookingContactInput, PassengerFieldError, PassengerInput},
         payment::{CreatePaymentRequest, PaymentMethod, PaymentSimulationOutcome},
         repositories::{
             ExtraRepositoryError, ManageBookingRepositoryError, PassengerRepositoryError,
@@ -230,8 +230,10 @@ async fn get_passengers(
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SavePassengersRequest {
     passengers: Vec<PassengerInput>,
+    booking_contact: Option<BookingContactInput>,
 }
 
 async fn save_passengers(
@@ -244,7 +246,12 @@ async fn save_passengers(
     let request = payload.map_err(|_| ApiError::passenger_bad_request())?.0;
     let context = state
         .passengers
-        .save_passengers(hold_id, token_hash, request.passengers)
+        .save_passengers(
+            hold_id,
+            token_hash,
+            request.passengers,
+            request.booking_contact,
+        )
         .await?;
     Ok((
         [(header::CACHE_CONTROL, "no-store, private")],
@@ -340,6 +347,7 @@ async fn get_payment(
 struct CreatePaymentAttemptRequest {
     request_id: Uuid,
     method: PaymentMethod,
+    preferred_locale: crate::domain::booking_confirmation::BookingConfirmationLocale,
 }
 
 async fn create_payment_attempt(
@@ -359,6 +367,7 @@ async fn create_payment_attempt(
                 CreatePaymentRequest {
                     request_id: request.request_id,
                     method: request.method,
+                    preferred_locale: request.preferred_locale,
                 },
             )
             .await
@@ -977,6 +986,10 @@ impl From<PaymentRepositoryError> for ApiError {
             PaymentRepositoryError::ExtrasNotReady => conflict(
                 "EXTRAS_NOT_READY",
                 "Travel extras must be saved before payment.",
+            ),
+            PaymentRepositoryError::BookingContactNotReady => conflict(
+                "BOOKING_CONTACT_NOT_READY",
+                "A booking contact must be saved before payment.",
             ),
             PaymentRepositoryError::ReviewNotReady => conflict(
                 "REVIEW_NOT_READY",

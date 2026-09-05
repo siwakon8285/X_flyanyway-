@@ -3,6 +3,7 @@ import {
   requestJson,
 } from "@/components/booking/api/bookingApiClient";
 import type {
+  BookingContact,
   Passenger,
   PassengerContext,
 } from "@/components/booking/passengers/passengerTypes";
@@ -13,9 +14,9 @@ const passengerPath = (holdId: string) =>
 const getPassengerContext = (holdId: string) =>
   requestJson<PassengerContext>(passengerPath(holdId));
 
-const savePassengerDraft = (holdId: string, passengers: Passenger[]) =>
+const savePassengerDraft = (holdId: string, passengers: Passenger[], bookingContact?: BookingContact) =>
   requestJson<PassengerContext>(passengerPath(holdId), {
-    body: JSON.stringify({ passengers }),
+    body: JSON.stringify(bookingContact ? { passengers, bookingContact } : { passengers }),
     method: "PUT",
   });
 

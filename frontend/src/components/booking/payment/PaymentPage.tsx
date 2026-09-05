@@ -140,6 +140,7 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
   }, [context, receivedAt, recovery, succeeded]);
 
   const updateAttempt = (attempt: PaymentAttempt) => setContext((current) => current ? { ...current, attempts: [attempt, ...current.attempts.filter((item) => item.id !== attempt.id)], readyForPayment: attempt.status !== "SUCCEEDED" } : current);
+  const preferredLocale = locale.toUpperCase() as "EN" | "TH";
   const run = async (operation: () => Promise<PaymentAttempt>) => {
     setBusy(true);
     try { updateAttempt(await operation()); }
@@ -150,11 +151,11 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
   };
   const submitCard = async () => {
     setBusy(true);
-    try { const attempt = await createPaymentAttempt(holdId, { method: "CARD", requestId: createRequestId() }); updateAttempt(attempt); setCardSession(attempt.clientPaymentSession); setCardConfirming(false); setStillConfirming(false); }
+    try { const attempt = await createPaymentAttempt(holdId, { method: "CARD", preferredLocale, requestId: createRequestId() }); updateAttempt(attempt); setCardSession(attempt.clientPaymentSession); setCardConfirming(false); setStillConfirming(false); }
     catch (error) { setRecovery(error instanceof BookingApiError ? recoveryForError(error) : { action: "retry", message: "payment.recovery.unavailable" }); }
     finally { setBusy(false); }
   };
-  const createBitcoin = () => run(() => createPaymentAttempt(holdId, { method: "BITCOIN", requestId: createRequestId() }));
+  const createBitcoin = () => run(() => createPaymentAttempt(holdId, { method: "BITCOIN", preferredLocale, requestId: createRequestId() }));
   const simulateBitcoin = (outcome: BitcoinSimulationOutcome) => latestAttempt ? run(() => simulateBitcoinPayment(holdId, latestAttempt.id, outcome)) : Promise.resolve();
   const amount = useMemo(() => context ? formatPrice(context.pricing.grandTotal.amount, locale, context.pricing.currencyCode) : "", [context, locale]);
   const reviewHref = buildReviewHandoffHref({ holdId, query: backQuery });

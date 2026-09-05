@@ -169,6 +169,17 @@ impl PaymentRepository for SqlxSeatHoldRepository {
             return Err(PaymentRepositoryError::AttemptInProgress);
         }
 
+        sqlx::query(
+            "UPDATE booking_contacts
+             SET preferred_locale = $2, updated_at = NOW()
+             WHERE seat_hold_id = $1",
+        )
+        .bind(hold_id)
+        .bind(command.preferred_locale.as_str())
+        .execute(&mut *transaction)
+        .await
+        .map_err(PaymentRepositoryError::Infrastructure)?;
+
         let snapshot = load_snapshot(&mut transaction, hold_id).await?;
         let payment_finalization_deadline = (command.provider == PaymentProvider::Stripe
             && command.method == PaymentMethod::Card)
@@ -322,6 +333,9 @@ impl PaymentRepository for SqlxSeatHoldRepository {
         .fetch_one(&mut *transaction)
         .await
         .map_err(PaymentRepositoryError::Infrastructure)?;
+        if transition.status == PaymentStatus::Succeeded {
+            enqueue_booking_confirmation_intent(&mut transaction, attempt_id).await?;
+        }
         transaction
             .commit()
             .await
@@ -486,6 +500,8 @@ impl PaymentRepository for SqlxSeatHoldRepository {
                 .execute(&mut *transaction)
                 .await
                 .map_err(PaymentRepositoryError::Infrastructure)?;
+
+                enqueue_booking_confirmation_intent(&mut transaction, current.id).await?;
 
                 sqlx::query(
                     "INSERT INTO stripe_webhook_events (stripe_event_id, event_type, payment_intent_id, processed_at)
@@ -702,7 +718,8 @@ async fn locked_payment_hold_by_id(
     let hold = sqlx::query_as::<_, HoldRow>(
         "SELECT hold.id, service.public_id AS flight_id, instance.departure_date,
             hold.flight_instance_id, hold.cabin, hold.adults, hold.children, hold.infants,
-            hold.access_token_hash, hold.expires_at, hold.released_at, hold.consumed_at
+            hold.access_token_hash, hold.expires_at, hold.released_at, hold.consumed_at,
+            hold.booking_contact_required
          FROM seat_holds AS hold
          JOIN flight_instances AS instance ON instance.id = hold.flight_instance_id
          JOIN flight_services AS service ON service.id = instance.flight_service_id
@@ -794,6 +811,30 @@ async fn finalize_seats_and_hold(
     Ok(())
 }
 
+/// Creates the one durable notification intent only after the payment row is
+/// authoritative. Missing explicit contacts are intentionally ignored for
+/// historical bookings; no passenger email is ever inferred here.
+async fn enqueue_booking_confirmation_intent(
+    transaction: &mut Transaction<'_, Postgres>,
+    payment_attempt_id: Uuid,
+) -> Result<(), PaymentRepositoryError> {
+    sqlx::query(
+        "INSERT INTO booking_confirmation_email_outbox (
+             payment_attempt_id, recipient_email, locale
+         )
+         SELECT $1, contact.email, contact.preferred_locale
+         FROM payment_attempts AS attempt
+         JOIN booking_contacts AS contact ON contact.seat_hold_id = attempt.seat_hold_id
+         WHERE attempt.id = $1 AND attempt.status = 'SUCCEEDED'
+         ON CONFLICT (payment_attempt_id, notification_type) DO NOTHING",
+    )
+    .bind(payment_attempt_id)
+    .execute(&mut **transaction)
+    .await
+    .map_err(PaymentRepositoryError::Infrastructure)?;
+    Ok(())
+}
+
 async fn ensure_ready(
     transaction: &mut Transaction<'_, Postgres>,
     hold: &HoldRow,
@@ -836,6 +877,18 @@ async fn ensure_ready(
             .map_err(PaymentRepositoryError::Infrastructure)?;
     if !extras_saved {
         return Err(PaymentRepositoryError::ExtrasNotReady);
+    }
+    if hold.booking_contact_required {
+        let has_booking_contact: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM booking_contacts WHERE seat_hold_id = $1)",
+        )
+        .bind(hold.id)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(PaymentRepositoryError::Infrastructure)?;
+        if !has_booking_contact {
+            return Err(PaymentRepositoryError::BookingContactNotReady);
+        }
     }
     load_snapshot(transaction, hold.id).await?;
     Ok(())

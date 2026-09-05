@@ -216,6 +216,10 @@ async fn body(response: axum::response::Response) -> Value {
 }
 
 async fn complete_review(app: &axum::Router) -> (String, String) {
+    complete_review_with_locale(app, "EN").await
+}
+
+async fn complete_review_with_locale(app: &axum::Router, locale: &str) -> (String, String) {
     let departure = departure_date();
     let created = app
         .clone()
@@ -267,7 +271,13 @@ async fn complete_review(app: &axum::Router) -> (String, String) {
         (
             "PUT",
             format!("/api/v1/seat-holds/{hold_id}/passengers"),
-            json!({ "passengers": [passenger] }),
+            json!({
+                "passengers": [passenger],
+                "bookingContact": {
+                    "email": "payment-private@example.com",
+                    "preferredLocale": locale
+                }
+            }),
         ),
         (
             "PUT",
@@ -312,7 +322,22 @@ async fn create_attempt(
     request_id: uuid::Uuid,
     method: &str,
 ) -> axum::response::Response {
-    let payload = json!({ "requestId": request_id, "method": method });
+    create_attempt_with_locale(app, hold_id, cookie, request_id, method, "EN").await
+}
+
+async fn create_attempt_with_locale(
+    app: &axum::Router,
+    hold_id: &str,
+    cookie: &str,
+    request_id: uuid::Uuid,
+    method: &str,
+    locale: &str,
+) -> axum::response::Response {
+    let payload = json!({
+        "requestId": request_id,
+        "method": method,
+        "preferredLocale": locale
+    });
     app.clone()
         .oneshot(
             Request::builder()
@@ -325,6 +350,116 @@ async fn create_attempt(
         )
         .await
         .unwrap()
+}
+
+async fn complete_payment_and_assert_confirmation_locale(
+    app: &axum::Router,
+    pool: &PgPool,
+    method: &str,
+    locale: &str,
+) {
+    let initial_locale = if locale == "TH" { "EN" } else { "TH" };
+    let (hold_id, cookie) = complete_review_with_locale(app, initial_locale).await;
+    let created =
+        create_attempt_with_locale(app, &hold_id, &cookie, uuid::Uuid::new_v4(), method, locale)
+            .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let attempt = body(created).await;
+    let attempt_id = attempt["id"].as_str().unwrap();
+
+    if method == "BITCOIN" {
+        let paid = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/seat-holds/{hold_id}/payment-attempts/{attempt_id}/simulate"
+                    ))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::from(json!({ "outcome": "RECEIVED" }).to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(paid.status(), StatusCode::OK);
+    } else {
+        let provider_reference: String =
+            sqlx::query_scalar("SELECT provider_reference FROM payment_attempts WHERE id = $1")
+                .bind(uuid::Uuid::parse_str(attempt_id).unwrap())
+                .fetch_one(pool)
+                .await
+                .unwrap();
+        let payload = json!({
+            "id": format!("evt_locale_{}", uuid::Uuid::new_v4().simple()),
+            "type": "payment_intent.succeeded",
+            "data": { "object": {
+                "id": provider_reference,
+                "amount": 2_340_000,
+                "currency": "thb",
+                "status": "succeeded"
+            }}
+        })
+        .to_string();
+        let signature = signed_webhook_header(
+            payload.as_bytes(),
+            TEST_WEBHOOK_SECRET,
+            chrono::Utc::now().timestamp(),
+        );
+        let first = post_webhook(app, Some(&signature), payload.as_bytes()).await;
+        assert_eq!(first.status(), StatusCode::OK);
+        let replay = post_webhook(app, Some(&signature), payload.as_bytes()).await;
+        assert_eq!(replay.status(), StatusCode::OK);
+    }
+
+    let persisted: (String, String, String, i64) = sqlx::query_as(
+        "SELECT contact.preferred_locale, outbox.locale, attempt.provider,
+                COUNT(*) OVER ()
+         FROM payment_attempts AS attempt
+         JOIN booking_contacts AS contact ON contact.seat_hold_id = attempt.seat_hold_id
+         JOIN booking_confirmation_email_outbox AS outbox ON outbox.payment_attempt_id = attempt.id
+         WHERE attempt.id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(attempt_id).unwrap())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(persisted.0, locale);
+    assert_eq!(persisted.1, locale);
+    assert_eq!(
+        persisted.2,
+        if method == "CARD" {
+            "STRIPE"
+        } else {
+            "MOCK_BITCOIN"
+        }
+    );
+    assert_eq!(persisted.3, 1);
+}
+
+#[tokio::test]
+async fn mock_bitcoin_th_snapshots_th_booking_contact_locale() {
+    let (app, pool) = app().await;
+    complete_payment_and_assert_confirmation_locale(&app, &pool, "BITCOIN", "TH").await;
+}
+
+#[tokio::test]
+async fn mock_bitcoin_en_snapshots_en_booking_contact_locale() {
+    let (app, pool) = app().await;
+    complete_payment_and_assert_confirmation_locale(&app, &pool, "BITCOIN", "EN").await;
+}
+
+#[tokio::test]
+async fn stripe_th_snapshots_th_booking_contact_locale_and_replay_preserves_it() {
+    let (app, pool) = app().await;
+    complete_payment_and_assert_confirmation_locale(&app, &pool, "CARD", "TH").await;
+}
+
+#[tokio::test]
+async fn stripe_en_snapshots_en_booking_contact_locale_and_replay_preserves_it() {
+    let (app, pool) = app().await;
+    complete_payment_and_assert_confirmation_locale(&app, &pool, "CARD", "EN").await;
 }
 
 async fn get_payment_context(
@@ -523,8 +658,10 @@ async fn concurrent_ticket_requests_after_success_produce_exactly_one_ticket() {
 #[tokio::test]
 async fn payment_context_reconciles_a_succeeded_stripe_intent_through_guarded_finalization() {
     let (app, pool) = app_with_reconciliation_status(PaymentReconciliationStatus::Succeeded).await;
-    let (hold_id, cookie) = complete_review(&app).await;
-    let created = create_attempt(&app, &hold_id, &cookie, uuid::Uuid::new_v4(), "CARD").await;
+    let (hold_id, cookie) = complete_review_with_locale(&app, "TH").await;
+    let created =
+        create_attempt_with_locale(&app, &hold_id, &cookie, uuid::Uuid::new_v4(), "CARD", "TH")
+            .await;
     assert_eq!(created.status(), StatusCode::CREATED);
     let attempt_id = body(created).await["id"].as_str().unwrap().to_owned();
 
@@ -550,6 +687,26 @@ async fn payment_context_reconciles_a_succeeded_stripe_intent_through_guarded_fi
     .await
     .unwrap();
     assert_eq!(paid_seats, 1);
+    let intents: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM booking_confirmation_email_outbox WHERE payment_attempt_id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(&attempt_id).unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(intents, 1);
+    let locales: (String, String) = sqlx::query_as(
+        "SELECT contact.preferred_locale, outbox.locale
+         FROM payment_attempts AS attempt
+         JOIN booking_contacts AS contact ON contact.seat_hold_id = attempt.seat_hold_id
+         JOIN booking_confirmation_email_outbox AS outbox ON outbox.payment_attempt_id = attempt.id
+         WHERE attempt.id = $1",
+    )
+    .bind(uuid::Uuid::parse_str(&attempt_id).unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(locales, ("TH".to_owned(), "TH".to_owned()));
 }
 
 #[tokio::test]
@@ -717,6 +874,45 @@ async fn creates_and_simulates_a_demo_bitcoin_invoice() {
             .await
             .unwrap();
     assert!(finalized);
+}
+
+#[tokio::test]
+async fn successful_payment_creates_one_confirmation_intent_before_ticket_is_requested() {
+    let (app, pool) = app().await;
+    let (hold_id, cookie) = complete_review(&app).await;
+    let created = create_attempt(&app, &hold_id, &cookie, uuid::Uuid::new_v4(), "BITCOIN").await;
+    let attempt_id = body(created).await["id"].as_str().unwrap().to_owned();
+    let paid = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/api/v1/seat-holds/{hold_id}/payment-attempts/{attempt_id}/simulate"
+                ))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::COOKIE, cookie)
+                .body(Body::from(json!({ "outcome": "RECEIVED" }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(paid.status(), StatusCode::OK);
+    let attempt_uuid = uuid::Uuid::parse_str(&attempt_id).unwrap();
+    let events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM booking_confirmation_email_outbox WHERE payment_attempt_id = $1",
+    )
+    .bind(attempt_uuid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let tickets: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM tickets WHERE payment_attempt_id = $1")
+            .bind(attempt_uuid)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(events, 1);
+    assert_eq!(tickets, 0);
 }
 
 #[tokio::test]

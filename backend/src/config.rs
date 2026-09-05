@@ -5,6 +5,10 @@ pub struct AppConfig {
     pub database_url: String,
     pub bind_address: SocketAddr,
     pub frontend_origin: String,
+    pub public_site_origin: String,
+    pub email_transport: String,
+    pub resend_api_key: Option<String>,
+    pub email_from: Option<String>,
     pub seat_hold_ttl: Duration,
     pub secure_cookies: bool,
     pub stripe_secret_key: Option<String>,
@@ -31,6 +35,30 @@ impl AppConfig {
             .unwrap_or(false);
         let frontend_origin =
             env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".to_owned());
+        let public_site_origin = validate_public_site_origin(
+            &env::var("PUBLIC_SITE_ORIGIN").unwrap_or_else(|_| frontend_origin.clone()),
+            secure_cookies,
+        )?;
+        let email_transport = env::var("EMAIL_TRANSPORT").unwrap_or_else(|_| "disabled".to_owned());
+        if !email_transport.eq_ignore_ascii_case("disabled")
+            && !email_transport.eq_ignore_ascii_case("resend")
+        {
+            return Err("EMAIL_TRANSPORT must be disabled or resend".to_owned());
+        }
+        let resend_api_key = env::var("RESEND_API_KEY").ok();
+        let email_from = env::var("EMAIL_FROM")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| validate_email_from(&value))
+            .transpose()?;
+        if email_transport.eq_ignore_ascii_case("resend")
+            && (resend_api_key.is_none() || email_from.is_none())
+        {
+            return Err(
+                "RESEND_API_KEY and EMAIL_FROM must be configured when EMAIL_TRANSPORT=resend"
+                    .to_owned(),
+            );
+        }
         let stripe_secret_key = env::var("STRIPE_SECRET_KEY").ok();
         let stripe_webhook_secret = env::var("STRIPE_WEBHOOK_SECRET").ok();
         let ticket_qr_signing_secret = env::var("TICKET_QR_SIGNING_SECRET")
@@ -71,6 +99,10 @@ impl AppConfig {
             database_url,
             bind_address,
             frontend_origin,
+            public_site_origin,
+            email_transport,
+            resend_api_key,
+            email_from,
             stripe_secret_key,
             stripe_webhook_secret,
             ticket_qr_signing_secret,
@@ -79,4 +111,49 @@ impl AppConfig {
             secure_cookies,
         })
     }
+}
+
+fn validate_public_site_origin(value: &str, production: bool) -> Result<String, String> {
+    let parsed = reqwest::Url::parse(value)
+        .map_err(|_| "PUBLIC_SITE_ORIGIN must be an absolute URL".to_owned())?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.path() != "/" && !parsed.path().is_empty()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(
+            "PUBLIC_SITE_ORIGIN must be an HTTP(S) origin without a path, query, or fragment"
+                .to_owned(),
+        );
+    }
+    if production && parsed.scheme() != "https" {
+        return Err("PUBLIC_SITE_ORIGIN must use HTTPS in production".to_owned());
+    }
+    Ok(value.trim_end_matches('/').to_owned())
+}
+
+fn validate_email_from(value: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed
+            .chars()
+            .any(|character| character == '\r' || character == '\n' || character.is_control())
+    {
+        return Err("EMAIL_FROM must be a non-empty sender without control characters".to_owned());
+    }
+    let address = trimmed
+        .rsplit_once('<')
+        .map(|(_, address)| address.trim_end_matches('>').trim())
+        .unwrap_or(trimmed);
+    if !address.contains('@')
+        || address.starts_with('@')
+        || address.ends_with('@')
+        || address.contains(' ')
+    {
+        return Err("EMAIL_FROM must contain a valid sender address".to_owned());
+    }
+    Ok(trimmed.to_owned())
 }

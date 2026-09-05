@@ -147,6 +147,12 @@ Successful lookup sets a 30-minute `x_fly_manage_booking` authorization cookie s
 
 The application deliberately returns the same `BOOKING_NOT_FOUND` response for an unknown reference or wrong surname. There is currently no repository-native distributed rate limiter or trusted proxy-client-IP resolver. The self-hosted Nginx gateway must therefore apply `limit_req` to `POST /api/v1/manage-booking/lookup`; deployments with multiple API instances must keep that edge limit shared. Do not add lookup fields to access-log query strings or request-body logging.
 
+## Booking confirmation email
+
+Passenger email remains passenger data. The Passenger Details resource may also persist one explicit booking contact and `EN`/`TH` communication locale. A successful payment finalization transaction creates at most one `BOOKING_CONFIRMATION` outbox intent keyed by `payment_attempt_id`; it does not call an email provider. A background dispatcher later ensures the idempotent ticket exists and sends the concise HTML/plain-text confirmation through the configured provider gateway. Refreshing the ticket page, Manage Booking reads, webhook replays, and reconciliation retries cannot create another logical event. Provider failures only update outbox state and never roll back successful payment, consumed holds, booked seats, or tickets.
+
+Local development leaves `EMAIL_TRANSPORT=disabled`. Production/demo delivery uses Resend’s HTTPS API with backend-only `RESEND_API_KEY`, `EMAIL_FROM`, and `PUBLIC_SITE_ORIGIN`. Before enabling it, verify a dedicated sending subdomain such as `mail.x-fly.siwakondev.win` with the provider’s SPF/DKIM (and recommended DMARC) records. Automated tests inject a recording fake gateway and never contact Resend.
+
 Flight service departure times are local schedule values. `flight_services.origin_time_zone` stores the corresponding IANA timezone because the current schema has no normalized airport entity. PostgreSQL uses it to derive the departure instant and exact 24-hour cancellation boundary, including daylight-saving transitions.
 
 ## Isolated PostgreSQL tests

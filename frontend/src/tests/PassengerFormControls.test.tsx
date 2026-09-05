@@ -31,7 +31,13 @@ const renderForm = (
   const onValuesChange = jest.fn();
   render(
     <PassengerForm
+      contactEmail={value.email}
+      contactPhoneCountryCode={value.phoneCountryCode}
+      contactPhoneNumber={value.phoneNumber}
       errors={[]}
+      onContactEmailChange={jest.fn()}
+      onContactPhoneCountryCodeChange={jest.fn()}
+      onContactPhoneNumberChange={jest.fn()}
       onSave={jest.fn()}
       onValuesChange={onValuesChange}
       ready={false}
@@ -148,21 +154,20 @@ describe("Passenger form controls", () => {
     expect(search.closest('[role="listbox"]')).toBeNull();
   });
 
-  it("defaults phone code from nationality until the passenger chooses another code", () => {
+  it("keeps passenger nationality independent from booking-level contact details", () => {
     const onValuesChange = renderForm();
 
     fireEvent.click(screen.getByRole("button", { name: "Nationality" }));
     fireEvent.click(screen.getByRole("option", { name: /Thailand/ }));
     expect(onValuesChange).toHaveBeenLastCalledWith([
-      expect.objectContaining({ nationalityCode: "TH", phoneCountryCode: "+66" }),
+      expect.objectContaining({ nationalityCode: "TH", phoneCountryCode: "" }),
     ]);
-
   });
 
   it("preserves a saved phone code when nationality changes", () => {
     const FormHarness = () => {
       const [values, setValues] = useState([passenger({ nationalityCode: "TH", phoneCountryCode: "+1" })]);
-      return <PassengerForm errors={[]} onSave={jest.fn()} onValuesChange={setValues} ready={false} recentlySaved={false} saving={false} values={values} />;
+      return <PassengerForm contactEmail="nara@example.com" contactPhoneCountryCode="+1" contactPhoneNumber="812345678" errors={[]} onContactEmailChange={jest.fn()} onContactPhoneCountryCodeChange={jest.fn()} onContactPhoneNumberChange={jest.fn()} onSave={jest.fn()} onValuesChange={setValues} ready={false} recentlySaved={false} saving={false} values={values} />;
     };
     render(<FormHarness />);
 

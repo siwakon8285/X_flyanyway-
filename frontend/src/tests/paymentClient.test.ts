@@ -36,12 +36,14 @@ describe("payment client", () => {
 
     await createPaymentAttempt("hold-123", {
       method: "CARD",
+      preferredLocale: "EN",
       requestId: "request-1",
     });
 
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     expect(JSON.parse(String(init.body))).toEqual({
       method: "CARD",
+      preferredLocale: "EN",
       requestId: "request-1",
     });
     expect(String(init.body)).not.toMatch(/card(number|holder)|cvc|expiry|scenario|amount|currency/i);
@@ -51,11 +53,12 @@ describe("payment client", () => {
     const fetchMock = jest.fn().mockResolvedValue({ json: async () => attempt, ok: true, status: 200 });
     Object.defineProperty(global, "fetch", { configurable: true, value: fetchMock, writable: true });
 
-    await createPaymentAttempt("hold-123", { method: "BITCOIN", requestId: "request-2" });
+    await createPaymentAttempt("hold-123", { method: "BITCOIN", preferredLocale: "TH", requestId: "request-2" });
     await simulateBitcoinPayment("hold-123", "attempt-1", "RECEIVED");
 
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({
       method: "BITCOIN",
+      preferredLocale: "TH",
       requestId: "request-2",
     });
     expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toEqual({ outcome: "RECEIVED" });

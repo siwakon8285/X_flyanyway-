@@ -120,6 +120,7 @@ pub struct PaymentRepositoryCommand {
     pub request_fingerprint: [u8; 32],
     pub method: PaymentMethod,
     pub provider: PaymentProvider,
+    pub preferred_locale: crate::domain::booking_confirmation::BookingConfirmationLocale,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -182,6 +183,7 @@ pub struct PaymentContext {
 pub struct CreatePaymentRequest {
     pub request_id: Uuid,
     pub method: PaymentMethod,
+    pub preferred_locale: crate::domain::booking_confirmation::BookingConfirmationLocale,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
