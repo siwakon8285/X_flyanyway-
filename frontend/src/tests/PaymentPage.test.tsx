@@ -134,9 +134,29 @@ describe("Payment page", () => {
     expect(fetchMock).toHaveBeenLastCalledWith(
       "http://localhost:8080/api/v1/seat-holds/hold-123/payment-attempts",
       expect.objectContaining({
-        body: expect.not.stringContaining("scenario"),
+        body: expect.stringContaining('"preferredLocale":"EN"'),
       }),
     );
+    expect(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body)).not.toContain("scenario");
+  });
+
+  it("snapshots the active Thai locale through the provider-neutral payment request", async () => {
+    const stripeAttempt: PaymentAttempt = {
+      ...baseAttempt,
+      clientPaymentSession: "pi_test_secret_123",
+      status: "CREATED",
+      succeededAt: undefined,
+    };
+    const fetchMock = setFetchResponses({ body: context }, { body: stripeAttempt });
+    render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />, { locale: "th" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "ชำระ THB 49,300 ในโหมดตัวอย่าง" }));
+
+    const request = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(JSON.parse(String(request.body))).toEqual(expect.objectContaining({
+      method: "CARD",
+      preferredLocale: "TH",
+    }));
   });
 
   it("waits for authoritative payment context after Stripe confirmation", async () => {

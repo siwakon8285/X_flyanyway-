@@ -93,4 +93,16 @@ describe("passenger client", () => {
     expect(init).toMatchObject({ cache: "no-store", credentials: "include", method: "PUT" });
     expect(JSON.parse(String(init?.body))).toEqual({ passengers });
   });
+
+  it("submits the explicit booking contact and locale in the private request body", async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      json: async () => context,
+      ok: true,
+      status: 200,
+    });
+    Object.defineProperty(global, "fetch", { configurable: true, value: fetchMock, writable: true });
+    await savePassengerDraft("hold-123", [], { email: "booking@example.test", preferredLocale: "TH" });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({ passengers: [], bookingContact: { email: "booking@example.test", preferredLocale: "TH" } });
+  });
 });

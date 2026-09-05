@@ -34,6 +34,11 @@ type Passenger = {
   title: PassengerTitle;
 };
 
+type BookingContact = {
+  email: string;
+  preferredLocale: "EN" | "TH";
+};
+
 type PassengerFormValue = Omit<Passenger, "gender" | "middleName" | "title"> & {
   gender: PassengerGender | "";
   middleName: string;
@@ -41,6 +46,7 @@ type PassengerFormValue = Omit<Passenger, "gender" | "middleName" | "title"> & {
 };
 
 type PassengerContext = {
+  bookingContact?: BookingContact | null;
   expectedPassengers: PassengerSlot[];
   hold: SeatHold;
   passengers: Passenger[];
@@ -69,6 +75,7 @@ type PassengerValidationError = {
 };
 
 export type {
+  BookingContact,
   EmergencyContact,
   Passenger,
   PassengerContext,

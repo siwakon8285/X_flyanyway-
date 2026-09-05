@@ -9,7 +9,7 @@ use x_fly_api::{
     domain::{
         entities::{CreateSeatHold, FlightSelection, SeatAvailability},
         extras::ExtraSelectionInput,
-        passengers::{Gender, PassengerInput, PassengerType, Title},
+        passengers::{BookingContactInput, Gender, PassengerInput, PassengerType, Title},
         payment::{
             PaymentAttemptTransition, PaymentMethod, PaymentProvider, PaymentRepositoryCommand,
             PaymentStatus,
@@ -86,6 +86,17 @@ async fn ready_hold(repository: &SqlxSeatHoldRepository, token: [u8; 32]) -> Uui
         .await
         .unwrap();
     repository
+        .save_booking_contact(
+            hold.id,
+            token,
+            BookingContactInput {
+                email: "payment@example.com".to_owned(),
+                preferred_locale: "EN".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    repository
         .save_extras(
             hold.id,
             token,
@@ -101,6 +112,46 @@ async fn ready_hold(repository: &SqlxSeatHoldRepository, token: [u8; 32]) -> Uui
     hold.id
 }
 
+#[tokio::test]
+async fn new_holds_require_explicit_contact_but_historical_holds_remain_valid() {
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+
+    let missing_contact_hold = ready_hold(&repository, [230; 32]).await;
+    sqlx::query("DELETE FROM booking_contacts WHERE seat_hold_id = $1")
+        .bind(missing_contact_hold)
+        .execute(repository.pool())
+        .await
+        .unwrap();
+    let missing_contact = repository
+        .create_payment_attempt(
+            missing_contact_hold,
+            [230; 32],
+            command(PaymentMethod::Bitcoin),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        missing_contact,
+        PaymentRepositoryError::BookingContactNotReady
+    ));
+
+    let historical_hold = ready_hold(&repository, [231; 32]).await;
+    sqlx::query("DELETE FROM booking_contacts WHERE seat_hold_id = $1")
+        .bind(historical_hold)
+        .execute(repository.pool())
+        .await
+        .unwrap();
+    sqlx::query("UPDATE seat_holds SET booking_contact_required = FALSE WHERE id = $1")
+        .bind(historical_hold)
+        .execute(repository.pool())
+        .await
+        .unwrap();
+    repository
+        .create_payment_attempt(historical_hold, [231; 32], command(PaymentMethod::Bitcoin))
+        .await
+        .unwrap();
+}
+
 fn command(method: PaymentMethod) -> PaymentRepositoryCommand {
     PaymentRepositoryCommand {
         request_id: Uuid::new_v4(),
@@ -110,6 +161,7 @@ fn command(method: PaymentMethod) -> PaymentRepositoryCommand {
             PaymentMethod::Card => PaymentProvider::Stripe,
             PaymentMethod::Bitcoin => PaymentProvider::MockBitcoin,
         },
+        preferred_locale: x_fly_api::domain::booking_confirmation::BookingConfirmationLocale::En,
     }
 }
 

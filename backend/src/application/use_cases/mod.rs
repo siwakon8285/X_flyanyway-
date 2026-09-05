@@ -6,7 +6,7 @@ use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput},
     manage_booking::{ManageBookingLookup, ManageBookingRecord},
-    passengers::{PassengerContext, PassengerInput},
+    passengers::{BookingContactInput, PassengerContext, PassengerInput},
     payment::{
         build_demo_bitcoin_invoice, CreatePaymentRequest, PaymentAttempt, PaymentContext,
         PaymentGateway, PaymentMethod, PaymentProviderReconciler, PaymentSimulationOutcome,
@@ -145,6 +145,15 @@ impl TicketApplication {
         token: &str,
     ) -> Result<TicketVerification, TicketRepositoryError> {
         verify_ticket::execute(self.repository.as_ref(), token, &self.qr_signing_secret).await
+    }
+
+    pub async fn ensure_ticket_for_payment_attempt(
+        &self,
+        payment_attempt_id: Uuid,
+    ) -> Result<Ticket, TicketRepositoryError> {
+        self.repository
+            .ensure_ticket_for_payment_attempt(payment_attempt_id)
+            .await
     }
 
     pub fn sign_existing(&self, ticket: Ticket) -> Result<(Ticket, String), TicketRepositoryError> {
@@ -323,8 +332,16 @@ impl PassengerApplication {
         hold_id: Uuid,
         token_hash: [u8; 32],
         passengers: Vec<PassengerInput>,
+        booking_contact: Option<BookingContactInput>,
     ) -> Result<PassengerContext, PassengerRepositoryError> {
-        save_passengers::execute(self.repository.as_ref(), hold_id, token_hash, passengers).await
+        save_passengers::execute(
+            self.repository.as_ref(),
+            hold_id,
+            token_hash,
+            passengers,
+            booking_contact,
+        )
+        .await
     }
 }
 

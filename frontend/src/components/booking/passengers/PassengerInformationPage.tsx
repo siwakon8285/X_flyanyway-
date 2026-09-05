@@ -59,6 +59,11 @@ const toFormValues = (context: PassengerContext): PassengerFormValue[] =>
       : createEmptyPassenger(slot);
   });
 
+const withBookingContactCompatibility = (
+  values: PassengerFormValue[],
+  contact: Pick<PassengerFormValue, "email" | "phoneCountryCode" | "phoneNumber">,
+) => values.map((passenger) => ({ ...passenger, ...contact }));
+
 const lifecycleMessage = (error: BookingApiError): TranslationKey => {
   if (error.code === "HOLD_EXPIRED") return "passengerInformation.state.expired";
   if (error.code === "HOLD_RELEASED") return "passengerInformation.state.released";
@@ -93,11 +98,15 @@ const PassengerInformationPage = ({
   backQuery: string;
   holdId: string;
 }) => {
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const router = useRouter();
   const [context, setContext] = useState<PassengerContext | null>(null);
   const [values, setValues] = useState<PassengerFormValue[]>([]);
+  const [bookingContactEmail, setBookingContactEmail] = useState("");
+  const [contactPhoneCountryCode, setContactPhoneCountryCode] = useState("");
+  const [contactPhoneNumber, setContactPhoneNumber] = useState("");
   const [errors, setErrors] = useState<PassengerValidationError[]>([]);
+  const [bookingContactError, setBookingContactError] = useState(false);
   const [loading, setLoading] = useState(Boolean(holdId));
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
@@ -122,6 +131,9 @@ const PassengerInformationPage = ({
     );
     if (restoreValues) {
       setValues(toFormValues(next));
+      setBookingContactEmail(next.bookingContact?.email ?? next.passengers[0]?.email ?? "");
+      setContactPhoneCountryCode(next.passengers[0]?.phoneCountryCode ?? "");
+      setContactPhoneNumber(next.passengers[0]?.phoneNumber ?? "");
       setReady(next.readyToContinue);
     }
   }, []);
@@ -187,17 +199,27 @@ const PassengerInformationPage = ({
 
   const handleSave = async () => {
     if (!context || stateMessage || remainingMilliseconds <= 0) return;
+    const compatibilityValues = withBookingContactCompatibility(values, {
+      email: bookingContactEmail.trim(),
+      phoneCountryCode: contactPhoneCountryCode,
+      phoneNumber: contactPhoneNumber,
+    });
     const nextErrors = validatePassengerDraft(
-      values,
+      compatibilityValues,
       context.hold.departureDate,
       getTodayDateInputValue(),
     );
     setErrors(nextErrors);
-    if (nextErrors.length > 0) return;
+    const contactValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bookingContactEmail.trim());
+    setBookingContactError(!contactValid);
+    if (nextErrors.length > 0 || !contactValid) return;
 
     setSaving(true);
     try {
-      const saved = await savePassengerDraft(holdId, normalizePassengerDraft(values));
+      const saved = await savePassengerDraft(holdId, normalizePassengerDraft(compatibilityValues), {
+        email: bookingContactEmail.trim(),
+        preferredLocale: locale.toUpperCase() as "EN" | "TH",
+      });
       applyContext(saved, true);
       setErrors([]);
       setReady(true);
@@ -270,6 +292,7 @@ const PassengerInformationPage = ({
               onValuesChange={(next) => {
                 setValues(next);
                 setErrors([]);
+                setBookingContactError(false);
                 setReady(false);
                 setRecentlySaved(false);
               }}
@@ -277,6 +300,31 @@ const PassengerInformationPage = ({
               recentlySaved={recentlySaved}
               saving={saving}
               values={values}
+              contactEmail={bookingContactEmail}
+              contactEmailError={bookingContactError || errors.some((error) => error.field === "email")}
+              contactPhoneCountryCode={contactPhoneCountryCode}
+              contactPhoneCountryCodeError={errors.some((error) => error.field === "phoneCountryCode")}
+              contactPhoneNumber={contactPhoneNumber}
+              contactPhoneNumberError={errors.some((error) => error.field === "phoneNumber")}
+              onContactEmailChange={(email) => {
+                setBookingContactEmail(email);
+                setBookingContactError(false);
+                setErrors((current) => current.filter((error) => error.field !== "email"));
+                setReady(false);
+                setRecentlySaved(false);
+              }}
+              onContactPhoneCountryCodeChange={(countryCode) => {
+                setContactPhoneCountryCode(countryCode);
+                setErrors((current) => current.filter((error) => error.field !== "phoneCountryCode"));
+                setReady(false);
+                setRecentlySaved(false);
+              }}
+              onContactPhoneNumberChange={(phoneNumber) => {
+                setContactPhoneNumber(phoneNumber);
+                setErrors((current) => current.filter((error) => error.field !== "phoneNumber"));
+                setReady(false);
+                setRecentlySaved(false);
+              }}
             />
             <PassengerSummary hold={context.hold} remainingMilliseconds={remainingMilliseconds} />
           </div>

@@ -5,8 +5,9 @@ use uuid::Uuid;
 
 use crate::domain::{
     passengers::{
-        expected_passenger_slots, EmergencyContact, Gender, Passenger, PassengerContext,
-        PassengerDraft, PassengerDraftError, PassengerInput, PassengerType, Title,
+        expected_passenger_slots, BookingContact, BookingContactInput, EmergencyContact, Gender,
+        Passenger, PassengerContext, PassengerDraft, PassengerDraftError, PassengerInput,
+        PassengerType, Title,
     },
     repositories::{PassengerRepository, PassengerRepositoryError, SeatHoldRepositoryError},
     value_objects::PassengerCounts,
@@ -33,6 +34,7 @@ impl PassengerRepository for SqlxSeatHoldRepository {
             .await
             .map_err(map_hold_error)?;
         let passengers = load_passengers(&mut transaction, hold_id).await?;
+        let booking_contact = load_booking_contact(&mut transaction, hold_id).await?;
         let expected_passengers = expected_passenger_slots(hold.passengers);
         let ready_to_continue = hold.seats.len() == hold.passengers.required_seats()
             && passengers.len() == expected_passengers.len()
@@ -51,6 +53,7 @@ impl PassengerRepository for SqlxSeatHoldRepository {
             hold,
             expected_passengers,
             passengers,
+            booking_contact,
             ready_to_continue,
         })
     }
@@ -145,6 +148,7 @@ impl PassengerRepository for SqlxSeatHoldRepository {
             .map_err(PassengerRepositoryError::Infrastructure)?;
 
         let expected_passengers = expected_passenger_slots(counts);
+        let booking_contact = load_booking_contact(&mut transaction, hold_id).await?;
         transaction
             .commit()
             .await
@@ -153,9 +157,79 @@ impl PassengerRepository for SqlxSeatHoldRepository {
             hold,
             expected_passengers,
             passengers,
+            booking_contact,
             ready_to_continue: true,
         })
     }
+
+    async fn save_booking_contact(
+        &self,
+        hold_id: Uuid,
+        token_hash: [u8; 32],
+        contact: BookingContactInput,
+    ) -> Result<PassengerContext, PassengerRepositoryError> {
+        let mut transaction = self
+            .pool()
+            .begin()
+            .await
+            .map_err(PassengerRepositoryError::Infrastructure)?;
+        let hold_row = Self::locked_hold(&mut transaction, hold_id, token_hash)
+            .await
+            .map_err(map_hold_error)?;
+        Self::ensure_no_protected_payment(&mut transaction, hold_id)
+            .await
+            .map_err(map_hold_error)?;
+        let email = contact.email.trim();
+        let locale = contact.preferred_locale.trim().to_ascii_uppercase();
+        if email.is_empty() || !email.contains('@') || !matches!(locale.as_str(), "EN" | "TH") {
+            return Err(PassengerRepositoryError::Validation(Vec::new()));
+        }
+        sqlx::query(
+            "INSERT INTO booking_contacts (seat_hold_id, email, preferred_locale)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (seat_hold_id) DO UPDATE SET email = EXCLUDED.email,
+                preferred_locale = EXCLUDED.preferred_locale, updated_at = NOW()",
+        )
+        .bind(hold_id)
+        .bind(email)
+        .bind(locale)
+        .execute(&mut *transaction)
+        .await
+        .map_err(PassengerRepositoryError::Infrastructure)?;
+        let hold = Self::hold_entity(&mut transaction, hold_row)
+            .await
+            .map_err(map_hold_error)?;
+        let passengers = load_passengers(&mut transaction, hold_id).await?;
+        let context = PassengerContext {
+            expected_passengers: expected_passenger_slots(hold.passengers),
+            hold,
+            passengers,
+            booking_contact: load_booking_contact(&mut transaction, hold_id).await?,
+            ready_to_continue: true,
+        };
+        transaction
+            .commit()
+            .await
+            .map_err(PassengerRepositoryError::Infrastructure)?;
+        Ok(context)
+    }
+}
+
+async fn load_booking_contact(
+    transaction: &mut Transaction<'_, Postgres>,
+    hold_id: Uuid,
+) -> Result<Option<BookingContact>, PassengerRepositoryError> {
+    let row = sqlx::query_as::<_, BookingContactRow>(
+        "SELECT email, preferred_locale FROM booking_contacts WHERE seat_hold_id = $1",
+    )
+    .bind(hold_id)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(PassengerRepositoryError::Infrastructure)?;
+    Ok(row.map(|value| BookingContact {
+        email: value.email,
+        preferred_locale: value.preferred_locale,
+    }))
 }
 
 pub(super) async fn load_passengers(
@@ -263,4 +337,10 @@ struct PassengerRow {
     emergency_contact_relationship: Option<String>,
     emergency_contact_phone_country_code: Option<String>,
     emergency_contact_phone_number: Option<String>,
+}
+
+#[derive(FromRow)]
+struct BookingContactRow {
+    email: String,
+    preferred_locale: String,
 }

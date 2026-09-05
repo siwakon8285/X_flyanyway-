@@ -47,8 +47,8 @@ type PaymentContext = {
 };
 
 type CreatePaymentAttemptInput =
-  | { method: "CARD"; requestId: string }
-  | { method: "BITCOIN"; requestId: string };
+  | { method: "CARD"; preferredLocale: "EN" | "TH"; requestId: string }
+  | { method: "BITCOIN"; preferredLocale: "EN" | "TH"; requestId: string };
 
 export type {
   BitcoinSimulationOutcome,

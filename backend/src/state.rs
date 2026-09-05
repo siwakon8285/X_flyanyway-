@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
+    application::booking_confirmation::BookingConfirmationEmailService,
     application::use_cases::{
         ExtraApplication, ManageBookingApplication, PassengerApplication, PaymentApplication,
         ReviewApplication, SeatHoldApplication, TicketApplication,
@@ -24,6 +25,7 @@ pub struct AppState {
     pub secure_cookies: bool,
     pub frontend_origin: String,
     pub stripe_webhook_secret: Option<String>,
+    pub booking_confirmation: Option<BookingConfirmationEmailService>,
 }
 
 impl AppState {
@@ -48,6 +50,7 @@ impl AppState {
             secure_cookies,
             frontend_origin,
             stripe_webhook_secret: None,
+            booking_confirmation: None,
         }
     }
 
@@ -77,6 +80,11 @@ impl AppState {
     ) -> Self {
         self.manage_bookings = Some(ManageBookingApplication::new(repository));
         self.manage_booking_signing_secret = Some(signing_secret);
+        self
+    }
+
+    pub fn with_booking_confirmation(mut self, service: BookingConfirmationEmailService) -> Self {
+        self.booking_confirmation = Some(service);
         self
     }
 }

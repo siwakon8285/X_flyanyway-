@@ -31,6 +31,7 @@ pub async fn execute(
                 request_fingerprint: fingerprint,
                 method: request.method,
                 provider,
+                preferred_locale: request.preferred_locale,
             },
         )
         .await?;
