@@ -8,7 +8,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::NaiveDate;
+use chrono::{Duration as ChronoDuration, NaiveDate, Utc};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -23,11 +23,13 @@ use crate::{
     domain::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
         extras::ExtraSelectionInput,
+        manage_booking::ManageBookingLookup,
         passengers::{PassengerFieldError, PassengerInput},
         payment::{CreatePaymentRequest, PaymentMethod, PaymentSimulationOutcome},
         repositories::{
-            ExtraRepositoryError, PassengerRepositoryError, PaymentRepositoryError,
-            ReviewRepositoryError, SeatHoldRepositoryError, TicketRepositoryError,
+            ExtraRepositoryError, ManageBookingRepositoryError, PassengerRepositoryError,
+            PaymentRepositoryError, ReviewRepositoryError, SeatHoldRepositoryError,
+            TicketRepositoryError,
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
         DomainError,
@@ -82,6 +84,12 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v1/payments/stripe/webhook", post(stripe_webhook))
         .route("/api/v1/tickets/verify/{token}", get(verify_ticket))
+        .route("/api/v1/manage-booking/lookup", post(lookup_manage_booking))
+        .route("/api/v1/manage-booking/current", get(get_manage_booking))
+        .route(
+            "/api/v1/manage-booking/current/ticket",
+            get(get_manage_booking_ticket),
+        )
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -431,6 +439,150 @@ async fn verify_ticket(State(state): State<AppState>, Path(token): Path<String>)
     })
 }
 
+const MANAGE_BOOKING_COOKIE: &str = "x_fly_manage_booking";
+const MANAGE_BOOKING_TTL_SECONDS: i64 = 30 * 60;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ManageBookingLookupRequest {
+    booking_reference: String,
+    last_name: String,
+}
+
+async fn lookup_manage_booking(
+    State(state): State<AppState>,
+    payload: Result<Json<ManageBookingLookupRequest>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let request = payload
+            .map_err(|_| ApiError::manage_booking_validation())?
+            .0;
+        let lookup = ManageBookingLookup::new(request.booking_reference, request.last_name)
+            .map_err(|_| ApiError::manage_booking_validation())?;
+        let application = state
+            .manage_bookings
+            .as_ref()
+            .ok_or_else(ApiError::internal)?;
+        let now = Utc::now();
+        let record = application
+            .lookup(&lookup, now)
+            .await
+            .map_err(ApiError::from)?
+            .ok_or_else(ApiError::booking_not_found)?;
+        let secret = state
+            .manage_booking_signing_secret
+            .as_deref()
+            .ok_or_else(ApiError::internal)?;
+        let expires_at = now + ChronoDuration::seconds(MANAGE_BOOKING_TTL_SECONDS);
+        let mut nonce = [0_u8; 16];
+        rand::rng().fill_bytes(&mut nonce);
+        let token = crate::infrastructure::manage_booking::access::sign(
+            record.ticket_id,
+            expires_at,
+            nonce,
+            secret,
+        )
+        .map_err(|_| ApiError::internal())?;
+        let cookie = manage_booking_cookie(&token, state.secure_cookies)?;
+        Ok::<_, ApiError>((record.booking, cookie))
+    }
+    .await;
+    private_no_store(match result {
+        Ok((booking, cookie)) => ([(header::SET_COOKIE, cookie)], Json(booking)).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+async fn get_manage_booking(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let result = async {
+        let ticket_id = manage_booking_ticket_id(&state, &headers)?;
+        let application = state
+            .manage_bookings
+            .as_ref()
+            .ok_or_else(ApiError::internal)?;
+        let record = application
+            .get(ticket_id, Utc::now())
+            .await
+            .map_err(ApiError::from)?
+            .ok_or_else(ApiError::manage_booking_unauthorized)?;
+        // Both representations use the identity verified once for this request.
+        // This read must never call ticket issuance or a payment provider.
+        let ticket = application
+            .get_ticket(ticket_id)
+            .await
+            .map_err(ApiError::from)?
+            .ok_or_else(ApiError::manage_booking_unauthorized)?;
+        let tickets = state.tickets.as_ref().ok_or_else(ApiError::internal)?;
+        let (_, qr_token) = tickets.sign_existing(ticket).map_err(ApiError::from)?;
+        Ok::<_, ApiError>(ManageBookingDetailsResponse {
+            booking: record.booking,
+            qr_token,
+        })
+    }
+    .await;
+    private_no_store(match result {
+        Ok(booking) => Json(booking).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManageBookingDetailsResponse {
+    #[serde(flatten)]
+    booking: crate::domain::manage_booking::ManageBooking,
+    qr_token: String,
+}
+
+async fn get_manage_booking_ticket(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let result = async {
+        let ticket_id = manage_booking_ticket_id(&state, &headers)?;
+        let manage_bookings = state
+            .manage_bookings
+            .as_ref()
+            .ok_or_else(ApiError::internal)?;
+        let ticket = manage_bookings
+            .get_ticket(ticket_id)
+            .await
+            .map_err(ApiError::from)?
+            .ok_or_else(ApiError::manage_booking_unauthorized)?;
+        let tickets = state.tickets.as_ref().ok_or_else(ApiError::internal)?;
+        let (ticket, qr_token) = tickets.sign_existing(ticket).map_err(ApiError::from)?;
+        Ok::<_, ApiError>(TicketResponse { ticket, qr_token })
+    }
+    .await;
+    private_no_store(match result {
+        Ok(ticket) => Json(ticket).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+fn manage_booking_cookie(value: &str, secure: bool) -> Result<HeaderValue, ApiError> {
+    let secure_attribute = if secure { "; Secure" } else { "" };
+    HeaderValue::from_str(&format!(
+        "{MANAGE_BOOKING_COOKIE}={value}; Path=/api/v1/manage-booking; Max-Age={MANAGE_BOOKING_TTL_SECONDS}; HttpOnly; SameSite=Lax{secure_attribute}"
+    ))
+    .map_err(|_| ApiError::internal())
+}
+
+fn manage_booking_ticket_id(state: &AppState, headers: &HeaderMap) -> Result<Uuid, ApiError> {
+    let raw_cookie = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(ApiError::manage_booking_unauthorized)?;
+    let token = raw_cookie
+        .split(';')
+        .filter_map(|part| part.trim().split_once('='))
+        .find_map(|(name, value)| (name == MANAGE_BOOKING_COOKIE).then_some(value))
+        .ok_or_else(ApiError::manage_booking_unauthorized)?;
+    let secret = state
+        .manage_booking_signing_secret
+        .as_deref()
+        .ok_or_else(ApiError::internal)?;
+    crate::infrastructure::manage_booking::access::verify(token, secret, Utc::now())
+        .map_err(|_| ApiError::manage_booking_unauthorized())
+}
+
 async fn stripe_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -687,6 +839,36 @@ impl ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "INTERNAL_ERROR",
             message: "The seat hold service is temporarily unavailable.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+
+    fn manage_booking_validation() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "MANAGE_BOOKING_VALIDATION_FAILED",
+            message: "The Manage Booking lookup information is invalid.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+
+    fn booking_not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "BOOKING_NOT_FOUND",
+            message: "No booking matched the supplied information.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+
+    fn manage_booking_unauthorized() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "MANAGE_BOOKING_UNAUTHORIZED",
+            message: "Manage Booking authorization is missing or invalid.",
             conflicting_seats: Vec::new(),
             field_errors: Vec::new(),
         }
@@ -1159,6 +1341,21 @@ impl From<TicketRepositoryError> for ApiError {
             TicketRepositoryError::IdentityGeneration
             | TicketRepositoryError::Infrastructure(_) => {
                 tracing::error!("ticket repository failure");
+                Self::internal()
+            }
+        }
+    }
+}
+
+impl From<ManageBookingRepositoryError> for ApiError {
+    fn from(error: ManageBookingRepositoryError) -> Self {
+        match error {
+            ManageBookingRepositoryError::Infrastructure(_error) => {
+                tracing::error!("manage booking repository failure");
+                Self::internal()
+            }
+            ManageBookingRepositoryError::InconsistentState => {
+                tracing::error!("manage booking authoritative state is inconsistent");
                 Self::internal()
             }
         }

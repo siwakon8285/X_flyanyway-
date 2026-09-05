@@ -10,7 +10,7 @@ const DesktopNavigation = () => {
 
   return (
   <nav aria-label={t("navigation.primary")} className="hidden lg:block">
-    <ul className="flex items-center gap-7">
+    <ul className="flex items-center gap-4 xl:gap-7">
       {navigationItems.map((item) => (
         <li key={item.id}>
           <Link

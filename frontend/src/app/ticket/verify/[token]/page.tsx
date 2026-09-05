@@ -4,7 +4,7 @@ import { TicketVerifyPage } from "@/components/booking/ticket/TicketVerifyPage";
 
 export const metadata: Metadata = {
   description:
-    "Official cryptographic boarding pass verification for X-Fly flights.",
+    "Official cryptographic ticket verification for X-Fly flights.",
   title: "Ticket Verification · X-Fly Anyway",
 };
 

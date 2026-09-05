@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+@media print {
+  body:has([data-ticket-content]) {
+    background: white;
+    color: black;
+  }
+
+  body:has([data-ticket-content]) .site-header,
+  body:has([data-ticket-content]) footer {
+    display: none;
+  }
+
+  [data-ticket-page] {
+    min-height: auto;
+    height: auto;
+    overflow: visible;
+    break-before: auto;
+    break-after: auto;
+  }
+
+  [data-ticket-content] [data-ticket-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
 @keyframes passenger-field-shake {
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-2px); }

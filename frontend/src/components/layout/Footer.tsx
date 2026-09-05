@@ -2,7 +2,7 @@
 
 import { BrandWordmark } from "@/components/brand/BrandWordmark";
 import { Container } from "@/components/layout/Container";
-import { bookingHref } from "@/components/layout/navigationItems";
+import { bookingHref, manageBookingHref } from "@/components/layout/navigationItems";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import type { TranslationKey } from "@/i18n/types";
 
@@ -21,7 +21,7 @@ const footerGroups = [
     labelKey: "footer.travel",
     links: [
       { href: bookingHref, id: "book-flight", labelKey: "navigation.bookFlight" },
-      { href: "#top", id: "manage-booking", labelKey: "footer.manageBooking" },
+      { href: manageBookingHref, id: "manage-booking", labelKey: "footer.manageBooking" },
     ],
   },
   {

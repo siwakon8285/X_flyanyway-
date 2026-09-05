@@ -5,7 +5,8 @@ type NavigationItem = {
     | "navigation.explore"
     | "navigation.offers"
     | "navigation.cabins"
-    | "navigation.experience";
+    | "navigation.experience"
+    | "footer.manageBooking";
 };
 
 const navigationItems = [
@@ -13,9 +14,11 @@ const navigationItems = [
   { href: "/#offers", id: "offers", labelKey: "navigation.offers" },
   { href: "/#cabins", id: "cabins", labelKey: "navigation.cabins" },
   { href: "/#experience", id: "experience", labelKey: "navigation.experience" },
+  { href: "/manage-booking", id: "manage-booking", labelKey: "footer.manageBooking" },
 ] as const satisfies readonly NavigationItem[];
 
 const bookingHref = "/#flight-search";
+const manageBookingHref = "/manage-booking";
 
-export { bookingHref, navigationItems };
+export { bookingHref, manageBookingHref, navigationItems };
 export type { NavigationItem };

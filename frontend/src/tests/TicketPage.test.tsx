@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { BookingApiError } from "@/components/booking/ticket/ticketClient";
@@ -91,11 +93,11 @@ describe("TicketPage", () => {
     mockGetTicket.mockResolvedValue(mockTicketResponse);
     renderTicketPage();
 
-    expect(await screen.findByRole("heading", { name: "Your Flight Ticket" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Booking Confirmed" })).toBeInTheDocument();
     expect(screen.getByTestId("ticket-flight-number")).toHaveTextContent("XF 201");
     expect(screen.getByTestId("ticket-origin")).toHaveTextContent("BKK");
     expect(screen.getByTestId("ticket-destination")).toHaveTextContent("HND");
-    expect(screen.getByText("15 Oct 2026")).toBeInTheDocument();
+    expect(screen.getAllByText("15 Oct 2026")[0]).toBeInTheDocument();
     expect(screen.getByText("09:15")).toBeInTheDocument();
     expect(screen.getByText("15:45")).toBeInTheDocument();
 
@@ -119,24 +121,17 @@ describe("TicketPage", () => {
     // Status badge
     expect(screen.getByText("Ticket Issued")).toBeInTheDocument();
 
-    // QR Code Container & Verification URL
-    const qrContainer = screen.getByTestId("ticket-qr-container");
-    expect(qrContainer).toBeInTheDocument();
-    const qrUrl = qrContainer.getAttribute("data-verification-url");
-    expect(qrUrl).toMatch(/^https?:\/\/.+\/ticket\/verify\/.+/);
-    expect(qrUrl).toContain(mockTicketResponse.qrToken);
-    expect(qrUrl).not.toContain("NARA");
-    expect(qrUrl).not.toContain("SURI");
-    expect(qrUrl).not.toContain("49300");
-
-    expect(screen.getByText("Ticket Verification")).toBeInTheDocument();
-    expect(
-      screen.getByText("Cryptographically signed · Zero personal data encoded"),
-    ).toBeInTheDocument();
+    expect(screen.queryByTestId("ticket-qr-container")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ticket Verification")).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain(mockTicketResponse.qrToken);
+    expect(screen.getByText("Your booking is confirmed and payment has been completed. Keep your booking reference for future access.")).toBeInTheDocument();
 
     // Action buttons
-    expect(screen.getByRole("button", { name: "Print Ticket" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Return to Home" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Print Booking Summary" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/");
+    expect(screen.queryByRole("link", { name: "Return Home" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Manage Booking" })).not.toBeInTheDocument();
+    expect(document.querySelector("[data-ticket-page]")).toHaveClass("min-h-screen", "print:p-0");
   });
 
   it("copies booking reference and ticket number to clipboard", async () => {
@@ -199,10 +194,28 @@ describe("TicketPage", () => {
     mockGetTicket.mockResolvedValue(mockTicketResponse);
     renderTicketPage();
 
-    const printButton = await screen.findByRole("button", { name: "Print Ticket" });
+    const printButton = await screen.findByRole("button", { name: "Print Booking Summary" });
     fireEvent.click(printButton);
 
     expect(printSpy).toHaveBeenCalled();
     printSpy.mockRestore();
+  });
+  it("renders a localized printable Thai summary with a responsive route", async () => {
+    mockGetTicket.mockResolvedValue({ ...mockTicketResponse, ticket: { ...mockTicketResponse.ticket, journey: { ...mockTicketResponse.ticket.journey, arrivalDayOffset: 1 } } });
+    render(<LanguageProvider initialLocale="th"><TicketPage attemptId="attempt-1" holdId="hold-1" /></LanguageProvider>);
+    const heading = await screen.findByRole("heading", { name: "ยืนยันการจองแล้ว" });
+    expect(heading.parentElement?.parentElement?.parentElement).not.toHaveClass("print:hidden");
+    expect(screen.getByRole("button", { name: "พิมพ์สรุปการจอง" })).toBeInTheDocument();
+    for (const link of screen.getAllByRole("link", { name: "กลับสู่หน้าหลัก" })) expect(link).toHaveAttribute("href", "/");
+    expect(screen.queryByTestId("ticket-qr-container")).not.toBeInTheDocument();
+    expect(screen.getByTestId("ticket-origin").parentElement?.parentElement).toHaveClass("flex-col", "sm:flex-row");
+    expect(screen.getByText(/16.*2026/)).toBeInTheDocument();
+  });
+
+  it("removes the screen-height print constraint from the booking summary page", () => {
+    const printCss = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+
+    expect(printCss).toMatch(/@media print[\s\S]*\[data-ticket-page\][\s\S]*min-height:\s*auto/);
+    expect(printCss).toMatch(/\[data-ticket-page\][\s\S]*break-after:\s*auto/);
   });
 });

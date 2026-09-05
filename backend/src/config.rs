@@ -10,6 +10,7 @@ pub struct AppConfig {
     pub stripe_secret_key: Option<String>,
     pub stripe_webhook_secret: Option<String>,
     pub ticket_qr_signing_secret: String,
+    pub manage_booking_signing_secret: String,
 }
 
 impl AppConfig {
@@ -36,6 +37,11 @@ impl AppConfig {
             .map_err(|_| "TICKET_QR_SIGNING_SECRET must be configured".to_owned())?;
         if ticket_qr_signing_secret.len() < 32 {
             return Err("TICKET_QR_SIGNING_SECRET must be at least 32 characters".to_owned());
+        }
+        let manage_booking_signing_secret = env::var("MANAGE_BOOKING_SIGNING_SECRET")
+            .map_err(|_| "MANAGE_BOOKING_SIGNING_SECRET must be configured".to_owned())?;
+        if manage_booking_signing_secret.len() < 32 {
+            return Err("MANAGE_BOOKING_SIGNING_SECRET must be at least 32 characters".to_owned());
         }
         for (name, value, prefix) in [
             (
@@ -68,6 +74,7 @@ impl AppConfig {
             stripe_secret_key,
             stripe_webhook_secret,
             ticket_qr_signing_secret,
+            manage_booking_signing_secret,
             seat_hold_ttl,
             secure_cookies,
         })

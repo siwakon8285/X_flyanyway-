@@ -15,6 +15,7 @@ use crate::domain::{
 };
 
 mod extras;
+mod manage_booking;
 mod passengers;
 mod payment;
 mod review;

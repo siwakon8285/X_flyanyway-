@@ -10,25 +10,33 @@
 
 # 1. Product Vision
 
-X-Fly Anyway คือสายการบินระดับโลกที่ให้บริการผ่าน Web Booking โดยมีภาพลักษณ์:
+X-Fly Anyway คือ **Airline Booking & Ticketing Platform** สำหรับสายการบินระดับโลกที่ให้บริการจองผ่านเว็บไซต์เท่านั้น โดยมุ่งเน้นลูกค้าที่มีกำลังซื้อสูงและคาดหวังประสบการณ์ที่เร็ว พรีเมียม และมั่นใจได้.
 
-- Premium
-- Cinematic
-- Modern
-- Editorial
-- Fast
-- Confident
-- Global
-- Futuristic
-- Yellow-driven brand identity
+Brand / business direction:
 
-เว็บไซต์ต้องรู้สึกเหมือนประสบการณ์ของแบรนด์ระดับ luxury aviation มากกว่าเว็บฟอร์มจองตั๋วทั่วไป
+- Airline: **X-Fly Anyway**
+- Signature color: **Yellow / `#FFD400`** ตามโจทย์แบรนด์ของบริษัทและ stakeholder brand rationale
+- Current network story: **156 countries worldwide**
+- Future brand vision: **Moon route next year** — ใช้เป็น marketing / storytelling vision จนกว่าจะมี requirement ให้เป็น sellable inventory จริง
+- Target customer: premium / high-purchasing-power travelers
+- Customer booking channel: **Web only**
+- Customer account: **No registration/login required**
+- Booking frequency: no account-based booking limit; one customer may create multiple independent bookings
+- Customer recovery / post-booking access: **Booking Reference + Last Name**
+- Primary payment: **Card**; current academic implementation uses **Stripe Test Mode Card**
+- Alternative demonstration: **Mock Bitcoin** only; no blockchain/live crypto settlement
+- Cancellation: eligible when departure is at least 24 hours away, **0 fee / 100% refund**
+- Flight change: cancel the existing eligible booking and create a new booking; no direct rebooking/change-flight engine in the MVP
+- E-ticket: accessible through the website after Manage Booking verification
+- External systems: consume authorized X-Fly data through scoped API tokens
 
-ผู้ใช้ควรรู้สึกว่า:
+Product boundary:
 
-> “กำลังเริ่มต้นการเดินทาง” ไม่ใช่ “กำลังกรอกฟอร์ม”
+> X-Fly owns the **booking, payment, ticket, customer retrieval, cancellation/refund, internal management, reporting, and external-data API** domains.
 
----
+X-Fly does **not** implement airport operational systems such as customer online check-in, gate processing, staff QR-scanning workflow, baggage loading workflow, or boarding-pass lifecycle. Those are downstream systems that may consume authorized X-Fly booking/ticket data.
+
+The website must feel like a premium global airline experience rather than a generic booking form. The public journey can be cinematic, but transactional pages must prioritize clarity, response speed, accessibility, and trust.
 
 # 2. Core Design Principles
 
@@ -362,93 +370,191 @@ prefers-reduced-motion: reduce
 
 # 8. Website Experience Map
 
-Customer booking lifecycle:
+## 8.1 Customer Booking Lifecycle
 
 ```txt
 Landing
   ↓
-Immersive Flight Search
+Flight Search
   ↓
 Flight Results
   ↓
 Flight Detail + Cabin + Fare Conditions
   ↓
-Seat Experience
+Cinema-style Seat Selection
   ↓
-Passenger Details + Travel Documents
+Passenger Details + Travel Documents + Contact
   ↓
 Travel Extras
   ↓
 Booking Review
   ↓
-Payment — Stripe Test Mode (Card) / Mock Bitcoin
+Payment — Stripe Test Mode Card / Mock Bitcoin
   ↓
 Booking Confirmed
   ↓
-E-Ticket Issued
+Final Booking Summary
   ↓
-Manage Booking
+Confirmation Email
   ↓
-Online Check-in (eligible window)
-  ↓
-Boarding Pass
+END OF PRIMARY BOOKING FLOW
 ```
 
-Admin:
+The post-payment success page is a **final booking summary**, not the long-term E-ticket management surface. It must not require the customer to continue through additional lifecycle pages.
+
+## 8.2 Returning Customer / E-Ticket Lifecycle
 
 ```txt
-Admin Login
-  ↓
-Analytics Dashboard
-  ↓
-Flight Management
-  ↓
-Booking Management
-  ↓
-Ticket Management
-  ↓
-External API Clients
+Confirmation Email ──────────────┐
+                                 │
+Website → Manage Booking ────────┤
+                                 ↓
+                         /manage-booking
+                                 ↓
+                    Booking Reference
+                         + Last Name
+                                 ↓
+                         verified access
+                                 ↓
+                  /manage-booking/details
+                                 ↓
+               Booking Details / E-Ticket
+                                 ↓
+                  Verification QR available
 ```
 
-## 8.1 Realism Boundary
+Email must contain the Booking Reference and a link to the public Manage Booking entry page. The email must **not** embed lookup credentials in query parameters and should not make the verification QR the primary email artifact.
 
-X-Fly Anyway must model the customer journey and state transitions of a real airline booking system while remaining an academic MVP.
+The website navigation must expose a clear **Manage Booking** entry so a customer can return even when the email is not currently open.
 
-Include realistic concepts such as:
+## 8.3 Cancellation Lifecycle
 
-- passenger identity and passport/travel-document details
+```txt
+Manage Booking Details
+  ↓
+Cancellation eligibility
+  ├── >= 24h before departure → eligible
+  │       ↓
+  │    Cancel booking
+  │       ↓
+  │    100% refund / 0 fee
+  │
+  └── < 24h before departure → unavailable
+```
+
+If a customer wants another flight, the project rule is:
+
+```txt
+eligible cancellation
+  ↓
+cancel old booking
+  ↓
+new booking flow
+```
+
+No direct change-flight/rebooking engine is required.
+
+## 8.4 Internal X-Fly Lifecycle
+
+```txt
+Employee Authentication
+  ↓
+RBAC / Company-device policy
+  ↓
+Role-specific X-Fly workspace
+  ├── Executive analytics / reports
+  ├── Flight management
+  ├── Booking management
+  ├── Ticket / passenger operations
+  └── API client / token administration
+```
+
+A generic administrator does not automatically receive permission to create or edit flights. Flight mutation belongs to the responsible **Flight Manager** role.
+
+## 8.5 External System Lifecycle
+
+```txt
+External System
+  ↓
+API Client Credential / Token
+  ↓
+Scope authorization
+  ↓
+X-Fly REST API
+  ↓
+Only approved booking / flight / passenger / ticket data
+```
+
+Examples include baggage, ticketing, operational, or marketing-analysis systems. External systems must never obtain direct database access.
+
+## 8.6 Operational Boundary — Airport Check-in / Boarding
+
+Airport check-in, staff QR-scanning applications, gate operations, baggage-loading workflow, and boarding-pass generation are **outside the X-Fly implementation scope**.
+
+The project presentation may explain the downstream scenario:
+
+```txt
+Customer opens X-Fly E-Ticket / QR
+  ↓
+Airport / airline operational staff verify it using their own system
+  ↓
+Their operational system records check-in / boarding state
+```
+
+X-Fly only provides authoritative booking/ticket data and authorized integration interfaces. It does not implement that downstream workflow.
+
+## 8.7 Realism Boundary
+
+X-Fly models the parts required by the booking/ticketing requirement:
+
+- passenger identity and travel-document details
+- contact information
 - baggage allowance and optional extras
-- fare conditions and cancellation rules
+- cabin and cinema-style seat selection
+- fare conditions
+- cancellation/refund rules
 - fare / taxes / fees breakdown
-- booking, payment, and ticket states as separate concepts
-- booking reference and ticket number as separate identifiers
-- online check-in and boarding pass after ticketing
+- separate booking, payment, and ticket concepts
+- separate Booking Reference and Ticket Number
+- E-ticket access and signed verification QR
+- internal analytics / reports
+- RBAC
+- scoped external API access
 
-Do not attempt to implement a real GDS, DCS, government APIS transmission, visa eligibility engine, interline/codeshare, or real payment gateway in the MVP.
+Do not implement:
 
-## 8.2 Booking / Payment / Ticket Lifecycle
+- real GDS
+- real DCS / airport check-in
+- staff QR scanner
+- gate / boarding workflow
+- boarding-pass lifecycle
+- government APIS transmission
+- visa / Timatic engine
+- real baggage handling
+- chatbot / customer-support module
+- loyalty / points
+- promotion/campaign builder
+- live cryptocurrency
+- live Stripe charging for the university/demo environment
 
-These states must not be collapsed into a single generic status.
+Marketing systems may receive authorized aggregate/required booking data through the external API, but campaign creation belongs outside X-Fly.
+
+## 8.8 Booking / Payment / Ticket Lifecycle
+
+These concepts remain separate and must not be collapsed:
 
 ```txt
-Booking Status
-PENDING
-CONFIRMED
-CANCELLED
+Booking
+PENDING / CONFIRMED / CANCELLED
 
-Payment Status
-PENDING
-PAID
-FAILED
-REFUNDED
+Payment
+PENDING / PAID / FAILED / REFUNDED
 
-Ticket Status
-NOT_ISSUED
-ISSUED
-CANCELLED
+Ticket
+NOT_ISSUED / ISSUED / CANCELLED
 ```
 
-Conceptual lifecycle:
+Conceptually:
 
 ```txt
 Booking created
@@ -458,12 +564,13 @@ Payment processing
 Payment confirmed
   ↓
 Ticket issued
+  ↓
+Booking confirmation shown
+  ↓
+Confirmation email
 ```
 
-A failed payment must not imply an issued ticket.
-A cancelled booking must propagate appropriately to seat, payment/refund, and ticket state in later backend work.
-
----
+A failed payment must never imply an issued ticket. Cancellation/refund must update each domain according to its own authoritative state.
 
 # 9. Landing Page Experience
 
@@ -873,11 +980,13 @@ Do not implement government APIS transmission, visa checking, or Timatic.
 
 ## Contact Details
 
-Primary booking contact:
+Booking/contact details:
 
 - Email
 - Phone country code
 - Phone number
+
+The post-booking email flow requires one authoritative **booking contact**. If current persistence stores contact fields per passenger, a later migration/use-case must explicitly designate the booking contact rather than guessing which passenger owns confirmation delivery.
 
 Optional Emergency Contact:
 
@@ -901,7 +1010,7 @@ Optional Emergency Contact:
 04 Extras
 05 Review
 06 Payment
-07 Ticket
+07 Booking Confirmed
 ```
 
 ## Validation
@@ -1178,317 +1287,414 @@ Security rules:
 
 ---
 
-# 22. Payment Success Experience
+# 22. Booking Confirmation Experience
 
-อย่าใช้แค่ green check
+The page currently reached after successful payment/ticket issuance is the **end of the primary booking flow**.
 
-ทำเป็น cinematic transition:
-
-1. processing state
-2. yellow line travels across screen
-3. confirmation pulse
-4. booking confirmation
-5. booking reference reveal
-6. ticket issuance state
-7. ticket slides/folds in
-8. QR code appears
-9. CTA Print / Download / Manage Booking
-
-Conceptual state transition:
+Recommended customer-facing title:
 
 ```txt
-Booking: PENDING
-Payment: PROCESSING
-Ticket: NOT_ISSUED
-        ↓
-Payment: PAID
-        ↓
-Booking: CONFIRMED
-        ↓
-Ticket: ISSUED
+Booking Confirmed
 ```
 
-Failure path:
+Alternative brand copy may be:
 
 ```txt
-Payment: FAILED / DECLINED
-Booking: remains pending or failed according to backend policy
-Ticket: NOT_ISSUED
+Your Journey is Confirmed
 ```
 
-Do not imply that payment success and ticket issuance are the same state.
+Do not present this page as the long-term Manage Booking/E-Ticket portal.
 
----
+## Required Summary
 
-# 23. E-Ticket Design
+Show only the final booking essentials:
 
-E-Ticket ต้องเป็น signature visual แต่ต้องแยก concept ของ booking reference กับ ticket number อย่างชัดเจน
+- booking confirmed state
+- flight number
+- origin / destination
+- departure / arrival
+- passenger name(s)
+- cabin
+- seat(s)
+- Booking Reference
+- Ticket Number
+- amount paid / currency
+- payment successful state
+- confirmation-email status/copy where available
 
-ส่วนประกอบ:
+Recommended actions:
+
+```txt
+Print Summary
+Return Home
+```
+
+A visible Manage Booking entry may remain in the global navigation, but the post-payment flow must not force the user into another long page.
+
+## QR Boundary
+
+**Do not show the ticket verification QR on the Booking Confirmed summary page.**
+
+The verification QR belongs to the authenticated/retrieved **E-Ticket / Manage Booking Details** experience. This keeps the final purchase confirmation concise and separates booking completion from later ticket retrieval.
+
+## Email Boundary
+
+After successful booking/ticket issuance, the system should send a confirmation email in Branch 17A. The email is downstream notification behavior and must not be required for payment/ticket finalization to remain successful.
+
+Failure to send an email must not roll back:
+
+- successful payment
+- booked inventory
+- consumed hold
+- issued ticket
+
+## State Separation
+
+Do not imply that payment success and ticket issuance are the same state. The UI may summarize them together after both are authoritative, while the backend keeps their lifecycles separate.
+
+# 23. E-Ticket / Online Ticket Design
+
+The E-Ticket is the **returning-customer ticket surface**, reached after Manage Booking verification. It is not the immediate post-payment summary page.
+
+E-Ticket / Booking Details should include:
 
 - X-Fly branding
 - Booking Reference
 - Ticket Number
 - Ticket Status
-- Passenger
+- Passenger name(s)
 - Flight
 - Route
-- Gate placeholder where relevant
 - Cabin
-- Seat
-- Date
-- Baggage summary
-- QR Code
+- booked seat(s)
+- departure / arrival date-time
+- baggage / selected extras summary
+- payment summary/status
+- cancellation status/eligibility
+- signed verification QR
 
-Example conceptual identifiers:
+Booking Reference and Ticket Number are separate customer identifiers.
+
+Current canonical Booking Reference:
 
 ```txt
-Booking Reference
-XF8K2P
-
-Ticket Number
-999-1234567890
+XF + 8 unambiguous uppercase characters
+example shape: ^XF[A-Z2-9]{8}$
 ```
 
-Booking Reference ใช้ค้นหา/จัดการ booking ส่วน Ticket Number แทน issued e-ticket record ในระบบจำลอง.
+Do not rely on older six-character examples.
 
-QR should encode a signed verification token/URL where possible, not raw passenger PII.
+Ticket Number must remain a separate server-generated customer-facing identifier. Do not expose Stripe PaymentIntent IDs or database UUIDs as the customer-facing ticket number.
 
-Motion:
+## QR
 
-- paper/ticket reveal
-- perforation line
-- QR fade
-- subtle floating effect
-- print mode clean
+QR should encode the signed verification URL/token created by the backend.
 
-Print/PDF output ต้องอ่านง่ายแม้ไม่มี animation.
+Requirements:
 
----
+- no raw passenger PII in QR payload
+- no passport/email/phone/payment secrets
+- tamper-resistant signature
+- public verification returns only minimal safe ticket facts
+- QR is an **E-Ticket verification artifact**, not a Boarding Pass
+
+## Print
+
+The E-Ticket / booking details view should print cleanly from a browser where useful.
+
+X-Fly does not implement the downstream airport Boarding Pass workflow. If an operational system later needs to print a Boarding Pass, it must obtain authorized data through an approved integration boundary rather than treating this E-Ticket QR as a boarding-pass barcode.
 
 # 24. Manage Booking
 
-Search:
+Manage Booking is the secure returning-customer entry point.
+
+## Public Entry
+
+Route:
+
+```txt
+/manage-booking
+```
+
+This route must always present a lookup experience rather than silently showing a booking from an old authorization cookie.
+
+Required fields:
 
 ```txt
 Booking Reference
 Last Name
-Optional Email
 ```
 
-หลังเจอ booking:
+Email is **not** a lookup credential in the latest product flow.
+
+Lookup credentials must be sent in a POST body, not placed in URLs.
+
+Generic lookup failure:
+
+```txt
+We couldn't find a booking with those details.
+```
+
+The public error must not disclose whether the reference or surname was incorrect.
+
+## Successful Lookup
+
+On successful verification:
+
+```txt
+POST lookup
+  ↓
+short-lived signed HttpOnly Manage Booking authorization
+  ↓
+/manage-booking/details
+```
+
+The authorization context must be scoped to the exact booking/ticket verified by the latest successful lookup.
+
+### Stale-context invariant
+
+A stale Manage Booking cookie must never cause Booking A to display when the customer just entered the credentials for Booking B.
+
+Required behavior:
+
+- successful lookup replaces/refreshes the scoped authorization
+- details are loaded from the exact authorized ticket/booking identity
+- `/manage-booking` does not auto-render the previously authorized booking
+- direct `/manage-booking/details` without valid authorization is rejected safely
+- cross-booking authorization is rejected
+- changing bookings requires a new lookup
+
+This invariant is mandatory because manual QA found a stale-context defect where the displayed travel date/seat belonged to a different previous booking.
+
+## Booking Details / Online Ticket
+
+After verification, show the complete customer booking information in a compact, structured E-Ticket/Booking Details experience:
 
 - booking status
 - payment status
 - ticket status
-- animated ticket preview
-- flight status
-- passenger names
-- travel-document completion summary (mask sensitive values)
-- seat
+- flight / route / authoritative date-time
+- passenger name(s)
+- travel-document completeness only; mask sensitive values
 - cabin
+- finalized seats
 - baggage / selected extras
-- cancellation eligibility
-- refund status
-- online check-in eligibility when within the project check-in window
+- amount/currency
+- Booking Reference
+- Ticket Number
+- signed E-Ticket verification QR
+- cancellation eligibility / status
 
-Cancellation CTA ต้องแสดง:
+Do **not** show:
+
+- customer online check-in panel
+- boarding-pass CTA
+- airport operational state
+- raw passport number
+- Stripe provider reference
+- client secret
+- hold/session tokens
+
+## Navigation
+
+Customers must be able to reach Manage Booking through either:
 
 ```txt
-Free cancellation available until:
-DD MMM YYYY HH:mm
+Confirmation Email → Manage Booking
 ```
 
-ห้ามแสดง passport number แบบเต็มโดยไม่จำเป็นใน Manage Booking UI.
+or:
 
-เมื่อ booking มีสถานะ CANCELLED:
+```txt
+X-Fly Website Navigation → Manage Booking
+```
 
-- ticket must visibly show cancelled status
-- seat must not appear active
-- payment/refund state must remain separately understandable
+Desktop should use clear text such as `Manage Booking`; do not rely on an ambiguous icon alone.
 
----
+## Privacy
+
+Do not display full passport numbers or unnecessary contact/payment data. Use `Cache-Control: no-store, private` where appropriate for authenticated booking detail responses.
 
 # 25. Cancellation UX
 
-ถ้า >= 24 ชั่วโมง:
+Cancellation remains a core X-Fly customer feature.
+
+Project rule:
 
 ```txt
-Eligible for 100% refund
+departure >= 24 hours away
+→ cancellation allowed
+→ cancellation fee = 0
+→ refund = 100%
+
+departure < 24 hours away
+→ cancellation unavailable
 ```
 
-กดยกเลิก:
+The exact departure instant must use authoritative origin timezone data.
 
-1. confirmation dialog
-2. booking status transition
-3. seat release
-4. ticket cancelled
-5. mock refund animation
-6. receipt / status update
+If eligible, Branch 18 will implement:
 
-ถ้า < 24 ชั่วโมง:
+1. verified Manage Booking authorization for the exact booking
+2. server-side eligibility revalidation
+3. explicit confirmation
+4. booking cancellation
+5. ticket cancellation
+6. inventory release according to authoritative backend rules
+7. full refund state
+8. customer-safe receipt/status
 
-CTA disabled พร้อม explanation
+Because customers have no accounts, cancellation/refund authorization must rely on the verified Manage Booking context and authoritative booking/payment ownership. Refund must return through the original supported payment flow in the academic model; do not accept an arbitrary new refund destination merely from browser input.
 
----
-
-# 25A. Online Check-in Experience
-
-เพิ่ม customer lifecycle หลัง ticket issuance เพื่อให้ระบบจบถึงขั้นก่อนขึ้นเครื่อง.
-
-## Eligibility
-
-ใช้ mock/project-defined check-in window เช่นเปิดภายใน 24 ชั่วโมงก่อน departure.
-
-Check-in ต้องใช้ booking/ticket ที่ valid และไม่ cancelled.
-
-## Flow
+If the customer wants a different flight:
 
 ```txt
-Manage Booking
+cancel eligible old booking
   ↓
-CHECK IN
-  ↓
-Confirm Passenger
-  ↓
-Confirm Travel Document
-  ↓
-Confirm Seat
-  ↓
-Dangerous Goods Acknowledgement (demo)
-  ↓
-CHECK IN
-  ↓
-Boarding Pass
+complete a new booking
 ```
 
-## Required UI
+No direct change-flight engine is required.
 
-- passenger confirmation
-- masked passport/travel-document summary
-- flight / route / departure summary
-- seat confirmation
-- cabin
-- baggage summary
-- simple dangerous-goods acknowledgement
-- check-in success state
+Cancellation must remain idempotent and must not create double refunds or double seat release.
 
-## Scope
+# 25A. Airport Operations Boundary — Out of Scope
 
-Do not implement:
+X-Fly stops at booking/ticketing, Manage Booking, and cancellation/refund.
 
-- real airport Departure Control System (DCS)
+The following are explicitly **not implemented** in the X-Fly customer/admin product:
+
+- customer online check-in
+- staff QR-scanner application
+- airport Departure Control System
+- gate operations
+- boarding workflow
+- Boarding Pass generation/lifecycle
+- baggage loading/handling workflow
 - government APIS submission
-- real document verification
-- real airport gate assignment
-- baggage tag issuance
 
----
+The presentation may describe that airline/airport staff can verify X-Fly ticket data or consume authorized data in their own operational system, then record check-in/boarding state there.
 
-# 25B. Boarding Pass Experience
+That downstream system is **not part of this repository**.
 
-หลัง online check-in สำเร็จ ให้สร้าง mock Boarding Pass ที่แยกจาก E-Ticket.
+X-Fly may expose appropriately scoped REST API data to such a system through API clients/tokens, but must not simulate the downstream operational workflow inside the customer booking application.
 
-Boarding Pass fields:
+# 26. Admin Design Direction & RBAC
 
-- X-Fly branding
-- Passenger Name
-- Flight Number
-- Route
-- Departure Date
-- Boarding Time
-- Departure Time
-- Gate
-- Seat
-- Cabin
-- Boarding Group / Zone
-- Booking Reference
-- QR / barcode-style verification visual
+The internal system is for X-Fly company operations and management. It must not be a single unrestricted `admin` role.
 
-Gate, boarding time, and boarding group may be fixture values unless backend later provides them.
-
-Boarding Pass ต้อง:
-
-- print cleanly
-- work on mobile
-- distinguish itself visually from the E-Ticket
-- avoid embedding raw PII in QR payload
-
-Conceptually:
+Recommended roles:
 
 ```txt
-BOOKING
-↓
-PAYMENT
-↓
-E-TICKET ISSUED
-↓
-ONLINE CHECK-IN
-↓
-BOARDING PASS
+EXECUTIVE
+  → read analytics, reports, revenue/profitability, booking demand, nationality/route trends
+
+FLIGHT_MANAGER
+  → create/edit/cancel flight services, schedules, cabin/fare/capacity configuration
+
+BOOKING_OPERATIONS
+  → search/view/manage bookings within approved business actions
+
+TICKETING
+  → inspect ticket state, print ticket-related documents, booking/passenger data required for ticket operations
+
+BAGGAGE
+  → read only the passenger/flight/baggage-related fields required for baggage operations
+
+API_ADMIN
+  → create/revoke API clients, tokens, scopes, integration access
+
+SYSTEM_ADMIN
+  → identity/security/system administration only
 ```
 
----
+A role may be combined for a specific employee only through explicit authorization. `SYSTEM_ADMIN` does not automatically receive flight-edit permission.
 
-# 26. Admin Design Direction
+## Company-device policy
 
-Admin ไม่ต้อง cinematic เท่าหน้า public
+Employees are expected to access internal X-Fly tools only from company-managed computers/tablets.
 
-แต่ยังคง brand quality
+Do not implement this by trusting browser User-Agent strings.
 
-Style:
+Production enforcement belongs to the identity/network/device-trust boundary, for example managed-device posture, enterprise VPN/private network, or equivalent infrastructure controls. The application must still enforce authentication, session security, and RBAC.
+
+Admin visual direction:
 
 - dark professional dashboard
 - yellow accent
 - dense but readable
 - large KPI
-- animated charts
-- subtle transitions
-- strong table UX
+- strong table/filter UX
+- restrained motion
+- accessible on company desktop/tablet devices
 
----
+# 27. Executive Analytics & Reporting
 
-# 27. Admin Dashboard
+The executive/owner view must answer business questions such as:
 
-KPI:
+- which flights/routes generate the most revenue
+- which flights are under-booked / over-booked
+- booking volume by route
+- load factor
+- passenger nationality distribution
+- cancellation/refund rate
+- cabin mix
+- trends by time period
+
+Required filters:
 
 ```txt
-Revenue
-Bookings
-Passengers
-Load Factor
-Cancellation Rate
-Flights Today
+Origin
+Destination
+Flight
+Date range
+Cabin
+Booking status
 ```
 
-Analytics:
+Required report periods:
 
 ```txt
 Daily
 Weekly
 Monthly
-Custom
+Custom range
 ```
 
-Charts:
+Core KPI:
 
-- Revenue Trend
-- Booking Trend
+- Revenue
+- Bookings
+- Passengers
+- Seats sold
 - Load Factor
-- Most Booked Flights
-- Least Booked Flights
-- Nationality Distribution
-- Route Popularity
+- Cancellation Rate
+- Refund Amount
+- Flights operated/scheduled
 
-ใช้ Recharts
+## Profit / Loss
 
-GSAP ใช้ตอน initial reveal เท่านั้น
+The stakeholder wants profit/loss by flight.
 
----
+Do **not** label revenue as profit.
+
+Profit/loss is valid only after the system has authoritative or approved demo cost data, for example operational cost per flight/instance.
+
+Concept:
+
+```txt
+Profit = recognized revenue - modeled/authoritative flight operating cost
+```
+
+If cost data has not been implemented, show Revenue and mark Profit/Loss unavailable rather than inventing it.
+
+Charts may use Recharts. Motion should be limited to initial reveal/filter transitions.
 
 # 28. Flight Management UI
 
-Admin:
+Only authorized `FLIGHT_MANAGER` users may create or modify flight inventory/schedules.
+
+Capabilities:
 
 ```txt
 Create Flight
@@ -1497,29 +1703,34 @@ Cancel Flight
 View Flight
 ```
 
-Fields:
+Fields may include:
 
 - Flight Number
 - Origin
 - Destination
-- Aircraft
-- Departure
-- Arrival
-- Cabin pricing
-- Status
+- aircraft
+- departure / arrival local schedule
+- authoritative origin timezone
+- cabin availability
+- cabin pricing
+- seat capacity/inventory template
+- status
+- approved operational cost field/fixture when required for profit/loss reporting
 
-UI:
+Requirements:
 
-- wizard หรือ structured drawer
 - validation
 - preview before save
 - destructive confirmation
-
----
+- audit log
+- optimistic UI only with server confirmation
+- unauthorized employee roles cannot mutate flight data
 
 # 29. Booking Management UI
 
-Admin search/filter:
+Authorized booking/ticket operations staff can search/filter authoritative bookings.
+
+Search/filter:
 
 ```txt
 Booking Reference
@@ -1530,57 +1741,90 @@ Status
 Cabin
 ```
 
-Detail:
+Details may include:
 
-- passenger
+- passenger identity fields appropriate to the staff role
 - flight
 - seat
+- extras / baggage
 - ticket
-- payment
+- payment status (not raw card details)
 - cancellation
 - refund
 
----
+Role-specific field filtering is required. A baggage role should not automatically receive payment or unnecessary passport/contact data.
 
-# 30. Ticket Management
+Admin actions must be server-authorized and auditable.
 
-Admin สามารถ:
+# 30. Ticket / Passenger Operations
 
-- search ticket
-- view QR
-- print
-- verify ticket
-- see cancelled status
+Ticketing/operations users need an internal read/print workflow for authoritative ticket records.
 
----
+Capabilities:
 
-# 31. External Integration UI
+- search by Booking Reference / Ticket Number
+- view issued/cancelled ticket status
+- view passenger/flight/seat fields required for the role
+- print ticket-related documents where required
+- inspect cancellation/refund relation
+- verify that a ticket exists and is authoritative
 
-Admin page:
+This is **not** an airport check-in or boarding-pass application.
+
+The system must never expose full Stripe card data, client secrets, or unrelated passenger-sensitive fields merely because an employee can access ticket operations.
+
+# 31. External Integration & API Client Model
+
+External-system integration is a **core requirement**, not an optional future extra.
+
+Architecture:
 
 ```txt
-API Clients
+External System
+  ↓
+API Client ID / Secret or Token
+  ↓
+Authentication
+  ↓
+Scope authorization
+  ↓
+X-Fly REST API
+  ↓
+Approved data only
 ```
 
-สามารถ:
-
-- Create Client
-- Revoke Client
-- View Client ID
-- Regenerate Secret
-- Assign Scope
-- Disable Client
-
-Scopes:
+Example scopes:
 
 ```txt
 flights:read
 bookings:read
 passengers:read
 tickets:read
+baggage:read
+analytics:read
 ```
 
----
+Examples:
+
+- baggage system receives only flight/passenger/baggage fields it needs
+- ticketing/operations integration receives booking/ticket fields
+- marketing analytics system receives approved booking/aggregate data, not campaign-building capability
+- airport/downstream operational systems may consume approved ticket data without X-Fly implementing their check-in workflow
+
+API client administration should support:
+
+- create client
+- reveal secret/token once
+- store only a safe hash where applicable
+- assign/revoke scopes
+- revoke/disable client
+- regenerate/rotate secret
+- expiration where appropriate
+- rate limiting
+- audit log
+- last-used visibility
+
+External clients never connect directly to PostgreSQL.
 
 # 32. Responsive Strategy
 
@@ -1617,34 +1861,78 @@ tickets:read
 
 ---
 
-# 33. Performance Budget
+# 33. Performance, Scale & Reliability Targets
 
-Motion-heavy แต่ต้องเร็ว
+X-Fly targets a premium customer experience and has aggressive stakeholder non-functional requirements.
 
-Targets:
+## Customer response target
+
+Stakeholder target:
+
+```txt
+critical customer actions should respond within ~1 second
+```
+
+Treat this as an API/application performance objective that must be measured, not a blanket promise for every network/browser condition.
+
+Frontend experience targets remain:
 
 ```txt
 LCP < 2.5s target
 CLS < 0.1
 INP < 200ms target
-60fps where possible
+60fps where possible for motion
 ```
 
-Rules:
+## Scale target
 
-- transform + opacity เป็นหลัก
-- avoid layout thrashing
-- use requestAnimationFrame-aware libraries
-- preload hero asset
-- lazy-load below fold
-- responsive image
-- video poster
-- compress media
-- unload inactive animations
-- cleanup ScrollTrigger
-- no animation memory leak
+Stakeholder requirement mentions approximately **100,000 concurrent users/requests per second**.
 
----
+This is a production-scale architecture target, **not a claim that the university self-hosted server currently sustains 100,000 req/s**.
+
+The system design must therefore remain horizontally scalable:
+
+- stateless backend instances where practical
+- Nginx/upstream load balancing
+- connection pooling
+- database indexing/query budgets
+- caching where safe
+- rate limiting / backpressure
+- observability
+- capacity/load testing
+- cloud migration path
+
+Branch 28 must benchmark realistic scenarios and report measured throughput/latency honestly.
+
+## Deployment environments
+
+```txt
+University / demo:
+self-hosted Ubuntu + Docker + Nginx + Named Cloudflare Tunnel
+
+Target large-scale production:
+Cloud infrastructure / horizontally scalable deployment
+```
+
+The self-hosted deployment proves functional/operational architecture; it does not certify the full stakeholder scale target.
+
+## Data durability / safety
+
+Requirement: booking/ticket data must not be lost.
+
+Design expectations:
+
+- PostgreSQL constraints/transactions
+- persistent storage
+- automated backups
+- tested restore procedure
+- controlled migrations
+- auditability for privileged actions
+- secret management
+- HTTPS
+- monitoring/alerting strategy
+
+No system can truthfully guarantee absolute zero data loss under every failure mode; documents and presentations should describe the durability/recovery mechanisms and tested recovery objectives instead of making an absolute guarantee.
 
 # 34. Accessibility
 
@@ -1667,22 +1955,26 @@ Seat state ห้ามแยกด้วยสีอย่างเดียว
 # 35. Frontend Component Architecture
 
 ```txt
-apps/web/src/
+frontend/src/
 
 app/
+  manage-booking/
+  admin/
+
 components/
   brand/
   layout/
   navigation/
   motion/
   booking/
+    confirmation/
+    review/
   flight/
   seat/
   ticket/
   payment/
   extras/
-  check-in/
-  boarding-pass/
+  manage-booking/
   admin/
   analytics/
 
@@ -1694,11 +1986,14 @@ features/
   payment/
   manage-booking/
   travel-extras/
-  check-in/
-  boarding-pass/
+  cancellation/
   admin-auth/
+  admin-rbac/
   admin-flights/
+  admin-bookings/
+  admin-tickets/
   analytics/
+  api-clients/
 
 lib/
   api/
@@ -1711,7 +2006,9 @@ styles/
 types/
 ```
 
----
+Do not create customer check-in or boarding-pass feature modules in this product scope.
+
+Email delivery is a backend/infrastructure responsibility; the frontend only renders confirmation state and links.
 
 # 36. Motion Utility Architecture
 
@@ -2540,72 +2837,65 @@ No `stripe listen` process is required on the deployed server.
 
 ---
 
-# 56. BRANCH 16 — Booking Success + E-Ticket QR
+# 56. BRANCH 16 — Ticket Foundation + Signed QR
 
 ## Branch
 
 ```txt
-feat/16-ticket-qr
+feat/16-ticket-qr-experience
 ```
 
-## Tasks
+## Status
 
-- success scene
-- booking reference reveal
-- ticket number generation/display boundary
-- booking status
-- payment status
-- ticket status
-- e-ticket
-- signed verification QR/token strategy
-- ticket verification state
-- print CSS
-- PDF/download strategy
-- copy booking reference
-- copy ticket number where appropriate
-- manage booking CTA
+**Completed technical foundation / manually verified.**
 
-## Motion
+Branch 16 established the issued-ticket domain, server-generated Booking Reference / Ticket Number, signed verification QR, public zero-PII verification, and private authorized ticket retrieval.
 
-- booking confirmation reveal
-- ticket issuance transition
-- ticket reveal
-- QR fade
-- confirmation animation
+The latest product UX decision in Branch 17 **repositions** these capabilities:
 
-## Important
+```txt
+Immediate post-payment page
+→ Booking Confirmed summary
+→ NO QR
 
-Booking Reference and Ticket Number are separate identifiers.
-Ticket must not become ISSUED on failed payment.
+Returning customer
+→ Manage Booking verification
+→ Booking Details / E-Ticket
+→ signed QR shown here
+```
 
-## Branch 16 Architecture & Invariants
+Therefore Branch 16 remains the backend/ticket/QR foundation, while Branch 17 changes where customers see the E-Ticket/QR.
 
-- **Downstream-Only Issuance**: Ticket issuance and retrieval are strictly observational. They never mutate `payment_attempts`, `seat_holds`, `flight_seats`, or `flight_instances`. Tickets are issued only if the payment attempt has status `SUCCEEDED`, the hold has `consumed_at IS NOT NULL`, and the inventory seats are `BOOKED`.
-- **Separate Customer Identifiers**:
-  - `Booking Reference`: 6 uppercase alphanumeric characters (excluding ambiguous letters).
-  - `Ticket Number`: Standard 14-character airline e-ticket format (`026-` + 10 digits).
-  - Stripe PaymentIntent IDs and database UUIDs are never used as customer-facing ticket identifiers.
-- **Idempotency & Concurrency**:
-  - Database constraint `UNIQUE (payment_attempt_id)` prevents duplicate ticket issuance.
-  - Concurrent requests lock hold and payment rows `FOR UPDATE` and return the single authoritative ticket row deterministically.
-- **QR Cryptography & Zero-PII**:
-  - Token scheme: `v1.<ticket_id_uuid>.<hmac_sha256_hex>`.
-  - Signed via backend-only `TICKET_QR_SIGNING_SECRET` (min 32 characters, never exposed to frontend).
-  - Verification uses constant-time comparison (`subtle::ConstantTimeEq`).
-  - Tampered, malformed, or invalid tokens fail cleanly (`valid: false`).
-  - Neither the QR token nor the public verify endpoint exposes passenger names, passport numbers, email, phone, or payment data.
-- **QR URL & Origin Strategy**:
-  - QR encodes the full frontend verification URL: `<frontend-origin>/ticket/verify/<signed-token>`.
-  - In browser: automatically uses `window.location.origin` (seamless on `localhost`, custom ports, or deployed domains).
-  - Configurable via `NEXT_PUBLIC_SITE_URL` / `NEXT_PUBLIC_APP_URL` override.
-- **Payment Modes**:
-  - Card payment remains **Stripe Test Mode Card** only.
-  - Bitcoin remains mock simulation only.
-  - No real charge or live payments exist in this environment.
+## Core Architecture & Invariants
 
----
+- **Downstream-only issuance**: ticket issuance/retrieval never finalizes payment or inventory.
+- Ticket issues only from authoritative `SUCCEEDED` payment + consumed hold + finalized `BOOKED` seats.
+- `UNIQUE(payment_attempt_id)` prevents duplicate logical tickets.
+- Booking Reference and Ticket Number are separate identifiers.
+- Current Booking Reference shape is `XF` + 8 unambiguous uppercase characters (`^XF[A-Z2-9]{8}$`).
+- Ticket Number is a separate server-generated customer-facing identifier.
+- Stripe PaymentIntent IDs/database UUIDs are not customer-facing ticket numbers.
+- QR signing uses backend-only `TICKET_QR_SIGNING_SECRET`.
+- QR verification uses HMAC-SHA256 and constant-time comparison.
+- QR/public verify expose no passenger PII.
+- QR encodes a frontend verification URL and supports deployed origin configuration.
+- Card remains Stripe Test Mode only.
+- Bitcoin remains mock-only.
 
-# 57. BRANCH 17 — Manage Booking
+## Manual QA Foundation Verified
+
+- Stripe Test payment → ticket
+- Mock Bitcoin → ticket
+- refresh/idempotency
+- DB payment/hold/seat invariant
+- QR valid verification
+- tampered QR rejection
+- mobile/LAN QR verification
+- unauthorized private ticket access blocked
+
+Do not weaken these security/inventory invariants while simplifying the customer UX.
+
+# 57. BRANCH 17 — Manage Booking / E-Ticket Retrieval
 
 ## Branch
 
@@ -2613,465 +2903,546 @@ Ticket must not become ISSUED on failed payment.
 feat/17-manage-booking-ui
 ```
 
-## Tasks
+## Current Goal
 
-- Booking Reference
-- Last Name
-- optional Email
-- lookup result
-- booking status
-- payment status
-- ticket status
-- ticket preview
-- flight state
-- passenger summary
-- masked travel-document summary
-- seat state
-- baggage / extras summary
-- cancellation eligibility
-- refund status
-- online check-in eligibility / CTA boundary
+Refine the returning-customer experience around the latest product boundary.
 
-## Privacy
+Required changes before closure:
 
-Do not display full passport numbers or unnecessary sensitive data.
+- fix the stale Manage Booking authorization/context bug found in manual QA
+- `/manage-booking` must be lookup-only, not auto-display an old cookie booking
+- lookup uses **Booking Reference + Last Name**
+- remove optional Email as a lookup credential
+- successful lookup establishes the scoped HttpOnly authorization
+- navigate to `/manage-booking/details`
+- details show authoritative booking/E-Ticket information
+- move verification QR to Manage Booking Details / E-Ticket
+- remove QR from the immediate Booking Confirmed summary
+- remove customer Check-in UI/state/CTA
+- preserve cancellation eligibility display only
+- add clear global `Manage Booking` navigation
+- keep passenger-sensitive fields masked/minimized
+- ticket access must reuse the existing issued ticket, never issue a duplicate
+- maintain observational-only payment/hold/seat behavior
 
----
+## Manual-QA Defect — Must Fix
 
-# 58. BRANCH 18 — Cancellation & Refund UX
-
-## Branch
+Manual QA observed:
 
 ```txt
-feat/18-cancellation-refund-ui
+Ticket / newly booked journey
+  ↓
+Manage Booking
+  ↓
+old authorization cookie
+  ↓
+different previous booking displayed
 ```
 
-## Tasks
+This is a Branch 17 blocker.
 
-- >= 24 hour validation display
-- eligible state
-- ineligible state
-- confirmation modal
-- refund 100%
-- ticket cancel state
-- seat release state
-- receipt/status
+The exact latest successful lookup must determine the booking displayed. Stale-cookie state must never substitute another booking.
+
+## Engineering Hygiene Note
+
+A separate pre-existing test-suite lifecycle defect was reproduced on the Branch 16 baseline: repeated full backend test runs can collide with legacy active hold fixtures. Fix that in a dedicated test-hygiene change; do not disguise it as a Manage Booking product defect.
 
 ---
 
-# 58A. BRANCH 18A — Online Check-in
+# 57A. BRANCH 17A — Booking Confirmation Email
 
 ## Branch
 
 ```txt
-feat/18a-online-check-in
+feat/17a-booking-confirmation-email
 ```
 
 ## Goal
 
-Extend the customer lifecycle from ticketing to pre-boarding.
+Send the booking customer a concise confirmation email after successful ticket issuance.
 
-## Tasks
+Email content:
 
-- check-in eligibility window
-- confirm passenger
-- masked travel-document confirmation
-- confirm flight
-- confirm seat
-- baggage summary
-- dangerous-goods acknowledgement (demo)
-- check-in success state
-- invalid/cancelled/ineligible states
-- responsive/mobile check-in flow
+- X-Fly branding
+- booking confirmed message
+- route / flight / departure summary
+- Booking Reference
+- link to `/manage-booking`
 
-## Out of Scope
+Do not include:
 
-- real DCS
-- government APIS submission
-- airport operational integration
+- QR as the main email artifact
+- surname/email in URL query parameters
+- passport data
+- payment secrets
+- Stripe identifiers/client secret
+
+## Authoritative Recipient
+
+The system must define one authoritative booking-contact email.
+
+If the current schema only stores email per passenger and has no booking contact, Branch 17A must introduce/define that ownership explicitly rather than guessing or emailing every passenger.
+
+## Delivery Architecture
+
+Use a backend email-provider abstraction.
+
+Email delivery must be idempotent enough to avoid duplicate sends caused by refresh, webhook replay, or retry.
+
+Email failure must not roll back a successful:
+
+- payment
+- seat finalization
+- hold consumption
+- ticket issuance
+
+A delivery-status/outbox approach is preferred if persistence is required.
 
 ---
 
-# 58B. BRANCH 18B — Boarding Pass
+# 58. BRANCH 18 — Cancellation & Full Refund
 
 ## Branch
 
 ```txt
-feat/18b-boarding-pass
+feat/18-cancellation-refund
+```
+
+## Rule
+
+```txt
+>= 24 hours before authoritative departure
+→ cancel allowed
+→ fee 0
+→ refund 100%
+
+< 24 hours
+→ cancel unavailable
 ```
 
 ## Tasks
 
-- boarding pass UI
-- passenger
-- flight / route
-- boarding time fixture
-- departure time
-- gate fixture
-- seat
-- cabin
-- boarding group / zone fixture
-- QR/barcode verification visual
-- print CSS
-- mobile wallet-style presentation direction
-- download/print strategy
-- clear distinction from E-Ticket
+- verified Manage Booking authorization for the exact booking
+- server-side eligibility revalidation using origin timezone
+- confirmation UX
+- idempotent booking cancellation
+- idempotent ticket cancellation
+- authoritative seat release
+- refund state
+- Stripe Test Mode refund integration where current payment architecture supports it
+- Mock Bitcoin refund simulation
+- receipt/status
+- repeat-request safety
+- audit event
+
+No direct flight-change engine. Customer cancels and books again.
 
 ---
 
-# 59. BRANCH 19 — Admin Login + Admin Shell
+# 59. BRANCH 19 — Admin Authentication + RBAC
 
 ## Branch
 
 ```txt
-feat/19-admin-shell
+feat/19-admin-auth-rbac
 ```
 
 ## Tasks
 
-- admin login
-- secure session UI
-- protected route UX
-- sidebar
-- topbar
-- admin search
-- responsive admin shell
-- logout
-- expired session state
+- employee login/session
+- protected admin shell
+- RBAC policy
+- roles: EXECUTIVE / FLIGHT_MANAGER / BOOKING_OPERATIONS / TICKETING / BAGGAGE / API_ADMIN / SYSTEM_ADMIN
+- unauthorized states
+- session expiry/logout
+- role-aware navigation
+- server-side authorization tests
+- company-device policy boundary documented
 
-Admin motion restrained
+Do not grant flight mutation to generic admin by default.
 
 ---
 
-# 60. BRANCH 20 — Admin Flight Management
+# 60. BRANCH 20 — Executive Dashboard + Reports
 
 ## Branch
 
 ```txt
-feat/20-admin-flight-management
+feat/20-executive-analytics-reports
 ```
 
 ## Tasks
-
-- list flights
-- create flight
-- edit flight
-- cancel flight
-- fare by cabin
-- schedule
-- route
-- aircraft
-- seat capacity
-- validation
-- confirmation
-- activity feedback
-
----
-
-# 61. BRANCH 21 — Admin Booking & Ticket Management
-
-## Branch
-
-```txt
-feat/21-admin-booking-ticketing
-```
-
-## Tasks
-
-- booking table
-- filters
-- passenger search
-- booking detail
-- ticket view
-- QR verification
-- print
-- cancellation status
-- refund status
-
----
-
-# 62. BRANCH 22 — Analytics Dashboard
-
-## Branch
-
-```txt
-feat/22-admin-analytics
-```
-
-## Required Analytics
 
 - Revenue
 - Bookings
 - Passengers
+- Seats sold
 - Load Factor
-- Cancellation Rate
-- Most Booked Flights
-- Least Booked Flights
-- Nationality
-- Daily
-- Weekly
-- Monthly
-- Custom range
+- Cancellation/Refund rate
+- route popularity
+- most/least booked flights
+- nationality distribution
+- cabin mix
+- Daily / Weekly / Monthly / Custom reports
+- origin/destination/flight/date/cabin filters
+- export/print strategy where useful
 
-## Charts
-
-Recharts
-
-## Motion
-
-- KPI count-up
-- chart entrance
-- filter transition
-- no excessive looping
-
-## Profit
-
-MVP:
-
-```txt
-Revenue
-```
-
-Profit only if cost data exists
+Profit/Loss requires authoritative/demo operational cost data. Do not fake profit from revenue alone.
 
 ---
 
-# 63. BRANCH 23 — External API Client UI
+# 61. BRANCH 21 — Flight Management
 
 ## Branch
 
 ```txt
-feat/23-integration-admin-ui
+feat/21-flight-management
 ```
 
 ## Tasks
 
-- API Client list
+- FLIGHT_MANAGER-only create/edit/cancel
+- schedules / timezone
+- route
+- aircraft
+- cabin pricing
+- seat capacity/inventory template
+- status
+- cost data boundary for profit/loss where approved
+- validation
+- audit trail
+- destructive confirmation
+
+---
+
+# 62. BRANCH 22 — Booking Management
+
+## Branch
+
+```txt
+feat/22-booking-management
+```
+
+## Tasks
+
+- booking search/filter
+- passenger search
+- flight/date/status/cabin filters
+- authoritative booking detail
+- payment/ticket/cancellation/refund summary
+- role-aware sensitive-field filtering
+- auditable approved operations
+
+This is internal booking administration, not airport check-in.
+
+---
+
+# 63. BRANCH 23 — Ticket / Passenger Operations
+
+## Branch
+
+```txt
+feat/23-ticket-passenger-operations
+```
+
+## Tasks
+
+- ticket search
+- Booking Reference / Ticket Number lookup
+- ticket status
+- passenger/flight/seat view according to role
+- print-ready ticket documentation
+- cancellation/refund relation
+- ticket verification
+- TICKETING / BAGGAGE-specific field permissions
+
+No staff QR scanner or Boarding Pass workflow.
+
+---
+
+# 64. BRANCH 24 — API Client Management
+
+## Branch
+
+```txt
+feat/24-api-client-management
+```
+
+## Tasks
+
+- API client list
 - create client
-- client ID
-- secret reveal-once UX
-- scopes
-- revoke
-- disable
-- regenerate
-- API docs link
+- reveal credential once
+- hashed/safe credential persistence
+- assign scopes
+- revoke / disable
+- rotate/regenerate
+- expiration
+- last-used
+- audit visibility
 
 ---
 
-# 64. BRANCH 24 — Security & Company Device UX
+# 65. BRANCH 25 — External REST API + Token / Scopes
 
 ## Branch
 
 ```txt
-feat/24-security-hardening-ui
+feat/25-external-rest-api
 ```
 
 ## Tasks
 
-- session timeout UX
-- unauthorized page
-- device/network restriction messaging
-- IP restriction support where backend provides
-- secure headers verification
-- no sensitive client storage
-- admin audit visibility if available
+- bearer/API-client authentication
+- scope authorization
+- flights:read
+- bookings:read
+- passengers:read
+- tickets:read
+- baggage:read
+- analytics:read where approved
+- field-level data minimization
+- rate limiting
+- audit logs
+- API documentation
+- token revocation behavior
+- contract tests
 
-Production strategy:
-
-```txt
-Admin Login
-+
-Secure Cookie
-+
-IP/VPN restriction when deployed
-```
+External clients never receive direct PostgreSQL access.
 
 ---
 
-# 65. BRANCH 25 — Accessibility & Reduced Motion
+# 66. BRANCH 26 — Security, Audit & Company-Device Boundary
 
 ## Branch
 
 ```txt
-chore/25-accessibility-motion
+feat/26-security-audit
 ```
 
 ## Tasks
 
-- keyboard audit
-- focus audit
-- contrast
-- seat labels
+- admin session hardening
+- RBAC audit
+- audit log for privileged mutations
+- API-token audit
+- secure headers
+- secret review
+- sensitive-data exposure review
+- company-device/network enforcement integration boundary
+- unauthorized/access-denied UX
+- security documentation
+- legal/compliance requirement matrix
+
+Do not claim application-side User-Agent checks enforce company-owned devices.
+
+---
+
+# 67. BRANCH 27 — Accessibility + Responsive + Cross-Browser QA
+
+## Branch
+
+```txt
+test/27-accessibility-responsive
+```
+
+## Tasks
+
+- keyboard
+- focus
 - ARIA
+- contrast
 - reduced motion
-- screen reader forms
-- skip navigation
-- modal focus trap
-- chart text alternatives
-
----
-
-# 66. BRANCH 26 — Responsive & Mobile Motion
-
-## Branch
-
-```txt
-feat/26-responsive-motion
-```
-
-## Tasks
-
-- desktop
-- laptop
-- tablet
-- mobile
-- small mobile
-
-เปลี่ยน heavy desktop interaction เป็น mobile-native interaction
-
-เช่น:
-
-```txt
-Horizontal Pin → Vertical Cards
-Heavy Parallax → Fade/Slide
-Large Seat Canvas → Zoomable/scrollable seat area
-```
-
----
-
-# 67. BRANCH 27 — Performance Optimization
-
-## Branch
-
-```txt
-perf/27-frontend-performance
-```
-
-## Tasks
-
-- bundle analysis
-- dynamic import
-- GSAP scope audit
-- ScrollTrigger cleanup
-- image optimization
-- video optimization
-- font loading
-- preload critical assets
-- lazy load
-- reduce JS
-- avoid hydration mismatch
-- Core Web Vitals audit
-
----
-
-# 68. BRANCH 28 — Cross-Browser QA
-
-## Branch
-
-```txt
-test/28-cross-browser-qa
-```
-
-## Browsers
-
-- Chrome
-- Safari
-- Firefox
-- Edge
-
-## Devices
-
-- macOS
-- Windows
+- responsive desktop/tablet/mobile
 - iOS Safari
 - Android Chrome
-
-## Tests
-
-- scroll
-- sticky
-- date picker
+- Chrome / Safari / Firefox / Edge
+- touch targets
+- booking forms
 - seat map
-- payment mock
-- print ticket
-- admin charts
+- Manage Booking
+- Admin company-tablet layout
 
 ---
 
-# 69. BRANCH 29 — End-to-End Booking Experience
+# 68. BRANCH 28 — Performance & Load Testing
 
 ## Branch
 
 ```txt
-test/29-booking-e2e
+perf/28-load-performance
 ```
 
-Playwright scenarios:
+## Tasks
 
-```txt
-Search Flight
-→ Select Flight
-→ Select Cabin
-→ Hold Seat
-→ Passenger + Passport
-→ Travel Extras
-→ Booking Review
-→ Stripe Test Payment / Mock Bitcoin
-→ Booking Confirmed
-→ E-Ticket
-→ Manage Booking
-→ Online Check-in
-→ Boarding Pass
-```
+Frontend:
 
-รวม:
+- bundle analysis
+- media optimization
+- animation lifecycle
+- Core Web Vitals
+- hydration
+- lazy loading
 
-- seat conflict
-- expired hold
-- payment declined
-- payment failed
-- ticket not issued on payment failure
-- cancellation
-- refund status
-- manage booking
-- check-in ineligible
-- check-in eligible
-- boarding pass generation
-- passport/travel-document validation edge cases
+Backend/system:
+
+- latency benchmarks
+- database query/index review
+- connection-pool behavior
+- concurrency/load scenarios
+- Nginx upstream behavior
+- rate limiting/backpressure
+- identify horizontal-scaling boundary
+
+Report measured results honestly.
+
+The stakeholder `~100,000 users/requests per second` target is a production architecture objective, not a result to claim unless a representative environment actually proves it.
 
 ---
 
-## Nginx Deployment Policy
+# 69. BRANCH 29 — Production Readiness + End-to-End QA
 
-สำหรับ deployment ของ X-Fly ให้ถือว่า **Nginx เป็น reverse proxy / application gateway หลักของโปรเจกต์**.
+## Branch
+
+```txt
+test/29-production-readiness
+```
+
+## Core Customer E2E
+
+```txt
+Search
+→ Flight
+→ Cabin
+→ Seat Hold
+→ Passenger
+→ Extras
+→ Review
+→ Stripe Test / Mock Bitcoin
+→ Booking Confirmed
+→ Confirmation Email boundary
+→ Manage Booking lookup
+→ E-Ticket / QR
+→ Cancellation eligibility / cancellation
+```
+
+Must include:
+
+- seat conflict / hold expiry
+- payment decline/failure
+- ticket not issued on failed payment
+- stale Manage Booking cookie regression
+- wrong surname/reference anti-enumeration
+- unauthorized details access
+- cancellation >=24h / <24h
+- refund idempotency
+- responsive/customer critical flows
+- admin RBAC critical flows
+- external API token/scope critical flows
+- backup/restore and migration readiness evidence
+
+Explicitly absent from E2E:
+
+- customer online check-in
+- Boarding Pass
+- staff QR scanner
+- gate/baggage operational workflow
+
+---
+
+# 69A. Nginx Deployment Policy
+
+สำหรับ deployment ของ X-Fly ให้ถือว่า **Nginx เป็น Primary Web Edge / Reverse Proxy / TLS Origin / Application Gateway หลักของโปรเจกต์**.
+
+Domain infrastructure กลางของ server คือ:
+
+```txt
+siwakondev.win
+```
+
+X-Fly ควรใช้ project-specific subdomain เพื่อไม่ผูก root domain กับ product เดียว เช่น:
+
+```txt
+https://x-fly.siwakondev.win
+```
+
+ชื่อจริงต้องตรวจว่า route/DNS ยังว่างและได้รับ approval ก่อน deploy.
 
 Agent ต้อง:
 
 - ใช้ Nginx เป็น reverse proxy หลัก
 - ห้ามเปลี่ยนไปใช้ Caddy หรือ reverse proxy ตัวอื่นโดยพลการ
-- validate Nginx config ก่อน reload/restart
+- ให้ Nginx terminate TLS ที่ origin จริง ไม่ใช่ติด certificate ไว้เฉย ๆ
+- ใช้ **Named Cloudflare Tunnel** เป็น public ingress หลักของ X-Fly
+- ให้ `cloudflared` ส่ง traffic เข้า Nginx ผ่าน HTTPS origin เช่น `https://127.0.0.1:8443`
+- เปิด certificate verification ระหว่าง `cloudflared` → Nginx และกำหนด SNI / `originServerName` ให้ตรงกับ certificate
+- ห้ามใช้ `noTLSVerify: true` เป็น production/default configuration
+- validate Nginx config ก่อน reload/restart ทุกครั้ง
 - ใช้ Docker DNS/service names สำหรับ container upstream เมื่อ deploy
 - ไม่ expose PostgreSQL สู่ Internet
-- ไม่ expose frontend/backend public ports โดยไม่จำเป็น
-- คง Cloudflare Quick Tunnel เป็น public ingress สำหรับ university/demo deployment
+- ไม่ expose frontend/backend public host ports โดยไม่จำเป็น
 - คง PostgreSQL เป็น private database หลัง backend เท่านั้น
 - same-origin routing ควรให้ `/` ไป Frontend และ `/api/*` ไป Rust backend
+- รองรับ Nginx `upstream` สำหรับ backend replicas / load balancing เมื่อมีเหตุผลจริง
+- ใช้ Nginx serve static assets โดยตรงเฉพาะเมื่อเหมาะกับ production build และไม่ทำให้ Next.js asset semantics เสีย
+- ใช้ Nginx เป็น gateway หน้า backend หลาย service เมื่อ architecture แตก service เพิ่ม
 
-Current deployment direction:
+Target deployment direction:
 
 ```txt
-Internet
+Internet / Professor / Tester
+  ↓ HTTPS
+Cloudflare Edge + DNS
+  ↓ Named Cloudflare Tunnel
+cloudflared on safe-host
+  ↓ HTTPS (origin TLS, certificate verified)
+127.0.0.1:8443
   ↓
-Cloudflare Quick Tunnel
-  ↓
-Nginx
+Nginx :443 ssl
   ├── /      → Next.js
   └── /api/* → Rust + Axum
                   ↓
-             PostgreSQL
+             PostgreSQL 18
 ```
 
-Stripe Test Mode webhook บน server ต้องใช้ public HTTPS URL ที่เข้าถึง backend route ผ่าน Cloudflare/Nginx ได้.
+### X-Fly TLS / Certificate Plan
+
+เป้าหมายคือให้ **Nginx ถือ certificate + private key และทำ TLS termination ที่ origin จริง** เพื่อฝึก production-style TLS lifecycle.
+
+Preferred certificate strategy สำหรับ `safe-host`:
+
+```txt
+Let's Encrypt
+  ↓ DNS-01 challenge via Cloudflare DNS API
+siwakondev.win + *.siwakondev.win
+  ↓
+Nginx certificate files (read-only mount)
+```
+
+เหตุผลที่เลือก DNS-01:
+
+- server อยู่หลัง CGNAT / router ที่ควบคุมไม่ได้
+- ไม่ต้องเปิด inbound 80/443 เพื่อทำ ACME HTTP challenge
+- wildcard certificate ใช้กับหลาย project subdomain ได้
+- รองรับ automatic renewal ได้
+
+Security requirements:
+
+- Cloudflare API token สำหรับ ACME ต้องเป็น least-privilege และอยู่บน server เท่านั้น
+- certificate private key ห้าม commit Git
+- certificate path ต้อง mount เข้า Nginx แบบ read-only
+- renewal ต้องมี validation/reload hook ที่ปลอดภัย
+- ถ้าใช้ Cloudflare Origin CA แทนในอนาคต ต้องบันทึกเหตุผลและยืนยันว่า origin รับ traffic ผ่าน Cloudflare เท่านั้น
+
+> การเพิ่ม TLS ที่ Nginx มีเป้าหมายหลักด้าน security architecture, operational realism และการเรียนรู้ Nginx TLS; ไม่ควรอ้างว่า HTTPS เพิ่ม performance โดยตัวมันเอง.
+
+Stripe Test Mode webhook บน server ต้องใช้ fixed public HTTPS URL ผ่าน Named Tunnel/Nginx เช่น:
+
+```txt
+https://x-fly.siwakondev.win/api/v1/payments/stripe/webhook
+```
+
+Quick Tunnel ยังคงใช้ได้เฉพาะ fallback / temporary troubleshooting และไม่ใช่ default deployment path ของ X-Fly หลังมี domain แล้ว.
 
 ---
 
@@ -3085,7 +3456,9 @@ chore/30-deployment-prep
 
 ## Deployment Target
 
-X-Fly จะ deploy เข้า **self-hosted Ubuntu Server ที่เตรียมไว้แล้ว** แทนการใช้ Vercel / Render เป็น default deployment target.
+สำหรับ **university/demo environment** X-Fly จะ deploy เข้า **self-hosted Ubuntu Server ที่เตรียมไว้แล้ว** แทนการใช้ Vercel / Render เป็น default demo target.
+
+Stakeholder production-scale requirement still prefers Cloud infrastructure; the self-hosted server is the current academic/demo deployment and learning environment, not the final 100,000 req/s production claim.
 
 Server foundation ที่มีอยู่แล้ว:
 
@@ -3110,11 +3483,17 @@ Ubuntu Server
 ## Target Runtime Architecture
 
 ```txt
-Cloudflare Quick Tunnel
+x-fly.siwakondev.win
+        ↓ HTTPS
+Cloudflare Edge + DNS
         ↓
-127.0.0.1:8080
+Named Cloudflare Tunnel
         ↓
-Nginx
+cloudflared on Ubuntu Server
+        ↓ HTTPS origin (certificate verified)
+127.0.0.1:8443
+        ↓
+Nginx :443 ssl
         ↓
 Docker network: web
    ┌──────┴──────┐
@@ -3125,6 +3504,8 @@ Next.js        Rust + Axum
                   ↓
              PostgreSQL 18
 ```
+
+Nginx ต้องถือ certificate/private key และ terminate TLS ที่ origin จริง. Public edge TLS ของ Cloudflare และ origin TLS ของ Nginx เป็นคนละ TLS hop และทั้งสองต้องถูกใช้งานจริง.
 
 Frontend และ Backend ไม่ควร publish public host ports หาก Nginx สามารถเข้าถึงผ่าน Docker network `web` ได้.
 
@@ -3302,16 +3683,18 @@ Nginx มีหน้าที่หลักสำหรับ X-Fly deployment
 5. **Serve Static Files** — สามารถส่ง static assets โดยตรงเมื่อเหมาะสม
 6. **Gateway หน้า backend หลาย service** — route เช่น `/api/auth`, `/api/booking`, `/api/payment` ไป service ที่เหมาะสม
 
-สำหรับ architecture ปัจจุบัน Cloudflare Quick Tunnel เป็น public HTTPS edge และส่ง traffic เข้ามายัง Nginx บน loopback ของ Ubuntu Server.
+สำหรับ target architecture ใหม่ Cloudflare Named Tunnel เป็น public ingress และ `cloudflared` ต้องเชื่อม Nginx ผ่าน HTTPS origin บน loopback ของ Ubuntu Server.
 
 Target request flow:
 
 ```txt
 Internet
-  ↓
-Cloudflare Quick Tunnel
-  ↓
-Nginx
+  ↓ HTTPS
+Cloudflare Edge
+  ↓ Named Tunnel
+cloudflared
+  ↓ HTTPS / verified origin certificate
+Nginx :443 ssl
   ↓
 Docker network: web
   ├── Frontend
@@ -3396,6 +3779,15 @@ CI/CD is optional future work and is not a blocker for the university submission
 - configure same-origin `/api` strategy where appropriate
 - verify CORS requirements after proxy routing
 - prepare Nginx reverse-proxy / gateway routes for X-Fly
+- prepare X-Fly `server_name` for the approved `*.siwakondev.win` subdomain
+- verify Named Cloudflare Tunnel route for the X-Fly hostname
+- verify `cloudflared` runs as a persistent system service
+- prepare Nginx origin TLS listener (`listen 443 ssl` inside the container)
+- prepare loopback-only HTTPS host mapping such as `127.0.0.1:8443:443`
+- prepare Let's Encrypt DNS-01 certificate lifecycle for `siwakondev.win` / `*.siwakondev.win`
+- mount certificate material into Nginx read-only
+- document automatic certificate renewal + safe Nginx reload procedure
+- verify cloudflared → Nginx certificate validation; no permanent `noTLSVerify`
 - define migration + seed commands
 - add frontend/backend health checks
 - verify restart policy
@@ -3420,6 +3812,10 @@ CI/CD is optional future work and is not a blocker for the university submission
 - services can join expected Docker networks
 - backend can resolve PostgreSQL internally
 - Nginx upstream service names, internal ports, and routes are documented
+- X-Fly public hostname under `siwakondev.win` is documented
+- Named Tunnel route is documented
+- Nginx origin TLS certificate strategy and renewal path are documented
+- cloudflared → Nginx uses verified HTTPS origin in the target deployment
 - `.env.example` contains no secrets
 - production build passes
 - pgAdmin can inspect Local X-Fly PostgreSQL directly through the local host port
@@ -3440,22 +3836,32 @@ chore/31-production-deploy
 
 ## Deployment Architecture
 
-University/demo deployment:
+X-Fly university/demo deployment หลังมี domain แล้วให้ใช้ **fixed hostname + Named Cloudflare Tunnel + Nginx origin TLS** เป็น default path.
+
+Preferred hostname:
+
+```txt
+https://x-fly.siwakondev.win
+```
+
+Target architecture:
 
 ```txt
 Professor / Tester
         ↓
 HTTPS
         ↓
-Cloudflare Edge
+Cloudflare Edge + DNS
         ↓
-Cloudflare Quick Tunnel
+Named Cloudflare Tunnel
         ↓
 cloudflared on Ubuntu Server
         ↓
-127.0.0.1:8080
+HTTPS origin (certificate verified)
         ↓
-Nginx
+127.0.0.1:8443
+        ↓
+Nginx :443 ssl
         ↓
 Docker network: web
    ┌──────┴──────┐
@@ -3471,27 +3877,16 @@ Next.js        Rust + Axum
           Daily Backup 02:00
 ```
 
-Cloudflare Quick Tunnel เป็น deployment URL สำหรับ:
+Nginx ต้องทำงานจริงใน 6 บทบาทตามความเหมาะสมของ X-Fly:
 
-- university submission
-- professor demo
-- temporary public testing
+1. Reverse Proxy
+2. Load Balancer (เมื่อมี backend replica > 1)
+3. Web Server
+4. TLS Termination at origin
+5. Serve Static Files (เมื่อเหมาะกับ build/runtime)
+6. Gateway หน้า backend/API services
 
-Quick Tunnel URL เป็น temporary URL และอาจเปลี่ยนเมื่อ tunnel restart.
-
-สำหรับ client/production จริงในอนาคต:
-
-```txt
-Domain
-  ↓
-Cloudflare DNS
-  ↓
-Named Cloudflare Tunnel
-  ↓
-Same Ubuntu/VPS-compatible architecture
-```
-
-การซื้อ domain และ Named Tunnel ไม่ใช่ requirement สำหรับ university MVP.
+Quick Tunnel เก็บไว้เฉพาะ fallback / temporary troubleshooting. ไม่ใช่ URL หลักสำหรับส่งอาจารย์เมื่อ Named Tunnel พร้อมแล้ว.
 
 ## Deployment Workflow
 
@@ -3501,7 +3896,8 @@ Same Ubuntu/VPS-compatible architecture
 ssh safe-host
 docker ps
 docker exec postgres pg_isready -U postgres
-curl http://127.0.0.1:8080
+systemctl status cloudflared --no-pager
+docker exec nginx nginx -t
 ```
 
 ตรวจ:
@@ -3509,9 +3905,12 @@ curl http://127.0.0.1:8080
 - Docker daemon
 - PostgreSQL
 - Nginx
+- `cloudflared` Named Tunnel service
 - free disk space
 - current backups
 - expected Docker network `web`
+- certificate files exist and are readable by the Nginx container
+- certificate expiry / renewal state
 
 ### 2. Source Deployment
 
@@ -3531,8 +3930,10 @@ git pull
 - never commit secrets
 - validate required variables
 - verify backend database URL uses internal Docker hostname
-- verify frontend uses expected `/api` or approved public API base
+- verify frontend uses same-origin `/api` where approved
 - verify no LAN IP is hard-coded
+- set the public application base URL to the approved `https://<x-fly-host>.siwakondev.win`
+- keep Stripe in Test/Sandbox mode only
 
 ### 4. Database Safety
 
@@ -3601,16 +4002,64 @@ docker compose logs
 
 Application containers ต้องใช้ restart policy ที่เหมาะสม เช่น `unless-stopped`.
 
-### 6. Nginx Integration
+### 6. Nginx + TLS Integration
 
-- update the existing server-managed Nginx configuration (for example `/etc/nginx/nginx.conf` or the existing site config under `/etc/nginx/sites-available/`)
-- route frontend to the X-Fly frontend service
-- route `/api/*` to the Rust backend where applicable
-- validate config
-- reload Nginx
-- verify from Ubuntu host through `127.0.0.1:8080`
+Server-managed Nginx config อยู่ที่:
 
-### 7. Local Smoke Test
+```txt
+/srv/apps/proxy/nginx.conf
+```
+
+ต้อง:
+
+- add/update X-Fly `server_name`
+- route `/` to the X-Fly Next.js frontend
+- route `/api/*` to the Rust backend
+- configure `listen 443 ssl`
+- reference the approved certificate + private key paths
+- preserve proxy headers
+- configure static-file handling only when it matches the production build
+- configure `upstream` only when replicas actually exist
+- validate config with `docker exec nginx nginx -t`
+- reload only after validation succeeds
+
+### 7. Origin TLS Verification
+
+ทดสอบ HTTPS ที่ Nginx origin โดยไม่ bypass certificate verification.
+
+Concept:
+
+```txt
+cloudflared
+  ↓ HTTPS
+127.0.0.1:8443
+  ↓ SNI / originServerName matches certificate
+Nginx :443 ssl
+```
+
+ตรวจ:
+
+- certificate hostname/SAN matches the configured origin server name
+- certificate is not expired
+- private key permissions are restricted
+- `cloudflared` does not rely on permanent `noTLSVerify`
+- renewal hook validates and reloads Nginx safely
+
+### 8. Named Cloudflare Tunnel
+
+Named Tunnel ต้อง route approved X-Fly hostname ไป HTTPS origin:
+
+```txt
+x-fly.siwakondev.win
+      ↓
+Named Cloudflare Tunnel
+      ↓
+https://127.0.0.1:8443
+```
+
+`cloudflared` ควรรันเป็น persistent system service เพื่อให้ tunnel กลับมาหลัง reboot.
+
+### 9. Local / Origin Smoke Test
 
 ตรวจอย่างน้อย:
 
@@ -3618,7 +4067,8 @@ Application containers ต้องใช้ restart policy ที่เหม�
 - flight search
 - flight results
 - seat flow
-- passenger/review/payment mock flow
+- passenger/review/payment flow
+- Stripe Test Mode payment flow
 - ticket / QR verification route
 - manage booking
 - admin login/access boundary
@@ -3626,32 +4076,21 @@ Application containers ต้องใช้ restart policy ที่เหม�
 - database read/write
 - static assets
 - error pages
+- HTTPS origin handshake
 
-### 8. Public Tunnel
+### 10. Public Verification
 
-เปิด:
+ทดสอบจาก Internet จริง:
 
-```txt
-cloudflared tunnel --url http://127.0.0.1:8080
-```
-
-รับ URL:
-
-```txt
-https://xxxxx.trycloudflare.com
-```
-
-จากนั้นทดสอบจาก Internet จริง ไม่ใช่เฉพาะ LAN.
-
-### 9. Public Verification
-
+- `https://x-fly.siwakondev.win` resolves and loads
 - HTTPS works through Cloudflare
-- Stripe Test/Sandbox webhook can reach `/api/v1/payments/stripe/webhook` through the public HTTPS URL
+- cloudflared → Nginx origin TLS is verified
+- Stripe Test/Sandbox webhook reaches `/api/v1/payments/stripe/webhook`
 - a Test Mode payment can correlate Stripe Dashboard → webhook → X-Fly DB
 - frontend loads from external network
 - API requests work through Nginx
 - no mixed-content errors
-- QR / verification URLs use the correct public base where required
+- QR / verification URLs use the fixed public base URL
 - admin access restrictions behave as designed
 - PostgreSQL is not publicly reachable
 - no frontend/backend development ports are exposed unnecessarily
@@ -3659,16 +4098,17 @@ https://xxxxx.trycloudflare.com
 - responsive/mobile smoke test
 - browser console clean
 
-### 10. Demo Handoff
+### 11. Demo Handoff
 
 ก่อนส่งอาจารย์:
 
 - keep Ubuntu Server powered on
 - ensure Docker containers are healthy
-- ensure Quick Tunnel process is running
-- verify current `trycloudflare.com` URL
+- ensure `cloudflared` Named Tunnel service is healthy
+- verify `x-fly.siwakondev.win` is the current fixed URL
+- verify Nginx certificate validity
 - perform one final external smoke test
-- provide the current temporary URL to professor/tester
+- provide the fixed project URL to professor/tester
 
 ## Tasks
 
@@ -3679,21 +4119,28 @@ https://xxxxx.trycloudflare.com
 - run demo seed if required
 - manual pre-release database backup
 - integrate Nginx routes
-- validate Nginx configuration before reload
-- reload Nginx only after validation succeeds
-- local smoke test through Nginx
-- launch Cloudflare Quick Tunnel
+- configure X-Fly `server_name`
+- configure Nginx `listen 443 ssl`
+- install/mount the approved certificate into Nginx
+- configure/verify Let's Encrypt DNS-01 renewal path for the server certificate
+- validate Nginx before reload
+- verify HTTPS origin locally
+- configure Named Tunnel hostname route
+- verify `cloudflared` persistent service
+- verify cloudflared origin certificate validation
 - external Internet smoke test
+- verify Stripe Test Mode webhook on the fixed HTTPS hostname
 - verify QR/public URLs
 - verify admin access/security rules
 - verify health checks
 - verify container restart behavior
 - verify logs
 - verify backup still operates
+- verify certificate renewal/reload procedure
 - verify `X-Fly - PRODUCTION` pgAdmin SSH Tunnel access
 - inspect deployed schema and representative application records through pgAdmin
 - confirm PostgreSQL is still not publicly exposed
-- document current temporary demo URL
+- document the fixed X-Fly demo hostname
 
 ## Exit Criteria
 
@@ -3701,10 +4148,12 @@ Full public path works:
 
 ```txt
 Internet
-↓
-Cloudflare Quick Tunnel
-↓
-Nginx
+↓ HTTPS
+Cloudflare Edge
+↓ Named Cloudflare Tunnel
+cloudflared
+↓ HTTPS / verified certificate
+Nginx TLS
 ↓
 Frontend / Backend
 ↓
@@ -3716,11 +4165,16 @@ PostgreSQL
 - booking E2E works on deployed environment
 - database migrations are applied
 - backup exists
+- fixed `*.siwakondev.win` project hostname works
 - HTTPS works via Cloudflare
+- Nginx terminates TLS at origin successfully
+- cloudflared verifies the Nginx origin certificate
+- certificate renewal procedure is documented/testable
 - PostgreSQL remains non-public
 - pgAdmin on Mac can inspect Production through SSH Tunnel
 - Local and Production data remain isolated
 - application recovers correctly after container restart
+- Named Tunnel recovers correctly after server reboot/service restart
 - final external smoke test passes
 
 ---
@@ -3820,52 +4274,51 @@ Presentation assets:
 14 Review + Fare Conditions
 ↓
 15 Mock Payment Foundation
+↓
 15B Stripe Test Payment
 ↓
-16 Booking Success + E-Ticket
+16 Booking Success + Ticket Foundation
 ↓
-17 Manage Booking
+17 Manage Booking / E-Ticket Retrieval
 ↓
-18 Cancellation
+17A Booking Confirmation Email
 ↓
-18A Online Check-in
+18 Cancellation + Full Refund
 ↓
-18B Boarding Pass
+19 Admin Authentication + RBAC
 ↓
-19 Admin Shell
+20 Executive Dashboard + Reports
 ↓
-20 Flight Management
+21 Flight Management
 ↓
-21 Booking/Ticket Management
+22 Booking Management
 ↓
-22 Analytics
+23 Ticket / Passenger Operations
 ↓
-23 Integration UI
+24 API Client Management
 ↓
-24 Security
+25 External REST API + Token / Scopes
 ↓
-25 Accessibility
+26 Security / Audit / Company Device Boundary
 ↓
-26 Responsive
+27 Accessibility / Responsive / Cross-Browser
 ↓
-27 Performance
+28 Performance / Load Testing
 ↓
-28 Browser QA
+29 Production Readiness / E2E
 ↓
-29 E2E
+30 Deployment Preparation
 ↓
-30 Deployment Prep
-↓
-31 Deploy
+31 Self-Hosted Deployment
 ↓
 32 Final Polish
 ↓
-33 Documentation
+33 Documentation / Presentation
 ```
 
-The alphanumeric branches (`13A`, `18A`, `18B`) extend the roadmap without renumbering existing completed/planned numeric branches.
+`17A` extends the roadmap without renumbering already completed numeric branches.
 
----
+Customer online check-in and Boarding Pass branches are intentionally removed from the implementation roadmap because they belong to downstream airport operations, not the X-Fly booking/ticketing product.
 
 # 75. Git Merge Strategy
 
@@ -3968,28 +4421,28 @@ WebGL
 
 # 79. What Makes X-Fly “Wow”
 
-ความว้าวต้องมาจากการรวมกันของ:
+The premium effect should come from the combination of:
 
 1. Cinematic first impression
 2. Strong typography
 3. Aircraft media
-4. Scroll storytelling
-5. Smooth section choreography
-6. Premium booking transitions
-7. Cinema-like seat selection
-8. Seat hold countdown
-9. Payment completion sequence
-10. E-Ticket reveal
-11. QR ticket
-12. Dark + Yellow identity
-13. Realistic passenger/passport and fare-review flow
-14. Online check-in
-15. Boarding Pass
-16. Analytics ที่ดูเหมือน production dashboard
+4. Global 156-country storytelling
+5. Moon future-vision storytelling
+6. Smooth section choreography
+7. Premium booking transitions
+8. Cinema-like cabin/seat selection
+9. Server-authoritative seat-hold experience
+10. Confident Stripe Test payment experience
+11. Clear Booking Confirmed finish
+12. Elegant confirmation email
+13. Secure returning-customer Manage Booking
+14. Premium online E-Ticket with signed verification QR
+15. Dark + Yellow identity
+16. Realistic passenger/travel-document/fare-review flow
+17. Executive analytics that answer real planning questions
+18. Secure external API/token integration
 
-ไม่ใช่แค่ “ใส่ animation เยอะ”
-
----
+The “wow” is not created by adding more lifecycle screens. Transactional and returning-customer flows should become simpler as the user gets closer to the booking outcome.
 
 # 80. Final Frontend / Motion Stack
 
@@ -4028,12 +4481,12 @@ Three.js
 
 # 81. Final System Context
 
-Frontend experience นี้ทำงานอยู่บน architecture หลักของ X-Fly:
+Core application architecture:
 
 ```txt
 Next.js / React
       ↓
-REST API
+REST / HTTPS
       ↓
 Rust + Axum
       ↓
@@ -4042,22 +4495,44 @@ SQLx
 PostgreSQL
 ```
 
-Local Development:
+Product context:
+
+```txt
+Customer Web
+  ├── Booking
+  ├── Payment
+  ├── Booking Confirmed
+  ├── Manage Booking / E-Ticket
+  └── Cancellation / Refund
+
+Employee Web
+  ├── RBAC
+  ├── Executive Analytics / Reports
+  ├── Flight Management
+  ├── Booking Management
+  ├── Ticket / Passenger Operations
+  └── API Client Management
+
+External Systems
+      ↓ Token / Scope
+X-Fly External REST API
+      ↓
+Authoritative X-Fly Data
+```
+
+Airport check-in, boarding-pass lifecycle, gate processing, and staff QR-scanner applications are downstream external operations and are not implemented by X-Fly.
+
+## Local Development
 
 ```txt
 Mac
 ├── Next.js local
 ├── Rust + Axum local
 ├── pgAdmin
-│     ↓
-│   localhost:<POSTGRES_HOST_PORT>
-│     ↓
 └── PostgreSQL Docker
 ```
 
-Local backend และ pgAdmin ใช้ PostgreSQL local instance ตัวเดียวกัน.
-
-Self-Hosted Deployment:
+## University / Demo Deployment
 
 ```txt
 Developer Mac
@@ -4068,9 +4543,9 @@ Ubuntu Server
       ↓
 Docker Compose
       ↓
-Cloudflare Quick Tunnel
-      ↓
-Nginx
+Named Cloudflare Tunnel
+      ↓ HTTPS origin
+Nginx TLS
    ┌──┴───────────┐
    ↓              ↓
 Frontend        Backend
@@ -4079,86 +4554,74 @@ Next.js         Rust + Axum
              PostgreSQL 18
 ```
 
-Production database inspection:
+Public host:
 
 ```txt
-pgAdmin on Mac
-      ↓
-SSH Tunnel (safe-host)
-      ↓
-Ubuntu Server 127.0.0.1:5432
-      ↓
-PostgreSQL 18 / x_fly
+https://x-fly.siwakondev.win
 ```
 
-Stripe environment policy:
+PostgreSQL remains private. Production inspection from Mac uses pgAdmin through SSH Tunnel only.
+
+## Production-Scale Direction
+
+The stakeholder production target prefers Cloud infrastructure and aggressive scale. The self-hosted university server is the current demo/learning deployment, not evidence of 100,000 req/s capacity.
+
+The application must retain a migration path toward:
+
+- multiple backend instances
+- load balancing
+- cloud networking
+- managed/scaled data services where appropriate
+- observability
+- capacity planning
+
+## Stripe
+
+University/demo remains **Stripe Test Mode only**.
+
+Local webhook development may use Stripe CLI.
+
+Deployed demo webhook:
 
 ```txt
-Local:
-Stripe Test/Sandbox
-  ↓
-stripe listen
-  ↓
-localhost:8080/api/v1/payments/stripe/webhook
-
-Self-Hosted University/Demo:
-Stripe Test/Sandbox
-  ↓
-public HTTPS webhook
-  ↓
-Cloudflare Quick Tunnel
-  ↓
-Nginx
-  ↓
-Rust Backend
+https://x-fly.siwakondev.win/api/v1/payments/stripe/webhook
 ```
 
-The project intentionally remains **Stripe Test Mode only**. Live keys and real charging are out of scope.
-
-Deployment principles:
-
-- existing Ubuntu infrastructure is reused, not rebuilt from zero
-- Nginx is the reverse-proxy entry point
-- frontend/backend communicate through Docker networking and approved internal service names
-- PostgreSQL remains private for application traffic and is accessed by the backend
-- pgAdmin Local inspects the local PostgreSQL instance directly
-- pgAdmin Production inspects the server PostgreSQL only through SSH Tunnel
-- Local and Production are separate databases; migrations align schema but data does not auto-sync
-- PostgreSQL must never be exposed publicly merely for pgAdmin access
-- university/demo uses temporary `trycloudflare.com`
-- domain + Named Cloudflare Tunnel are future production/client upgrades, not MVP blockers
-
----
+No live Stripe keys or real charging belong in this academic deployment.
 
 # 82. Final Recommendation
 
-เป้าหมายสุดท้ายไม่ใช่:
+The goal is not to simulate every airline/airport subsystem.
 
-> “สร้างเว็บจองตั๋วเครื่องบินที่ใช้งานได้”
+The goal is:
 
-แต่คือ:
+> **Build a premium Airline Booking & Ticketing Platform that owns authoritative booking/ticket data, provides excellent customer booking/retrieval/cancellation experiences, gives X-Fly staff the right business visibility, and exposes secure integration APIs to downstream systems.**
 
-> **“สร้าง Digital Airline Experience ที่ใช้ Motion และ Visual Storytelling เป็นส่วนหนึ่งของ Booking Journey”**
+Public experience:
 
-หน้า Landing ต้องทำให้ผู้ใช้หยุดดู
+- Landing should feel premium and global
+- Search/seat selection should be fast and interactive
+- Payment should feel trustworthy
+- `Booking Confirmed` should clearly end the purchase
+- confirmation email should make later retrieval easy
+- Manage Booking should be concise and secure
+- E-Ticket/QR should be available after verification
+- Cancellation/refund should follow the 24-hour rule
 
-หน้า Search ต้องรู้สึกเร็ว
+Internal experience:
 
-หน้า Seat ต้องรู้สึก interactive
+- Executive dashboards answer planning/revenue/demand questions
+- Flight managers alone control flight creation/editing
+- Ticketing/baggage/booking staff receive role-appropriate information
+- API admins govern external integrations
 
-หน้า Payment ต้องมั่นใจ
+Integration:
 
-หน้า Ticket ต้องน่าจดจำ
+- external systems authenticate using token/client credentials
+- scopes and field minimization control what they may read
+- direct database access is forbidden
 
-หน้า Check-in ต้องชัดและมั่นใจ
-
-หน้า Boarding Pass ต้องรู้สึกเหมือนพร้อมเดินทางจริง
-
-หน้า Admin ต้องดูเป็นระบบจริง
-
-และ Motion ทุกจุดต้องสนับสนุน UX ไม่ใช่แย่งความสนใจจาก UX
-
----
+Do not expand X-Fly into online check-in, boarding passes, airport gate systems, staff QR scanners, chatbot/support, loyalty points, or campaign management unless the stakeholder explicitly changes the requirement.
 
 # 83. Recommended First Implementation Sequence
 
@@ -4184,9 +4647,7 @@ Deployment principles:
 
 # 84. Design Review Checkpoints
 
-## Checkpoint A
-
-หลัง Branch 04
+## Checkpoint A — after Branch 04
 
 Review:
 
@@ -4195,19 +4656,15 @@ Review:
 - Hero
 - Motion quality
 
-## Checkpoint B
-
-หลัง Branch 07
+## Checkpoint B — after Branch 07
 
 Review:
 
-- Full landing page
-- Scroll experience
-- Performance
+- full landing page
+- global / Moon storytelling
+- performance
 
-## Checkpoint C
-
-หลัง Branch 12
+## Checkpoint C — after Branch 12
 
 Review:
 
@@ -4215,104 +4672,141 @@ Review:
 - Flight
 - Cabin
 - Seat experience
+- concurrency
 
-## Checkpoint D
+## Checkpoint D — after Branch 18
 
-หลัง Branch 18B
+Review complete customer booking/ticketing lifecycle:
 
-Review:
-
-- Complete customer booking lifecycle
-- Passenger + Passport
+- Passenger + Travel Documents
 - Travel Extras
 - Review + Fare Conditions
-- Payment → Ticket state separation
+- Payment / Ticket separation
+- Booking Confirmed summary
+- confirmation-email boundary
 - Manage Booking
-- Cancellation
-- Online Check-in
-- Boarding Pass
+- E-Ticket / QR
+- Cancellation / Refund
 
-## Checkpoint E
+## Checkpoint E — after Branch 26
 
-หลัง Branch 23
+Review internal/integration architecture:
+
+- Admin authentication / RBAC
+- Executive analytics / reports
+- Flight permissions
+- Booking/Ticket operations
+- API clients / token scopes
+- company-device/security boundary
+- auditability
+
+## Checkpoint F — after Branch 29
 
 Review:
 
-- Admin + integration
+- accessibility
+- responsive/cross-browser
+- load/performance evidence
+- end-to-end readiness
+- backup/recovery readiness
+- legal/compliance requirement matrix
 
-## Checkpoint F
+## Checkpoint G — after Branch 32
 
-หลัง Branch 32
-
-Final production review
-
----
+Final production/design review.
 
 # 85. Success Criteria
 
-X-Fly Anyway ถือว่าประสบความสำเร็จเมื่อ:
+X-Fly Anyway is successful when:
 
-- Landing page มี wow factor
-- Motion ลื่นและไม่รบกวน UX
-- User จองได้โดยไม่ Login
-- Search → Ticket → Check-in → Boarding Pass flow ต่อเนื่อง
-- Passenger / passport / contact flow สมจริง
-- Baggage / travel extras / fare conditions ครบใน booking journey
-- Booking / Payment / Ticket statuses แยกกันชัดเจน
-- Booking Reference และ Ticket Number เป็นคนละ identifier
-- Seat concurrency ปลอดภัย
-- Payment เป็น mock อย่างชัดเจน
-- Ticket มี QR
-- Cancellation 24 ชั่วโมงทำงานถูกต้อง
-- Admin จัดการ flight ได้
-- Dashboard มี analytics ที่ใช้ประโยชน์ได้
-- External API มี token/scope
-- Mobile ใช้งานได้ดี
-- Reduced motion รองรับ
-- Production build เร็วและเสถียร
-- Self-hosted deployment ผ่าน Nginx + Cloudflare Quick Tunnel ใช้งานจาก Internet จริงได้
-- Frontend / Backend รันเป็น production containers และไม่มี unnecessary public ports
-- PostgreSQL ไม่เปิดสู่ Internet และ backup/migration workflow ผ่าน
-- pgAdmin บน Mac ดู `X-Fly - LOCAL` ได้จาก Local PostgreSQL
-- pgAdmin บน Mac ดู `X-Fly - PRODUCTION` ได้ผ่าน SSH Tunnel เท่านั้น
-- Local / Production schema ตรวจสอบได้และข้อมูลแยกจากกันชัดเจน
-- University demo สามารถเปิดด้วย temporary `trycloudflare.com` URL ได้
+## Customer / Booking
 
-| Branch                            | Model          | Reasoning  | เหตุผล                                         |
-| --------------------------------- | -------------- | ---------- | ---------------------------------------------- |
-| `feat/01-design-foundation`       | **Terra**      | Medium     | Scaffold + design system ไม่ต้อง Sol           |
-| `feat/02-motion-foundation`       | **Sol**        | Medium     | GSAP + Lenis + ScrollTrigger lifecycle ซับซ้อน |
-| `feat/03-global-shell`            | **Terra**      | Medium     | Navbar/layout/motion integration ระดับกลาง     |
-| `feat/04-cinematic-hero`          | **Sol**        | High       | visual choreography สำคัญมาก                   |
-| `feat/05-scroll-storytelling`     | **Sol**        | High       | pinned scroll + performance + responsive       |
-| `feat/06-horizontal-journey`      | **Terra**      | Medium     | pattern ค่อนข้างตรงไปตรงมา                     |
-| `feat/07-global-network-moon`     | **Sol**        | Medium     | SVG/motion/visual storytelling ซับซ้อน         |
-| `feat/08-flight-search-ui`        | **Terra**      | Medium     | form/search UX                                 |
-| `feat/09-flight-results-ui`       | **Terra**      | Medium     | cards/filter/sorting                           |
-| `feat/10-flight-detail-cabin`     | **Terra**      | Medium     | UI + Flip ระดับกลาง                            |
-| `feat/11-seat-map-ui`             | **Sol**        | Medium     | state/layout/accessibility ซับซ้อน             |
-| `feat/12-seat-concurrency-ui`     | **Sol**        | High       | frontend ↔ backend concurrency behavior        |
-| `feat/13-passenger-flow`          | **Terra**      | Medium     | forms/validation                               |
-| `feat/13a-travel-extras`          | **Terra**      | Medium     | ancillary state + forms                        |
-| `feat/14-booking-review`          | **Luna/Terra** | Low        | summary UI ค่อนข้างง่าย                        |
-| `feat/15-mock-payment-ui`         | **Terra**      | Medium     | state/payment UX                               |
-| `feat/16-ticket-qr`    | **Terra**      | Medium     | QR + print/ticket UI                           |
-| `feat/17-manage-booking-ui`       | **Terra**      | Medium     | lookup/detail                                  |
-| `feat/18-cancellation-refund-ui`  | **Terra**      | Medium     | business-state UI                              |
-| `feat/18a-online-check-in`        | **Terra**      | Medium     | post-ticket state + forms                      |
-| `feat/18b-boarding-pass`          | **Sol**        | Medium     | signature ticket-like visual + print/QR        |
-| `feat/19-admin-shell`             | **Terra**      | Medium     | dashboard shell/auth states                    |
-| `feat/20-admin-flight-management` | **Terra**      | Medium     | CRUD/forms                                     |
-| `feat/21-admin-booking-ticketing` | **Terra**      | Medium     | CRUD/table/detail                              |
-| `feat/22-admin-analytics`         | **Sol**        | Medium     | aggregations + chart design                    |
-| `feat/23-integration-admin-ui`    | **Terra**      | Medium     | client/scope admin UI                          |
-| `feat/24-security-hardening-ui`   | **Sol**        | High       | security-sensitive                             |
-| `chore/25-accessibility-motion`   | **Sol**        | Medium     | motion + accessibility edge cases              |
-| `feat/26-responsive-motion`       | **Sol**        | Medium     | responsive animation complexity                |
-| `perf/27-frontend-performance`    | **Sol**        | High       | profiling/optimization reasoning               |
-| `test/28-cross-browser-qa`        | **Terra**      | Low/Medium | mostly fixes from QA                           |
-| `test/29-booking-e2e`             | **Terra**      | Medium     | Playwright flow                                |
-| `chore/30-deployment-prep`        | **Terra**      | Medium     | Dockerfiles/Compose/env/Nginx reverse-proxy integration prep |
-| `chore/31-production-deploy`      | **Sol**        | Medium     | self-host/Nginx/Cloudflare routing and deployment issues can be subtle |
-| `feat/32-final-polish`            | **Terra**      | Medium     | mostly visual refinements                      |
-| `docs/33-final-documentation`     | **Luna**       | Low        | docs/summarization                             |
+- Landing has premium wow factor
+- Motion is smooth and does not block usability
+- Customer can book without registering/logging in
+- Flight search and cabin/seat selection work on responsive devices
+- Cinema-style seat plan clearly supports Business and other cabin filtering
+- seat concurrency/hold rules are server-authoritative
+- passenger/travel-document/contact data flow is realistic and protected
+- Review shows fare conditions and cancellation policy clearly
+- Stripe Test Mode Card works without exposing raw card data
+- Mock Bitcoin remains clearly demo-only
+- successful purchase ends at a concise **Booking Confirmed** summary
+- Booking Reference and Ticket Number remain separate
+- confirmation email is sent/idempotent and contains a safe Manage Booking link
+- customer can return through Email or website `Manage Booking`
+- Manage Booking uses Booking Reference + Last Name and is anti-enumeration safe
+- stale authorization can never display a different booking
+- E-Ticket/booking details show authoritative data and signed verification QR
+- QR contains no raw PII
+- cancellation >=24h yields 0-fee / 100% refund
+- cancellation <24h is rejected
+- changing flight means cancel eligible old booking and create a new booking
+
+## Product Boundary
+
+- no customer online check-in implementation
+- no Boarding Pass lifecycle
+- no staff QR-scanner application
+- no gate/baggage operational workflow
+- no chatbot/customer-support module
+- no loyalty/points
+- no promotion/campaign builder
+- marketing/external systems obtain only approved data through integration APIs
+
+## Internal / Admin
+
+- employee authentication and RBAC are enforced
+- generic admin cannot edit flights unless granted FLIGHT_MANAGER permission
+- executive can see revenue, bookings, load factor, nationality, route/demand trends
+- daily/weekly/monthly/custom reports work
+- Profit/Loss is shown only when cost data exists
+- booking/ticket/baggage operations see only role-required fields
+- privileged mutations are auditable
+- company-device access policy has a realistic deployment enforcement boundary
+
+## External Integration
+
+- external API clients use credentials/tokens
+- scopes restrict access
+- credentials can be revoked/rotated
+- tokens/secrets are stored safely
+- direct PostgreSQL access is never given to external systems
+- API has rate limiting/audit visibility
+- field-level data minimization is enforced
+
+## Non-Functional
+
+- critical application/API interactions target ~1 second where measurable
+- frontend Core Web Vitals targets remain defined
+- responsive desktop/tablet/mobile behavior passes
+- accessibility/reduced-motion passes
+- load tests produce honest measured results
+- architecture retains a cloud/horizontal-scaling path for the stakeholder scale target
+- university self-hosted server is not falsely claimed to support 100,000 req/s without evidence
+- backup/restore is tested
+- PostgreSQL remains private
+- legal/compliance requirements are documented per operating region rather than falsely claiming universal certification
+
+## Deployment
+
+- production containers build/run correctly
+- Named Cloudflare Tunnel + verified HTTPS origin + Nginx TLS works publicly
+- `x-fly.siwakondev.win` is the fixed demo hostname when approved/configured
+- frontend/backend are not unnecessarily exposed on public host ports
+- Stripe deployed webhook uses fixed public HTTPS and remains Test Mode
+- pgAdmin Local and Production access remain correctly separated
+- Production pgAdmin access uses SSH Tunnel only
+
+## Coding-Agent Execution Guidance
+
+Model/provider choice is operational tooling, not product architecture.
+
+For future branches:
+
+- use the strongest available reasoning agent for security, payment/refund, RBAC, API-token, concurrency, migration, and deployment work
+- use medium reasoning for straightforward UI/forms
+- always inspect repository state before handoff
+- never allow two coding agents to modify the same working tree simultaneously
+- every handoff begins with `git status` + `git diff`
+- branch prompts and repository architecture documents override generic third-party skills

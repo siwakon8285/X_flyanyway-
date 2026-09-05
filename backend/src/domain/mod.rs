@@ -1,5 +1,6 @@
 pub mod entities;
 pub mod extras;
+pub mod manage_booking;
 pub mod passengers;
 pub mod payment;
 pub mod pricing;
