@@ -197,7 +197,7 @@ async fn finalized_seats_are_consistent(
         }))
 }
 
-async fn load_ticket_by_attempt(
+pub(super) async fn load_ticket_by_attempt(
     transaction: &mut Transaction<'_, Postgres>,
     attempt_id: Uuid,
 ) -> Result<Option<Ticket>, TicketRepositoryError> {

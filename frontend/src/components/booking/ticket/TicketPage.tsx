@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { QRCodeSVG } from "qrcode.react";
 import {
   Armchair,
   ArrowLeft,
@@ -14,7 +13,6 @@ import {
   CreditCard,
   Plane,
   Printer,
-  ShieldCheck,
   User,
 } from "lucide-react";
 import { useGSAP } from "@gsap/react";
@@ -22,7 +20,6 @@ import gsap from "gsap";
 
 import {
   BookingApiError,
-  buildTicketVerificationUrl,
   getTicket,
 } from "@/components/booking/ticket/ticketClient";
 import type { TicketResponse } from "@/components/booking/ticket/ticketTypes";
@@ -53,12 +50,13 @@ const TicketPage = ({
 }: TicketPageProps) => {
   const { locale, t } = useLanguage();
   const [data, setData] = useState<TicketResponse | null>(null);
-  const [loading, setLoading] = useState(Boolean(holdId && attemptId));
+  const canLoad = Boolean(holdId && attemptId);
+  const [loading, setLoading] = useState(canLoad);
   const [error, setError] = useState<{
     code: string;
     message: string;
   } | null>(
-    !holdId || !attemptId
+    !canLoad
       ? { code: "INVALID_PARAMS", message: "ticket.error.notFound" }
       : null,
   );
@@ -66,10 +64,9 @@ const TicketPage = ({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const hasRevealed = useRef(false);
-  const qrTitleId = useId();
 
   useEffect(() => {
-    if (!holdId || !attemptId) return;
+    if (!canLoad) return;
     let active = true;
 
     const loadTicket = async () => {
@@ -115,7 +112,7 @@ const TicketPage = ({
     return () => {
       active = false;
     };
-  }, [holdId, attemptId]);
+  }, [attemptId, canLoad, holdId]);
 
   const copyToClipboard = async (text: string, key: string) => {
     try {
@@ -161,8 +158,18 @@ const TicketPage = ({
     },
   );
 
+  const arrivalDate = data
+    ? new Date(
+        Date.parse(`${data.ticket.journey.departureDate}T00:00:00Z`) +
+          (data.ticket.journey.arrivalDayOffset ?? 0) * 86_400_000,
+      ).toISOString().slice(0, 10)
+    : null;
+
   return (
-    <main className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(1.5rem,4vw,3.5rem))] print:p-0">
+    <main
+      className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(1.5rem,4vw,3.5rem))] print:p-0"
+      data-ticket-page
+    >
       {/* Background radial highlight */}
       <div
         aria-hidden="true"
@@ -228,7 +235,7 @@ const TicketPage = ({
             data-ticket-content="true"
           >
             {/* Header / Intro */}
-            <div className="print:hidden" data-ticket-reveal="heading">
+            <div className="print:text-black" data-ticket-reveal="heading">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <p className="text-label text-brand">{t("ticket.eyebrow")}</p>
@@ -275,7 +282,7 @@ const TicketPage = ({
               />
 
               {/* Main Ticket Interior */}
-              <div className="grid gap-8 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_19rem]">
+              <div className="grid gap-8 p-6 sm:p-10">
                 {/* Left Side: Journey, Passengers, Flight Details */}
                 <div className="space-y-8">
                   {/* Branding & Flight Number */}
@@ -303,7 +310,7 @@ const TicketPage = ({
 
                   {/* Route Visual Line */}
                   <div className="rounded-control border border-border/60 bg-background/50 p-6 print:border-neutral-300 print:bg-neutral-50">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="text-xs uppercase tracking-widest text-muted-foreground print:text-neutral-600">
                           {t("ticket.departure")}
@@ -347,6 +354,11 @@ const TicketPage = ({
                         >
                           {data.ticket.journey.destinationCode}
                         </p>
+                        {arrivalDate ? (
+                          <p className="mt-1 text-sm text-muted-foreground print:text-neutral-600">
+                            {formatDate(arrivalDate, locale)}
+                          </p>
+                        ) : null}
                         {data.ticket.journey.arrivalTime ? (
                           <p className="mt-1 flex items-center justify-end gap-1.5 font-mono text-sm text-brand print:text-neutral-800">
                             <Clock aria-hidden="true" className="size-3.5" />
@@ -496,54 +508,12 @@ const TicketPage = ({
                   </div>
                 </div>
 
-                {/* Right Side: QR Code Verification Panel */}
-                <div className="flex flex-col items-center justify-center rounded-control border border-border/80 bg-background/60 p-6 text-center lg:border-l lg:border-border/60 print:border-neutral-300 print:bg-white">
-                  <div className="w-full">
-                    <p className="text-xs font-semibold uppercase tracking-widest text-brand print:text-black">
-                      {t("ticket.qr.heading")}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground print:text-neutral-600">
-                      {t("ticket.qr.scanInstruction")}
-                    </p>
-                  </div>
-
-                  {/* Rendered QR Container */}
-                  <div
-                    aria-label={t("ticket.qr.ariaLabel")}
-                    className="mt-6 flex size-48 items-center justify-center rounded-2xl bg-white p-3 shadow-inner"
-                    data-testid="ticket-qr-container"
-                    data-verification-url={buildTicketVerificationUrl(data.qrToken)}
-                    role="img"
-                  >
-                    <QRCodeSVG
-                      bgColor="#FFFFFF"
-                      fgColor="#000000"
-                      level="M"
-                      size={168}
-                      title="X-Fly Ticket Verification"
-                      value={buildTicketVerificationUrl(data.qrToken)}
-                    />
-                  </div>
-
-                  <p
-                    className="mt-4 text-[11px] text-muted-foreground print:text-neutral-600"
-                    id={qrTitleId}
-                  >
-                    <span className="flex items-center justify-center gap-1">
-                      <ShieldCheck
-                        aria-hidden="true"
-                        className="size-3.5 text-brand print:text-black"
-                      />
-                      {t("ticket.qr.secureNotice")}
-                    </span>
-                  </p>
-                </div>
               </div>
             </div>
 
-            {/* Action Bar (Print / Manage Booking) */}
+            {/* Final summary actions */}
             <div
-              className="mt-8 flex flex-wrap items-center justify-between gap-4 print:hidden"
+              className="mt-8 flex items-center print:hidden"
               data-ticket-reveal="actions"
             >
               <Button
@@ -556,20 +526,6 @@ const TicketPage = ({
                 {t("ticket.actions.print")}
               </Button>
 
-              <div className="flex items-center gap-3">
-                <Link
-                  className={buttonVariants({ variant: "ghost" })}
-                  href="/"
-                >
-                  {t("ticket.actions.home")}
-                </Link>
-                <Link
-                  className={buttonVariants({ variant: "primary" })}
-                  href="/"
-                >
-                  {t("ticket.actions.manageBooking")}
-                </Link>
-              </div>
             </div>
           </article>
         ) : null}

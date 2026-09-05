@@ -18,7 +18,7 @@ function resolveFrontendOrigin(): string {
 }
 
 /**
- * Builds the full public verification URL encoded into the boarding pass QR code.
+ * Builds the full public verification URL encoded into the ticket verification QR code.
  * Format: <frontend-origin>/ticket/verify/<signed-token>
  * Strictly zero PII: contains only origin, static path, and the cryptographic signed token.
  */

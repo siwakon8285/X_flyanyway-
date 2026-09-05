@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput},
+    manage_booking::{ManageBookingLookup, ManageBookingRecord},
     passengers::{PassengerContext, PassengerInput},
     payment::{
         build_demo_bitcoin_invoice, CreatePaymentRequest, PaymentAttempt, PaymentContext,
@@ -12,7 +13,8 @@ use crate::domain::{
         ProcessStripeWebhookCommand, StripeWebhookResult,
     },
     repositories::{
-        ExtraRepository, ExtraRepositoryError, PassengerRepository, PassengerRepositoryError,
+        ExtraRepository, ExtraRepositoryError, ManageBookingRepository,
+        ManageBookingRepositoryError, PassengerRepository, PassengerRepositoryError,
         PaymentRepository, PaymentRepositoryError, ReviewRepository, ReviewRepositoryError,
         SeatHoldRepository, SeatHoldRepositoryError, TicketRepository, TicketRepositoryError,
     },
@@ -24,12 +26,15 @@ use crate::domain::{
 mod create_payment_attempt;
 mod create_seat_hold;
 mod get_extras;
+mod get_manage_booking;
+mod get_manage_booking_ticket;
 mod get_passengers;
 mod get_payment;
 mod get_review;
 mod get_seat_hold;
 mod get_seat_map;
 mod get_ticket;
+mod lookup_manage_booking;
 mod process_stripe_webhook;
 mod reconcile_stripe_payment;
 mod release_seat_hold;
@@ -75,6 +80,40 @@ pub struct TicketApplication {
     qr_signing_secret: String,
 }
 
+#[derive(Clone)]
+pub struct ManageBookingApplication {
+    repository: Arc<dyn ManageBookingRepository>,
+}
+
+impl ManageBookingApplication {
+    pub fn new(repository: Arc<dyn ManageBookingRepository>) -> Self {
+        Self { repository }
+    }
+
+    pub async fn lookup(
+        &self,
+        lookup: &ManageBookingLookup,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ManageBookingRecord>, ManageBookingRepositoryError> {
+        lookup_manage_booking::execute(self.repository.as_ref(), lookup, now).await
+    }
+
+    pub async fn get(
+        &self,
+        ticket_id: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ManageBookingRecord>, ManageBookingRepositoryError> {
+        get_manage_booking::execute(self.repository.as_ref(), ticket_id, now).await
+    }
+
+    pub async fn get_ticket(
+        &self,
+        ticket_id: Uuid,
+    ) -> Result<Option<Ticket>, ManageBookingRepositoryError> {
+        get_manage_booking_ticket::execute(self.repository.as_ref(), ticket_id).await
+    }
+}
+
 impl TicketApplication {
     pub fn new(repository: Arc<dyn TicketRepository>, qr_signing_secret: String) -> Self {
         Self {
@@ -106,6 +145,12 @@ impl TicketApplication {
         token: &str,
     ) -> Result<TicketVerification, TicketRepositoryError> {
         verify_ticket::execute(self.repository.as_ref(), token, &self.qr_signing_secret).await
+    }
+
+    pub fn sign_existing(&self, ticket: Ticket) -> Result<(Ticket, String), TicketRepositoryError> {
+        let token = crate::infrastructure::ticket::qr::sign(ticket.id, &self.qr_signing_secret)
+            .map_err(|_| TicketRepositoryError::IdentityGeneration)?;
+        Ok((ticket, token))
     }
 }
 

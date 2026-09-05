@@ -56,6 +56,7 @@ describe("Header", () => {
       "/#experience",
     );
     expect(screen.queryByRole("link", { name: "Destinations" })).not.toBeInTheDocument();
+    expect(within(navigation).getByRole("link", { name: "Manage Booking" })).toHaveAttribute("href", "/manage-booking");
   });
 
   it("keeps the canonical Home Hero destination in Thai", () => {
@@ -82,6 +83,7 @@ describe("Header", () => {
         ["Offers", "/#offers"],
         ["Cabins", "/#cabins"],
         ["Experience", "/#experience"],
+        ["Manage Booking", "/manage-booking"],
       ] as const) {
         expect(within(mobileNavigation).getByRole("link", { name })).toHaveAttribute(
           "href",

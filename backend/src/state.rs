@@ -2,12 +2,12 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     application::use_cases::{
-        ExtraApplication, PassengerApplication, PaymentApplication, ReviewApplication,
-        SeatHoldApplication, TicketApplication,
+        ExtraApplication, ManageBookingApplication, PassengerApplication, PaymentApplication,
+        ReviewApplication, SeatHoldApplication, TicketApplication,
     },
     domain::repositories::{
-        ExtraRepository, PassengerRepository, ReviewRepository, SeatHoldRepository,
-        TicketRepository,
+        ExtraRepository, ManageBookingRepository, PassengerRepository, ReviewRepository,
+        SeatHoldRepository, TicketRepository,
     },
 };
 
@@ -19,6 +19,8 @@ pub struct AppState {
     pub reviews: ReviewApplication,
     pub seat_holds: SeatHoldApplication,
     pub tickets: Option<TicketApplication>,
+    pub manage_bookings: Option<ManageBookingApplication>,
+    pub manage_booking_signing_secret: Option<String>,
     pub secure_cookies: bool,
     pub frontend_origin: String,
     pub stripe_webhook_secret: Option<String>,
@@ -41,6 +43,8 @@ impl AppState {
             reviews: ReviewApplication::new(review_repository),
             seat_holds: SeatHoldApplication::new(repository, hold_ttl),
             tickets: None,
+            manage_bookings: None,
+            manage_booking_signing_secret: None,
             secure_cookies,
             frontend_origin,
             stripe_webhook_secret: None,
@@ -63,6 +67,16 @@ impl AppState {
         qr_signing_secret: String,
     ) -> Self {
         self.tickets = Some(TicketApplication::new(repository, qr_signing_secret));
+        self
+    }
+
+    pub fn with_manage_bookings(
+        mut self,
+        repository: Arc<dyn ManageBookingRepository>,
+        signing_secret: String,
+    ) -> Self {
+        self.manage_bookings = Some(ManageBookingApplication::new(repository));
+        self.manage_booking_signing_secret = Some(signing_secret);
         self
     }
 }

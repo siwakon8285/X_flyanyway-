@@ -8,11 +8,40 @@ use crate::domain::value_objects::SeatNumber;
 use crate::domain::{
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput, ExtraValidationError},
+    manage_booking::{ManageBookingLookup, ManageBookingRecord},
     passengers::{PassengerContext, PassengerFieldError, PassengerInput},
     payment::{PaymentAttempt, PaymentAttemptTransition, PaymentContext, PaymentRepositoryCommand},
     review::ReviewContext,
     ticket::{Ticket, TicketVerification},
 };
+
+#[derive(Debug, Error)]
+pub enum ManageBookingRepositoryError {
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+    #[error("authoritative booking state is inconsistent")]
+    InconsistentState,
+}
+
+#[async_trait]
+pub trait ManageBookingRepository: Send + Sync {
+    async fn lookup_manage_booking(
+        &self,
+        lookup: &ManageBookingLookup,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ManageBookingRecord>, ManageBookingRepositoryError>;
+
+    async fn get_manage_booking(
+        &self,
+        ticket_id: Uuid,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<ManageBookingRecord>, ManageBookingRepositoryError>;
+
+    async fn get_manage_booking_ticket(
+        &self,
+        ticket_id: Uuid,
+    ) -> Result<Option<Ticket>, ManageBookingRepositoryError>;
+}
 
 #[derive(Debug, Error)]
 pub enum TicketRepositoryError {
