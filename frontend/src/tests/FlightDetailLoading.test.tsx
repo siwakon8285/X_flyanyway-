@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
-import FlightDetailLoading from "@/app/flights/[flightId]/loading";
+import FlightDetailLoading from "@/app/(customer)/flights/[flightId]/loading";
 
 describe("flight detail loading state", () => {
   it("uses a detail-shaped accessible skeleton without a spinner", () => {

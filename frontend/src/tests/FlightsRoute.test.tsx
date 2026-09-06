@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
-import FlightsRoute from "@/app/flights/page";
+import FlightsRoute from "@/app/(customer)/flights/page";
 
 describe("/flights route", () => {
   it("renders results from supported query parameters", async () => {

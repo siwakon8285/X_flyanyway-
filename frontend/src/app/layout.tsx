@@ -2,8 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 
-import { SiteShell } from "@/components/layout/SiteShell";
-import { SmoothScrollProvider } from "@/components/motion/SmoothScrollProvider";
 import { LocaleLayoutSync } from "@/components/motion/LocaleLayoutSync";
 import { INITIAL_HASH_BOOTSTRAP_SCRIPT } from "@/lib/motion/initialHash";
 import { getLocaleFromCookieValue, LOCALE_COOKIE_NAME } from "@/i18n/config";
@@ -49,9 +47,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         <LanguageProvider initialLocale={initialLocale}>
           <LocaleLayoutSync />
-          <SmoothScrollProvider>
-            <SiteShell>{children}</SiteShell>
-          </SmoothScrollProvider>
+          {children}
         </LanguageProvider>
       </body>
     </html>

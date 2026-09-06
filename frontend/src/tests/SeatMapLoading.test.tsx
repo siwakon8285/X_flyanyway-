@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
-import SeatMapLoading from "@/app/flights/[flightId]/seats/loading";
+import SeatMapLoading from "@/app/(customer)/flights/[flightId]/seats/loading";
 
 describe("seat map loading state", () => {
   it("uses an aircraft-map-shaped accessible skeleton without a spinner", () => {

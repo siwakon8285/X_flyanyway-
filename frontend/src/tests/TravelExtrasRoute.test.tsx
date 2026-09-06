@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 
-import TravelExtrasRoute from "@/app/booking/extras/page";
+import TravelExtrasRoute from "@/app/(customer)/booking/extras/page";
 import { render } from "@/tests/renderWithLanguage";
 
 jest.mock("@/components/booking/extras/TravelExtrasPage", () => ({

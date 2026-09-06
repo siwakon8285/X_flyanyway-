@@ -1,4 +1,11 @@
 const en = {
+  admin: {
+    login: { email: "Staff email", password: "Password", signIn: "Sign in", signingIn: "Signing in…", invalid: "Email or password is incorrect.", tryLater: "Unable to sign in. Try again later.", unavailable: "Staff sign-in is temporarily unavailable.", eyebrow: "X-Fly internal access", heading: "Staff sign in", intro: "Use your individually provisioned X-Fly staff identity." },
+    navigation: { label: "Staff navigation", workspace: "Workspace", overview: "Executive dashboard", flights: "Flights", bookings: "Bookings", tickets: "Tickets / Passengers", reports: "Reports", apiClients: "API Clients", staff: "Staff / Access" },
+    roles: { executive: "Executive / Owner", flightManager: "Flight Manager", bookingOperations: "Booking Operations", ticketPassengerOperations: "Ticket / Passenger Operations", baggageStaff: "Baggage Staff", apiAdmin: "API Admin", systemAdmin: "System Admin" },
+    shell: { skip: "Skip to staff workspace", internal: "Internal access", terminal: "X-Fly staff terminal", openNavigation: "Open staff navigation", closeNavigation: "Close staff navigation", navigationTitle: "Staff navigation", navigationDescription: "Navigate the internal X-Fly workspace.", signOut: "Sign out", signingOut: "Signing out…" },
+    workspace: { eyebrow: "X-Fly operations", heading: "Staff workspace", intro: "Your access is ready. Operational modules will appear here only when they are available and permitted for your assigned responsibilities.", active: "Access foundation active", boundary: "This Branch 19 workspace intentionally contains no executive metrics or operational business tools.", unavailable: "Staff access is temporarily unavailable", unavailableDetail: "No privileged content was displayed. Try the secure staff service again.", retry: "Try again" },
+  },
   common: {
     cabins: { business: "Business", economy: "Economy", first: "First", premiumEconomy: "Premium Economy", premiumEconomyShort: "Premium" },
     closeDialog: "Close dialog", direct: "Direct", farePerPassenger: "Sample fare · per passenger", oneStop: "1 stop", oneWay: "One way", passenger: "passenger", passengers: "passengers", returnDate: "Return {date}", to: "to",

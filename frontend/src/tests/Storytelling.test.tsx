@@ -1,7 +1,7 @@
 import { act, screen, within } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
-import Home from "@/app/page";
+import Home from "@/app/(customer)/page";
 import { Storytelling } from "@/components/home/story/Storytelling";
 import { REDUCED_MOTION_QUERY } from "@/lib/motion/reducedMotion";
 

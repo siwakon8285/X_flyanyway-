@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
-import FlightDetailRoute from "@/app/flights/[flightId]/page";
+import FlightDetailRoute from "@/app/(customer)/flights/[flightId]/page";
 
 const validQuery = {
   adults: "1",

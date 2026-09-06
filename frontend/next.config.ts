@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/admin/:path*",
+        headers: [{ key: "Cache-Control", value: "no-store, private" }],
+      },
+      {
         source: "/(.*)",
         headers: [
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

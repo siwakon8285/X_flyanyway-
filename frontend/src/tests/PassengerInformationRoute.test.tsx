@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 
-import PassengerInformationRoute from "@/app/booking/passengers/page";
+import PassengerInformationRoute from "@/app/(customer)/booking/passengers/page";
 import { render } from "@/tests/renderWithLanguage";
 
 jest.mock("@/components/booking/passengers/PassengerInformationPage", () => ({

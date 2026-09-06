@@ -13,6 +13,7 @@ jest.mock("next/navigation", () => ({
   }),
 }));
 
+if (typeof window !== "undefined") {
 Object.defineProperty(window, "matchMedia", {
   configurable: true,
   value: jest.fn().mockImplementation((query: string) => ({
@@ -55,3 +56,4 @@ Object.defineProperty(window, "IntersectionObserver", {
   value: MockIntersectionObserver,
   writable: true,
 });
+}

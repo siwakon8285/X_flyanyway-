@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
 
-import FlightDetailLoading from "@/app/flights/[flightId]/loading";
-import SeatMapLoading from "@/app/flights/[flightId]/seats/loading";
-import FlightResultsLoading from "@/app/flights/loading";
-import Home from "@/app/page";
+import FlightDetailLoading from "@/app/(customer)/flights/[flightId]/loading";
+import SeatMapLoading from "@/app/(customer)/flights/[flightId]/seats/loading";
+import FlightResultsLoading from "@/app/(customer)/flights/loading";
+import Home from "@/app/(customer)/page";
 import { FlightDetailPage } from "@/components/booking/detail/FlightDetailPage";
 import { resolveFlightDetailRequest } from "@/components/booking/detail/flightDetailUtils";
 import { FlightResultsPage } from "@/components/booking/results/FlightResultsPage";

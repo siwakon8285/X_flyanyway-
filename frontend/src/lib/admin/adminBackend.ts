@@ -1,0 +1,69 @@
+import { parseStaffPrincipal } from "@/lib/admin/adminPrincipal";
+import type { StaffPrincipal } from "@/lib/admin/adminTypes";
+
+const API_URL =
+  process.env.X_FLY_INTERNAL_API_URL ??
+  process.env.NEXT_PUBLIC_X_FLY_API_URL ??
+  "http://localhost:8080/api/v1";
+
+const allowedPaths = new Set([
+  "/admin/auth/login",
+  "/admin/auth/logout",
+  "/admin/auth/session",
+]);
+function staffCookie(cookieHeader: string | null): string | null {
+  const value = cookieHeader
+    ?.split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("x_fly_staff_session="));
+  return value || null;
+}
+
+async function forwardAdminAuthRequest(request: Request, path: string): Promise<Response> {
+  if (!allowedPaths.has(path)) {
+    throw new Error("Unsupported admin authentication path");
+  }
+
+  const headers = new Headers();
+  for (const name of ["content-type", "origin", "x-x-fly-csrf"] as const) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  const cookie = staffCookie(request.headers.get("cookie"));
+  if (cookie) headers.set("cookie", cookie);
+
+  const response = await fetch(`${API_URL}${path}`, {
+    method: request.method,
+    headers,
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
+    cache: "no-store",
+    redirect: "manual",
+  });
+
+  const responseHeaders = new Headers();
+  const contentType = response.headers.get("content-type");
+  const setCookie = response.headers.get("set-cookie");
+  if (contentType) responseHeaders.set("content-type", contentType);
+  if (setCookie) responseHeaders.set("set-cookie", setCookie);
+  responseHeaders.set("cache-control", "no-store, private");
+
+  return new Response(response.body, {
+    status: response.status,
+    headers: responseHeaders,
+  });
+}
+
+async function fetchStaffPrincipal(cookieHeader: string): Promise<StaffPrincipal | null> {
+  const cookie = staffCookie(cookieHeader);
+  if (!cookie) return null;
+
+  const response = await fetch(`${API_URL}/admin/auth/session`, {
+    headers: { cookie },
+    cache: "no-store",
+  });
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error("Staff authentication service is unavailable");
+  return parseStaffPrincipal(await response.json());
+}
+
+export { fetchStaffPrincipal, forwardAdminAuthRequest, parseStaffPrincipal };
