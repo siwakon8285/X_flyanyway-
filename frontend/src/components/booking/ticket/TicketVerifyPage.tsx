@@ -58,6 +58,7 @@ export function TicketVerifyPage({ token }: TicketVerifyPageProps) {
   }, [token]);
 
   const isValid = !fetchError && verification?.valid === true;
+  const isCancelled = !fetchError && verification?.ticketStatus === "CANCELLED";
 
   return (
     <main className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(1.5rem,4vw,3.5rem))]">
@@ -240,10 +241,10 @@ export function TicketVerifyPage({ token }: TicketVerifyPageProps) {
                     className="size-12 text-destructive"
                   />
                   <h2 className="mt-3 text-lg font-bold text-destructive">
-                    {t("ticket.verify.invalidTitle")}
+                    {t(isCancelled ? "ticket.verify.cancelledTitle" : "ticket.verify.invalidTitle")}
                   </h2>
                   <p className="mt-1 text-xs text-muted-foreground max-w-md">
-                    {t("ticket.verify.invalidDescription")}
+                    {t(isCancelled ? "ticket.verify.cancelledDescription" : "ticket.verify.invalidDescription")}
                   </p>
                 </div>
               </div>

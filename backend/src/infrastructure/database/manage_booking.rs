@@ -101,7 +101,8 @@ async fn load_manage_booking(
     let row = sqlx::query_as::<_, BookingRow>(
         "SELECT ticket.id AS ticket_id, ticket.booking_reference, ticket.ticket_number,
                 ticket.status AS ticket_status, ticket.issued_at,
-                attempt.status AS payment_status, attempt.amount, attempt.currency_code,
+                attempt.status AS payment_status, attempt.provider, attempt.amount, attempt.currency_code,
+                cancellation.refund_status, cancellation.refund_amount,
                 attempt.id AS payment_attempt_id, hold.id AS hold_id, hold.cabin,
                 hold.adults, hold.children, hold.consumed_at,
                 service.flight_number, service.origin_code, service.destination_code,
@@ -117,6 +118,7 @@ async fn load_manage_booking(
          JOIN seat_holds AS hold ON hold.id = attempt.seat_hold_id
          JOIN flight_instances AS instance ON instance.id = hold.flight_instance_id
          JOIN flight_services AS service ON service.id = instance.flight_service_id
+         LEFT JOIN booking_cancellations AS cancellation ON cancellation.ticket_id = ticket.id
          WHERE ticket.id = $1 AND attempt.status = 'SUCCEEDED'",
     )
     .bind(ticket_id)
@@ -143,8 +145,6 @@ async fn load_manage_booking(
         "SELECT seat.seat_number FROM payment_attempt_seats AS finalized
          JOIN flight_seats AS seat ON seat.id = finalized.flight_seat_id
          WHERE finalized.payment_attempt_id = $1
-           AND seat.booking_status = 'BOOKED' AND seat.hold_id IS NULL
-           AND seat.booked_at IS NOT NULL
          ORDER BY seat.seat_number",
     )
     .bind(row.payment_attempt_id)
@@ -154,6 +154,17 @@ async fn load_manage_booking(
     let expected_seat_count = usize::try_from(row.adults + row.children)
         .map_err(|_| ManageBookingRepositoryError::InconsistentState)?;
     if row.consumed_at.is_none() || seats.len() != expected_seat_count {
+        return Err(ManageBookingRepositoryError::InconsistentState);
+    }
+    let consistent_seats: i64 = match ticket_status {
+        TicketStatus::Issued => sqlx::query_scalar("SELECT COUNT(*) FROM payment_attempt_seats ps JOIN flight_seats seat ON seat.id=ps.flight_seat_id WHERE ps.payment_attempt_id=$1 AND ps.released_at IS NULL AND seat.booking_status='BOOKED' AND seat.hold_id IS NULL AND seat.booked_at IS NOT NULL"),
+        TicketStatus::Cancelled if row.refund_status.is_some() => sqlx::query_scalar("SELECT COUNT(*) FROM payment_attempt_seats ps WHERE ps.payment_attempt_id=$1 AND ps.released_at IS NOT NULL"),
+        TicketStatus::Cancelled => sqlx::query_scalar("SELECT COUNT(*) FROM payment_attempt_seats ps JOIN flight_seats seat ON seat.id=ps.flight_seat_id WHERE ps.payment_attempt_id=$1 AND ps.released_at IS NULL AND seat.booking_status='BOOKED'"),
+    }.bind(row.payment_attempt_id).fetch_one(&mut **transaction).await.map_err(ManageBookingRepositoryError::Infrastructure)?;
+    if consistent_seats
+        != i64::try_from(expected_seat_count)
+            .map_err(|_| ManageBookingRepositoryError::InconsistentState)?
+    {
         return Err(ManageBookingRepositoryError::InconsistentState);
     }
     let extras = load_selections(transaction, row.hold_id)
@@ -206,9 +217,11 @@ async fn load_manage_booking(
                 .collect(),
             payment: ManageBookingPayment {
                 status: payment_status,
+                provider: crate::domain::payment::PaymentProvider::parse_database(&row.provider)
+                    .expect("payment provider constraint is valid"),
                 amount: Money {
                     amount: row.amount,
-                    currency_code: row.currency_code,
+                    currency_code: row.currency_code.clone(),
                 },
             },
             ticket: ManageBookingTicket {
@@ -219,6 +232,14 @@ async fn load_manage_booking(
             cancellation: ManageBookingCancellation {
                 eligibility: eligibility.cancellation,
                 cutoff_at: eligibility.cancellation_cutoff_at,
+                refund_status: row
+                    .refund_status
+                    .as_deref()
+                    .and_then(crate::domain::cancellation::RefundStatus::parse_database),
+                refund_amount: row.refund_amount.map(|amount| Money {
+                    amount,
+                    currency_code: row.currency_code.clone(),
+                }),
             },
         },
     }))
@@ -245,8 +266,11 @@ struct BookingRow {
     ticket_status: String,
     issued_at: DateTime<Utc>,
     payment_status: String,
+    provider: String,
     amount: i64,
     currency_code: String,
+    refund_status: Option<String>,
+    refund_amount: Option<i64>,
     payment_attempt_id: Uuid,
     hold_id: Uuid,
     cabin: String,

@@ -6,11 +6,12 @@ import { useEffect, useState } from "react";
 import { BookingApiError } from "@/components/booking/api/bookingApiClient";
 import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
 import { productLabelKey } from "@/components/booking/extras/extrasPresentation";
-import { getCurrentManageBooking } from "@/components/manage-booking/manageBookingClient";
+import { cancelCurrentManageBooking, getCurrentManageBooking } from "@/components/manage-booking/manageBookingClient";
 import type { ManageBookingDetails } from "@/components/manage-booking/manageBookingTypes";
 import { TicketVerificationQr } from "@/components/manage-booking/TicketVerificationQr";
 import { Badge } from "@/components/ui/Badge";
-import { buttonVariants } from "@/components/ui/Button";
+import { Button, buttonVariants } from "@/components/ui/Button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/Dialog";
 import { Card } from "@/components/ui/Card";
 import { Container } from "@/components/layout/Container";
 import { useLanguage } from "@/i18n/LanguageProvider";
@@ -32,6 +33,9 @@ const ManageBookingDetailsPage = () => {
   const { locale, t } = useLanguage();
   const [booking, setBooking] = useState<ManageBookingDetails | null>(null);
   const [failure, setFailure] = useState<"authorization" | "unavailable" | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState(false);
+  const refundPollingStatus = booking?.cancellation.refundStatus;
   useEffect(() => {
     let active = true;
     getCurrentManageBooking()
@@ -41,6 +45,16 @@ const ManageBookingDetailsPage = () => {
       });
     return () => { active = false; };
   }, []);
+  useEffect(() => {
+    if (!["PENDING", "IN_FLIGHT", "PROCESSING"].includes(refundPollingStatus ?? "")) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      getCurrentManageBooking().then((current) => { if (active) setBooking(current); }).catch((error: unknown) => {
+        if (active && error instanceof BookingApiError && [401, 404].includes(error.status)) { setFailure("authorization"); window.clearInterval(timer); }
+      });
+    }, 5000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [refundPollingStatus]);
   if (!booking) {
     return <main className="min-h-screen bg-background pb-24 pt-28"><Container>
       {failure ? <section role="alert"><h1 className="text-display-sm">{t("manageBooking.yourBooking")}</h1><p className="mt-4">{t(failure === "authorization" ? "manageBooking.error.authorization" : "manageBooking.error.unavailable")}</p><Link className={buttonVariants({ variant: "primary" })} href="/manage-booking">{t("manageBooking.find")}</Link></section>
@@ -51,6 +65,9 @@ const ManageBookingDetailsPage = () => {
     const cutoff = booking.cancellation.cutoffAt
       ? new Intl.DateTimeFormat(locale === "th" ? "th-TH" : "en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: booking.journey.departureTimeZone ?? undefined }).format(new Date(booking.cancellation.cutoffAt))
       : null;
+    const refundStatus = booking.cancellation.refundStatus;
+    const refundLabel = refundStatus === "SUCCEEDED" ? "manageBooking.refundCompleted" : refundStatus === "REQUIRES_ATTENTION" ? "manageBooking.refundAttention" : "manageBooking.refundProcessing";
+    const cancel = async () => { setCancelling(true); setCancelError(false); try { await cancelCurrentManageBooking(); setBooking(await getCurrentManageBooking()); } catch { setCancelError(true); } finally { setCancelling(false); } };
     return (
       <main className="min-h-screen bg-background pb-24 pt-28">
         <Container>
@@ -87,7 +104,7 @@ const ManageBookingDetailsPage = () => {
             <Card className="p-6"><h2 className="text-h3">{t("manageBooking.extras")}</h2>{booking.extras.length ? <ul className="mt-5 space-y-3">{booking.extras.map((extra) => <li key={`${extra.passengerOrdinal}-${extra.productCode}`}>{t(productLabelKey(extra.productCode))} <span className="text-muted-foreground">· {t("manageBooking.passengerOrdinal", { ordinal: extra.passengerOrdinal })}</span></li>)}</ul> : <p className="mt-5 text-muted-foreground">{t("manageBooking.noExtras")}</p>}</Card>
             <Card className="p-6"><h2 className="text-h3">{t("manageBooking.payment")}</h2><p className="mt-5 text-2xl font-semibold">{money}</p><p className="mt-2 text-muted-foreground">{t(statusKeys.payment[booking.payment.status])}</p></Card>
             <Card className="p-6"><h2 className="flex items-center gap-3 text-h3"><TicketCheck aria-hidden="true" className="text-brand" />{t("manageBooking.ticket")}</h2><p className="mt-5 font-mono tracking-wider">{booking.ticket.ticketNumber}</p><p className="mt-2 text-muted-foreground">{t(statusKeys.ticket[booking.ticket.status])}</p><TicketVerificationQr token={booking.qrToken} /></Card>
-            <Card className="p-6"><h2 className="flex items-center gap-3 text-h3"><CheckCircle2 aria-hidden="true" className="text-brand" />{t("manageBooking.cancellation")}</h2><p className="mt-5 font-medium">{t(booking.cancellation.eligibility === "ELIGIBLE" ? "manageBooking.cancellationEligible" : "manageBooking.cancellationUnavailable")}</p>{booking.cancellation.eligibility === "ELIGIBLE" && cutoff ? <p className="mt-2 text-sm text-muted-foreground">{t("manageBooking.freeCancellationUntil", { date: cutoff })}</p> : null}<p className="mt-4 text-sm text-muted-foreground">{t("manageBooking.cancellationFuture")}</p></Card>
+            <Card className="p-6"><h2 className="flex items-center gap-3 text-h3"><CheckCircle2 aria-hidden="true" className="text-brand" />{t("manageBooking.cancellation")}</h2>{booking.status === "CANCELLED" ? <><p className="mt-5 font-medium">{t("manageBooking.status.cancelled")}</p><p className="mt-2 text-muted-foreground">{t(refundLabel)}</p></> : <><p className="mt-5 font-medium">{t(booking.cancellation.eligibility === "ELIGIBLE" ? "manageBooking.cancellationEligible" : "manageBooking.cancellationUnavailable")}</p>{booking.cancellation.eligibility === "ELIGIBLE" && cutoff ? <p className="mt-2 text-sm text-muted-foreground">{t("manageBooking.freeCancellationUntil", { date: cutoff })}</p> : null}<p className="mt-4 text-sm text-muted-foreground">{t("manageBooking.cancellationFuture")}</p>{booking.cancellation.eligibility === "ELIGIBLE" ? <Dialog><DialogTrigger asChild><Button className="mt-5" variant="destructive">{t("manageBooking.cancelBooking")}</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>{t("manageBooking.cancelTitle")}</DialogTitle><DialogDescription>{t("manageBooking.cancelDescription")}</DialogDescription></DialogHeader><dl className="space-y-3"><div><dt className="text-muted-foreground">{t("manageBooking.cancelFlight")}</dt><dd>{booking.journey.flightNumber} · {booking.journey.originCode} → {booking.journey.destinationCode}</dd></div><div><dt className="text-muted-foreground">{t("manageBooking.cancelSeats")}</dt><dd>{booking.seats.join(", ")}</dd></div><div><dt className="text-muted-foreground">{t("manageBooking.cancellationFee")}</dt><dd>{formatPrice(0, locale, booking.payment.amount.currencyCode)}</dd></div><div><dt className="text-muted-foreground">{t("manageBooking.fullRefund")}</dt><dd>{money}</dd></div></dl>{cancelError ? <p role="alert">{t("manageBooking.cancellationError")}</p> : null}<DialogFooter><DialogClose asChild><Button variant="outline">{t("manageBooking.keepBooking")}</Button></DialogClose><Button loading={cancelling} onClick={cancel} variant="destructive">{t(cancelling ? "manageBooking.cancelling" : "manageBooking.confirmCancellation")}</Button></DialogFooter></DialogContent></Dialog> : null}</>}</Card>
           </div>
         </Container>
       </main>

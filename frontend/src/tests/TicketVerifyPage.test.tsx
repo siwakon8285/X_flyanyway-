@@ -126,6 +126,13 @@ describe("Ticket Verification URL & Page", () => {
       expect(screen.queryByTestId("verify-flight-number")).not.toBeInTheDocument();
     });
 
+    it("reports an authentic cancelled ticket as not valid for travel", async () => {
+      mockVerifyTicket.mockResolvedValue({ valid: false, ticketStatus: "CANCELLED" });
+      renderTicketVerifyPage(validToken);
+      expect(await screen.findByText("Ticket cancelled — not valid for travel")).toBeInTheDocument();
+      expect(screen.queryByText("Ticket Verified")).not.toBeInTheDocument();
+    });
+
     it("renders verification failed state on network error", async () => {
       mockVerifyTicket.mockRejectedValue(new Error("Network connection lost"));
 

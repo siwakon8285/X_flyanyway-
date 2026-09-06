@@ -45,7 +45,10 @@ pub fn build_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::exact(frontend_origin))
         .allow_credentials(true)
-        .allow_headers([header::CONTENT_TYPE])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::HeaderName::from_static("x-x-fly-csrf"),
+        ])
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]);
 
     Router::new()
@@ -86,6 +89,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/tickets/verify/{token}", get(verify_ticket))
         .route("/api/v1/manage-booking/lookup", post(lookup_manage_booking))
         .route("/api/v1/manage-booking/current", get(get_manage_booking))
+        .route(
+            "/api/v1/manage-booking/current/cancel",
+            post(cancel_manage_booking),
+        )
         .route(
             "/api/v1/manage-booking/current/ticket",
             get(get_manage_booking_ticket),
@@ -535,6 +542,52 @@ async fn get_manage_booking(State(state): State<AppState>, headers: HeaderMap) -
     })
 }
 
+async fn cancel_manage_booking(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let result = async {
+        if !body.is_empty() {
+            return Err(ApiError::manage_booking_validation());
+        }
+        let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
+        let csrf = headers.get("x-x-fly-csrf").and_then(|v| v.to_str().ok());
+        if origin != Some(state.frontend_origin.as_str()) || csrf != Some("1") {
+            return Err(ApiError::manage_booking_unauthorized());
+        }
+        let ticket_id = manage_booking_ticket_id(&state, &headers)?;
+        let service = state
+            .cancellations
+            .as_ref()
+            .ok_or_else(ApiError::internal)?;
+        service
+            .cancel(ticket_id)
+            .await
+            .map(Json)
+            .map_err(|error| match error {
+                crate::domain::repositories::CancellationRepositoryError::NotFound => {
+                    ApiError::manage_booking_unauthorized()
+                }
+                crate::domain::repositories::CancellationRepositoryError::Ineligible => {
+                    ApiError::conflict(
+                        "CANCELLATION_UNAVAILABLE",
+                        "This booking can no longer be cancelled.",
+                    )
+                }
+                crate::domain::repositories::CancellationRepositoryError::InconsistentState
+                | crate::domain::repositories::CancellationRepositoryError::Infrastructure(_) => {
+                    ApiError::internal()
+                }
+            })
+    }
+    .await;
+    private_no_store(match result {
+        Ok(value) => value.into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ManageBookingDetailsResponse {
@@ -663,6 +716,15 @@ async fn stripe_webhook(
                     "Invalid Stripe webhook payload.",
                 )
             })?;
+
+        if matches!(envelope.event_type.as_str(), "refund.created" | "refund.updated" | "refund.failed") {
+            let refund = crate::infrastructure::refund::stripe::parse_refund_object(&envelope.data.object)
+                .map_err(|_| ApiError::stripe_webhook_bad_request("STRIPE_PAYLOAD_INVALID", "Invalid Refund object in webhook."))?;
+            let cancellations = state.cancellations.as_ref().ok_or_else(ApiError::internal)?;
+            cancellations.process_stripe_refund_event(crate::domain::cancellation::StripeRefundEvent { event_id: envelope.id, event_type: envelope.event_type, refund })
+                .await.map_err(|_| ApiError::internal())?;
+            return Ok(json!({ "received": true }));
+        }
 
         if envelope.event_type != "payment_intent.succeeded"
             && envelope.event_type != "payment_intent.payment_failed"
@@ -823,6 +885,15 @@ struct ApiError {
 }
 
 impl ApiError {
+    fn conflict(code: &'static str, message: &'static str) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code,
+            message,
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
     fn validation(_error: DomainError) -> Self {
         Self {
             status: StatusCode::UNPROCESSABLE_ENTITY,

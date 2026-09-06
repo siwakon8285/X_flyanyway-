@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { BookingApiError } from "@/components/booking/api/bookingApiClient";
 import { ManageBookingDetailsPage } from "@/components/manage-booking/ManageBookingDetailsPage";
@@ -8,12 +8,14 @@ import { LanguageProvider } from "@/i18n/LanguageProvider";
 
 const mockCurrent = jest.fn();
 const mockLookup = jest.fn();
+const mockCancel = jest.fn();
 const mockReplace = jest.fn();
 jest.mock("next/navigation", () => ({ useRouter: () => ({ replace: mockReplace }) }));
 
 jest.mock("@/components/manage-booking/manageBookingClient", () => ({
   getCurrentManageBooking: () => mockCurrent(),
   lookupManageBooking: (input: unknown) => mockLookup(input),
+  cancelCurrentManageBooking: () => mockCancel(),
 }));
 
 const booking: ManageBookingDetails = {
@@ -136,9 +138,22 @@ describe("ManageBookingPage", () => {
     expect(screen.getByText("XFTABCDEFGHIJKL")).toBeInTheDocument();
     expect(screen.getByTestId("ticket-qr-container")).toHaveAttribute("data-verification-url", expect.stringContaining(booking.qrToken));
     expect(screen.getByText("Eligible for cancellation")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel booking" })).toBeInTheDocument();
     expect(screen.queryByText(/check-in/i)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("passport");
     expect(document.body.textContent).not.toContain("example.com");
+  });
+
+  it("confirms a full free refund without sending identity or money", async () => {
+    mockCurrent.mockResolvedValue(booking);
+    mockCancel.mockResolvedValue({ refundStatus: "PENDING" });
+    renderPage("en", true);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel booking" }));
+    expect(screen.getByText("Cancellation is permanent. Your ticket will be cancelled and your seats released.")).toBeInTheDocument();
+    expect(screen.getByText("THB 0")).toBeInTheDocument();
+    expect(screen.getAllByText("THB 49,300").length).toBeGreaterThan(1);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm cancellation" }));
+    await waitFor(() => expect(mockCancel).toHaveBeenCalledWith());
   });
 
   it("submits two credentials and navigates only after successful lookup", async () => {
@@ -186,17 +201,32 @@ describe("ManageBookingPage", () => {
       ...booking,
       status: "CANCELLED",
       ticket: { ...booking.ticket, status: "CANCELLED" },
-      cancellation: { eligibility: "UNAVAILABLE", cutoffAt: booking.cancellation.cutoffAt },
+      cancellation: { eligibility: "UNAVAILABLE", cutoffAt: booking.cancellation.cutoffAt, refundStatus: "PROCESSING", refundAmount: booking.payment.amount },
     } satisfies ManageBookingDetails);
     renderPage("en", true);
 
-    expect(await screen.findByText("Booking cancelled")).toBeInTheDocument();
+    expect((await screen.findAllByText("Booking cancelled")).length).toBeGreaterThan(0);
     expect(screen.getByText("Cancelled")).toBeInTheDocument();
-    expect(screen.getByText("Cancellation unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Refund processing")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel booking" })).not.toBeInTheDocument();
     expect(screen.queryByText(/check-in/i)).not.toBeInTheDocument();
     expect(
       screen.getByText("Seat records are shown for reference. This booking is not active."),
     ).toBeInTheDocument();
+  });
+  it("polls only a nonterminal refund and stops after success", async () => {
+    jest.useFakeTimers();
+    const processing = { ...booking, status: "CANCELLED" as const, ticket: { ...booking.ticket, status: "CANCELLED" as const }, cancellation: { eligibility: "UNAVAILABLE" as const, cutoffAt: booking.cancellation.cutoffAt, refundStatus: "PROCESSING" as const, refundAmount: booking.payment.amount } };
+    const succeeded = { ...processing, cancellation: { ...processing.cancellation, refundStatus: "SUCCEEDED" as const } };
+    mockCurrent.mockResolvedValueOnce(processing).mockResolvedValueOnce(succeeded);
+    renderPage("en", true);
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText("Refund processing")).toBeInTheDocument();
+    await act(async () => { jest.advanceTimersByTime(5000); await Promise.resolve(); });
+    expect(screen.getByText("Refund completed")).toBeInTheDocument();
+    await act(async () => { jest.advanceTimersByTime(10000); await Promise.resolve(); });
+    expect(mockCurrent).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
   });
   it("blocks direct details without authorization and reveals no booking", async () => {
     renderPage("en", true);

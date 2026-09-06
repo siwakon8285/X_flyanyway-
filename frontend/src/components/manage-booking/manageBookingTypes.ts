@@ -3,6 +3,7 @@ type PaymentStatus = "CREATED" | "PROCESSING" | "AWAITING_PAYMENT" | "SUCCEEDED"
 type TicketStatus = "ISSUED" | "CANCELLED";
 type TravelDocumentStatus = "COMPLETE" | "INCOMPLETE";
 type CancellationEligibility = "ELIGIBLE" | "UNAVAILABLE";
+type RefundStatus = "PENDING" | "IN_FLIGHT" | "PROCESSING" | "SUCCEEDED" | "REQUIRES_ATTENTION";
 type ExtraCategory = "BAGGAGE" | "MEAL" | "ASSISTANCE";
 
 type ManageBooking = {
@@ -34,10 +35,11 @@ type ManageBooking = {
   }>;
   payment: {
     status: PaymentStatus;
+    provider?: "STRIPE" | "MOCK_BITCOIN";
     amount: { amount: number; currencyCode: string };
   };
   ticket: { ticketNumber: string; status: TicketStatus; issuedAt: string };
-  cancellation: { eligibility: CancellationEligibility; cutoffAt: string | null };
+  cancellation: { eligibility: CancellationEligibility; cutoffAt: string | null; refundStatus?: RefundStatus | null; refundAmount?: { amount: number; currencyCode: string } | null };
 };
 
 type ManageBookingLookupInput = {
@@ -57,4 +59,5 @@ export type {
   PaymentStatus,
   TicketStatus,
   TravelDocumentStatus,
+  RefundStatus,
 };

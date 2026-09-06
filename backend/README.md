@@ -155,6 +155,14 @@ Local development leaves `EMAIL_TRANSPORT=disabled`. Production/demo delivery us
 
 Flight service departure times are local schedule values. `flight_services.origin_time_zone` stores the corresponding IANA timezone because the current schema has no normalized airport entity. PostgreSQL uses it to derive the departure instant and exact 24-hour cancellation boundary, including daylight-saving transitions.
 
+## Customer cancellation and full refunds
+
+`POST /api/v1/manage-booking/current/cancel` is scoped exclusively by the signed Manage Booking cookie and additionally requires the exact configured `Origin` plus `X-X-Fly-CSRF: 1`. It accepts no booking identity, amount, currency, or provider reference. After deterministic row locks are acquired, the repository reads its server clock once and allows cancellation when the authoritative origin-time-zone departure instant is at least 24 hours away.
+
+The cancellation transaction records one `booking_cancellations` row, marks the ticket `CANCELLED`, timestamps the booking's active `payment_attempt_seats` associations, and returns those physical seats to `AVAILABLE`. The successful payment and consumed hold remain immutable history. A partial unique index permits a released seat to be sold again while preserving its old ownership record.
+
+Refunding is a separate durable worker lifecycle: `PENDING`, `IN_FLIGHT`, `PROCESSING`, `SUCCEEDED`, or `REQUIRES_ATTENTION`. Claims use `FOR UPDATE SKIP LOCKED`, a two-minute lease, a per-claim fencing token, and at most six attempts. Mock Bitcoin refunds are deterministic demo records and require no Stripe configuration. Stripe refunds use the authoritative paid amount, stable cancellation metadata and idempotency key, discover a matching PaymentIntent refund before creation after an ambiguous outcome, and map the authoritative Refund object status. Provider failure never reactivates a ticket or seats. Stripe remains Test Mode only.
+
 ## Isolated PostgreSQL tests
 
 Repository and race tests refuse a database whose URL path does not end in `_test`. `TEST_DATABASE_URL` is separate from `DATABASE_URL` and uses host port `5434` for host-run tests. Start the isolated, tmpfs-backed test database only when required:
