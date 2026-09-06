@@ -8,6 +8,7 @@ pub mod payment;
 pub mod pricing;
 pub mod repositories;
 pub mod review;
+pub mod staff;
 pub mod ticket;
 pub mod value_objects;
 

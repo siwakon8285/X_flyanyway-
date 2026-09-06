@@ -7,14 +7,16 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use x_fly_api::{
     application::{
         cancellation::{CancellationService, RefundDispatcher},
+        staff_auth::StaffAuthService,
         use_cases::PaymentApplication,
     },
     config::AppConfig,
     domain::cancellation::SystemClock,
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository},
+        database::{prepare_database, SqlxSeatHoldRepository, SqlxStaffAuthRepository},
         email::resend::ResendEmailDeliveryGateway,
         http::build_router,
+        password::Argon2PasswordService,
         payment::{
             stripe::StripePaymentGateway, MockBitcoinPaymentGateway, UnavailableCardPaymentGateway,
         },
@@ -43,6 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     prepare_database(&pool).await?;
 
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
+    let staff_auth = StaffAuthService::new(
+        Arc::new(SqlxStaffAuthRepository::new(repository.pool().clone())),
+        Argon2PasswordService::default(),
+        std::time::Duration::from_secs(60 * 60),
+    )?;
     let payments = match config.stripe_secret_key.clone() {
         Some(key) => {
             let stripe = Arc::new(StripePaymentGateway::new(key));
@@ -81,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_stripe_webhook_secret(config.stripe_webhook_secret)
     .with_tickets(repository.clone(), config.ticket_qr_signing_secret)
     .with_cancellations(cancellation_service);
+    let state = state.with_staff_auth(staff_auth);
     let state =
         state.with_manage_bookings(repository.clone(), config.manage_booking_signing_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;

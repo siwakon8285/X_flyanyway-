@@ -37,6 +37,9 @@ use crate::{
     state::AppState,
 };
 
+pub mod admin;
+mod browser_security;
+
 pub fn build_router(state: AppState) -> Router {
     let frontend_origin = state
         .frontend_origin
@@ -97,6 +100,7 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/manage-booking/current/ticket",
             get(get_manage_booking_ticket),
         )
+        .merge(admin::router())
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -551,9 +555,7 @@ async fn cancel_manage_booking(
         if !body.is_empty() {
             return Err(ApiError::manage_booking_validation());
         }
-        let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
-        let csrf = headers.get("x-x-fly-csrf").and_then(|v| v.to_str().ok());
-        if origin != Some(state.frontend_origin.as_str()) || csrf != Some("1") {
+        if !browser_security::browser_mutation_is_trusted(&headers, &state.frontend_origin) {
             return Err(ApiError::manage_booking_unauthorized());
         }
         let ticket_id = manage_booking_ticket_id(&state, &headers)?;

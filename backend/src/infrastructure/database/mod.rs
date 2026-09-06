@@ -21,7 +21,10 @@ mod manage_booking;
 mod passengers;
 mod payment;
 mod review;
+mod staff_auth;
 mod ticket;
+
+pub use staff_auth::SqlxStaffAuthRepository;
 
 #[derive(Debug, Error)]
 pub enum DatabaseInitError {
