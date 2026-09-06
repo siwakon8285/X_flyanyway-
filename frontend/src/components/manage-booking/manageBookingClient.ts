@@ -18,8 +18,15 @@ const lookupManageBooking = (input: ManageBookingLookupInput) =>
 const getCurrentManageBookingTicket = () =>
   requestJson<TicketResponse>("/manage-booking/current/ticket");
 
+const cancelCurrentManageBooking = () =>
+  requestJson<{ refundStatus: string }>("/manage-booking/current/cancel", {
+    method: "POST",
+    headers: { "X-X-Fly-CSRF": "1" },
+  });
+
 export {
   getCurrentManageBooking,
   getCurrentManageBookingTicket,
   lookupManageBooking,
+  cancelCurrentManageBooking,
 };
