@@ -3056,7 +3056,7 @@ feat/19-admin-auth-rbac
 - employee login/session
 - protected admin shell
 - RBAC policy
-- roles: EXECUTIVE / FLIGHT_MANAGER / BOOKING_OPERATIONS / TICKETING / BAGGAGE / API_ADMIN / SYSTEM_ADMIN
+- roles: EXECUTIVE / FLIGHT_MANAGER / BOOKING_OPERATIONS / TICKET_PASSENGER_OPERATIONS / BAGGAGE_STAFF / API_ADMIN / SYSTEM_ADMIN
 - unauthorized states
 - session expiry/logout
 - role-aware navigation
@@ -3064,6 +3064,14 @@ feat/19-admin-auth-rbac
 - company-device policy boundary documented
 
 Do not grant flight mutation to generic admin by default.
+
+Branch 19 uses PostgreSQL-backed staff identities, many-to-many roles, role permissions, login throttles, and opaque revocable sessions. Effective permissions are the union of the account's current durable role grants and are resolved on every authenticated request. `SYSTEM_ADMIN` manages only the identity/access domain by default and has no implicit superuser behavior.
+
+Staff passwords use Argon2id and are provisioned only through the local `staff_admin bootstrap|create` CLI with a hidden confirmed password prompt. There is no public registration endpoint or default credential. Staff authentication uses the separate `x_fly_staff_session` cookie scoped to `/admin`; it does not reuse or alter customer hold or Manage Booking authorization.
+
+The Branch 19 `/admin` workspace is an authentication, authorization, and visual shell only. Future module links stay omitted until their branches provide real functionality; the shell contains no Executive Dashboard metrics or fabricated analytics. English and Thai use the shared typed locale system.
+
+Company-managed-device access is not proven by application login or browser checks. Real enforcement remains a Branch 27 identity/network control using an auditable mechanism such as managed-device certificates, Zero Trust device posture, MDM identity, or a private/VPN policy.
 
 ---
 

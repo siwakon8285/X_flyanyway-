@@ -16,8 +16,68 @@ use crate::domain::{
     passengers::{BookingContactInput, PassengerContext, PassengerFieldError, PassengerInput},
     payment::{PaymentAttempt, PaymentAttemptTransition, PaymentContext, PaymentRepositoryCommand},
     review::ReviewContext,
+    staff::{RoleCode, StaffCredential, StaffPrincipal},
     ticket::{Ticket, TicketVerification},
 };
+
+#[derive(Debug, Error)]
+pub enum StaffAuthRepositoryError {
+    #[error("staff account already exists")]
+    DuplicateEmail,
+    #[error("first staff account already exists")]
+    BootstrapAlreadyCompleted,
+    #[error("staff bootstrap must run before creating additional accounts")]
+    BootstrapRequired,
+    #[error("one or more roles are not canonical")]
+    UnknownRole,
+    #[error("staff authorization state is inconsistent")]
+    InconsistentState,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+#[async_trait]
+pub trait StaffAuthRepository: Send + Sync {
+    async fn credential_for_email(
+        &self,
+        email: &str,
+    ) -> Result<Option<StaffCredential>, StaffAuthRepositoryError>;
+    async fn login_is_blocked(
+        &self,
+        identifier_hash: [u8; 32],
+    ) -> Result<bool, StaffAuthRepositoryError>;
+    async fn record_login_failure(
+        &self,
+        identifier_hash: [u8; 32],
+    ) -> Result<bool, StaffAuthRepositoryError>;
+    async fn clear_login_failures(
+        &self,
+        identifier_hash: [u8; 32],
+    ) -> Result<(), StaffAuthRepositoryError>;
+    async fn update_password_hash(
+        &self,
+        staff_user_id: Uuid,
+        password_hash: &str,
+    ) -> Result<(), StaffAuthRepositoryError>;
+    async fn create_session(
+        &self,
+        staff_user_id: Uuid,
+        token_hash: [u8; 32],
+        lifetime: Duration,
+    ) -> Result<StaffPrincipal, StaffAuthRepositoryError>;
+    async fn authenticate_session(
+        &self,
+        token_hash: [u8; 32],
+    ) -> Result<Option<StaffPrincipal>, StaffAuthRepositoryError>;
+    async fn revoke_session(&self, token_hash: [u8; 32]) -> Result<(), StaffAuthRepositoryError>;
+    async fn provision_staff(
+        &self,
+        first_only: bool,
+        email: &str,
+        password_hash: &str,
+        roles: &[RoleCode],
+    ) -> Result<(), StaffAuthRepositoryError>;
+}
 
 #[derive(Debug, Error)]
 pub enum CancellationRepositoryError {

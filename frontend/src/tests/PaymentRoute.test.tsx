@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 
-import PaymentRoute from "@/app/booking/payment/page";
+import PaymentRoute from "@/app/(customer)/booking/payment/page";
 import { render } from "@/tests/renderWithLanguage";
 
 jest.mock("@/components/booking/payment/PaymentPage", () => ({

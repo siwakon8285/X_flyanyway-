@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
-import SeatSelectionBoundary from "@/app/flights/[flightId]/seats/page";
+import SeatSelectionBoundary from "@/app/(customer)/flights/[flightId]/seats/page";
 
 const validQuery = {
   adults: "1",
