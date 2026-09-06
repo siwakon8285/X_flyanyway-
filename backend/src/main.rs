@@ -5,8 +5,12 @@ use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use x_fly_api::{
-    application::use_cases::PaymentApplication,
+    application::{
+        cancellation::{CancellationService, RefundDispatcher},
+        use_cases::PaymentApplication,
+    },
     config::AppConfig,
+    domain::cancellation::SystemClock,
     infrastructure::{
         database::{prepare_database, SqlxSeatHoldRepository},
         email::resend::ResendEmailDeliveryGateway,
@@ -14,6 +18,7 @@ use x_fly_api::{
         payment::{
             stripe::StripePaymentGateway, MockBitcoinPaymentGateway, UnavailableCardPaymentGateway,
         },
+        refund::{stripe::StripeRefundGateway, MockBitcoinRefundGateway},
     },
     state::AppState,
 };
@@ -54,6 +59,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(MockBitcoinPaymentGateway),
         ),
     };
+    let cancellation_service = CancellationService::new(repository.clone(), Arc::new(SystemClock));
+    let refund_dispatcher = RefundDispatcher::new(
+        repository.clone(),
+        config
+            .stripe_secret_key
+            .clone()
+            .map(|key| Arc::new(StripeRefundGateway::new(key)) as _),
+        Arc::new(MockBitcoinRefundGateway),
+    );
     let state = AppState::new(
         repository.clone(),
         repository.clone(),
@@ -65,7 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_payments(payments)
     .with_stripe_webhook_secret(config.stripe_webhook_secret)
-    .with_tickets(repository.clone(), config.ticket_qr_signing_secret);
+    .with_tickets(repository.clone(), config.ticket_qr_signing_secret)
+    .with_cancellations(cancellation_service);
     let state =
         state.with_manage_bookings(repository.clone(), config.manage_booking_signing_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
@@ -95,6 +110,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let refund_worker = tokio::spawn(async move {
+        loop {
+            if let Err(error) = refund_dispatcher.dispatch_once(Utc::now()).await {
+                tracing::warn!(error = %error, "refund dispatch attempt failed");
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
     axum::serve(listener, build_router(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
@@ -102,6 +125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         worker.abort();
         let _ = worker.await;
     }
+    refund_worker.abort();
+    let _ = refund_worker.await;
     Ok(())
 }
 

@@ -7,6 +7,9 @@ use uuid::Uuid;
 use crate::domain::value_objects::SeatNumber;
 use crate::domain::{
     booking_confirmation::{BookingConfirmationLocale, DeliveryFailure},
+    cancellation::{
+        Cancellation, Clock, ProviderRefund, RefundFailure, RefundJob, StripeRefundEvent,
+    },
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput, ExtraValidationError},
     manage_booking::{ManageBookingLookup, ManageBookingRecord},
@@ -15,6 +18,57 @@ use crate::domain::{
     review::ReviewContext,
     ticket::{Ticket, TicketVerification},
 };
+
+#[derive(Debug, Error)]
+pub enum CancellationRepositoryError {
+    #[error("booking not found")]
+    NotFound,
+    #[error("booking cannot be cancelled")]
+    Ineligible,
+    #[error("authoritative booking state is inconsistent")]
+    InconsistentState,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+#[async_trait]
+pub trait CancellationRepository: Send + Sync {
+    async fn cancel_booking(
+        &self,
+        ticket_id: Uuid,
+        clock: &dyn Clock,
+    ) -> Result<Cancellation, CancellationRepositoryError>;
+    async fn claim_due_refund(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<RefundJob>, sqlx::Error>;
+    async fn mark_refund_result(
+        &self,
+        job: &RefundJob,
+        refund: &ProviderRefund,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), sqlx::Error>;
+    async fn mark_refund_retry(
+        &self,
+        job: &RefundJob,
+        next_attempt_at: chrono::DateTime<chrono::Utc>,
+        failure: &RefundFailure,
+    ) -> Result<(), sqlx::Error>;
+    async fn mark_refund_attention(
+        &self,
+        job: &RefundJob,
+        failure: &RefundFailure,
+    ) -> Result<(), sqlx::Error>;
+    async fn process_stripe_refund_event(
+        &self,
+        event: StripeRefundEvent,
+    ) -> Result<(), CancellationRepositoryError>;
+}
+
+#[async_trait]
+pub trait RefundGateway: Send + Sync {
+    async fn refund(&self, job: &RefundJob) -> Result<ProviderRefund, RefundFailure>;
+}
 
 #[derive(Clone, Debug)]
 pub struct BookingConfirmationIntent {

@@ -175,9 +175,11 @@ impl TicketRepository for SqlxSeatHoldRepository {
             .commit()
             .await
             .map_err(TicketRepositoryError::Infrastructure)?;
+        let ticket_status = TicketStatus::parse_database(&row.status);
+        let valid = ticket_status == Some(TicketStatus::Issued);
         Ok(Some(TicketVerification {
-            valid: true,
-            ticket_status: TicketStatus::parse_database(&row.status),
+            valid,
+            ticket_status,
             flight_number: Some(row.flight_number),
             origin_code: Some(row.origin_code),
             destination_code: Some(row.destination_code),
@@ -185,7 +187,7 @@ impl TicketRepository for SqlxSeatHoldRepository {
             departure_time: row
                 .departure_time
                 .map(|time| time.format("%H:%M").to_string()),
-            seats: Some(seats),
+            seats: valid.then_some(seats),
         }))
     }
 }

@@ -3,8 +3,9 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::domain::{
+    cancellation::RefundStatus,
     extras::{ExtraCategory, Money},
-    payment::PaymentStatus,
+    payment::{PaymentProvider, PaymentStatus},
     ticket::TicketStatus,
 };
 
@@ -116,6 +117,7 @@ pub struct ManageBookingExtra {
 #[serde(rename_all = "camelCase")]
 pub struct ManageBookingPayment {
     pub status: PaymentStatus,
+    pub provider: PaymentProvider,
     pub amount: Money,
 }
 
@@ -132,6 +134,8 @@ pub struct ManageBookingTicket {
 pub struct ManageBookingCancellation {
     pub eligibility: CancellationEligibility,
     pub cutoff_at: Option<DateTime<Utc>>,
+    pub refund_status: Option<RefundStatus>,
+    pub refund_amount: Option<Money>,
 }
 
 #[derive(Clone, Debug, Serialize)]
