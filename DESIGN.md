@@ -1546,6 +1546,10 @@ If eligible, Branch 18 will implement:
 
 Because customers have no accounts, cancellation/refund authorization must rely on the verified Manage Booking context and authoritative booking/payment ownership. Refund must return through the original supported payment flow in the academic model; do not accept an arbitrary new refund destination merely from browser input.
 
+Branch 18 implements this as a final local cancellation followed by an asynchronous full refund. The locked local transaction creates one durable cancellation identity, cancels the ticket, releases only active seat ownership, and preserves successful payment/consumed-hold history. The current time is sampled once only after all authoritative locks are held; equality at the 24-hour cutoff is eligible. External Stripe Test Mode or Mock Bitcoin refund work begins only after commit and cannot undo cancellation.
+
+Refund state is separate from cancellation state: `PENDING`, `IN_FLIGHT`, and `PROCESSING` are customer-facing “Refund processing”; `SUCCEEDED` is “Refund completed”; `REQUIRES_ATTENTION` is a truthful terminal operational state. Stripe responses and signed refund webhooks are validated against PaymentIntent, cancellation metadata, full amount, currency, and refund identity. Database uniqueness and fenced leases are primary correctness controls; Stripe idempotency is defense-in-depth.
+
 If the customer wants a different flight:
 
 ```txt
