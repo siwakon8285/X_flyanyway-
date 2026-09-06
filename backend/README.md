@@ -26,6 +26,28 @@ Domain types have no Axum dependencies. The SQLx repository uses deterministic s
 - Cookie names are scoped by hold UUID, so a browser can retain more than one unrelated hold without exposing secrets to JavaScript.
 - `BOOKED` inventory cannot be held. The schema is ready for a later transaction to lock an active hold, create the booking, set its seats to `BOOKED`, clear `hold_id`, set `booked_at`, and set `consumed_at`. That conversion is intentionally outside Branch 12.
 
+## Staff authentication and RBAC
+
+Human staff use a separate PostgreSQL-backed security domain: `staff_users`, `roles`, `permissions`, `staff_user_roles`, `role_permissions`, `staff_sessions`, and `staff_login_throttles`. Accounts may hold multiple roles and receive the union of their current permissions. Every authenticated request reloads active account, unexpired/unrevoked session, roles, and permissions in one query, so disable, logout, and grant changes take effect immediately across backend instances.
+
+Passwords are stored only as PHC-formatted Argon2id hashes (`m=19456,t=2,p=1`) with a fresh random salt. Successful login may rehash an older parameter set. Staff sessions use a 256-bit random opaque token; only its SHA-256 hash is stored. The 60-minute absolute-lifetime cookie is `HttpOnly`, `SameSite=Strict`, scoped to `/admin`, and `Secure` when `APP_ENV=production`. Staff endpoints return private/no-store responses. Login failures are generic and a durable per-normalized-identifier window blocks after five failures for 15 minutes.
+
+The backend `AuthenticatedStaff` extractor validates current durable session state. Handlers call its typed `require(PermissionCode)` guard for reusable 401/403 enforcement. Browser mutations require the exact configured `FRONTEND_ORIGIN` and `X-X-Fly-CSRF: 1`. This human RBAC/session boundary is intentionally distinct from customer Manage Booking authorization and future machine API clients/scopes.
+
+Canonical role grants are deliberately least-privilege: `SYSTEM_ADMIN` receives only `staff:*` and `roles:*`; only `FLIGHT_MANAGER` receives `flights:write`. No `is_admin` or `admin:all` bypass exists.
+
+### Provision staff safely
+
+There is no web registration or committed default account. Run the focused CLI from a trusted terminal; it prompts for the password twice without echo and accepts no password argument or environment variable:
+
+```bash
+cd backend
+cargo run --bin staff_admin -- bootstrap --email system-admin@x-fly.internal --role SYSTEM_ADMIN
+cargo run --bin staff_admin -- create --email flight-manager@x-fly.internal --role FLIGHT_MANAGER
+```
+
+`bootstrap` is atomic and refuses unless `staff_users` is empty. `create` refuses until bootstrap has occurred. Both require at least one explicit canonical `--role`; repeat the flag only when one person genuinely has multiple responsibilities. Use distinct least-privilege accounts for role-specific QA.
+
 ## API
 
 ```text
