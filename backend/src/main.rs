@@ -17,7 +17,6 @@ use x_fly_api::{
             prepare_database, SqlxAnalyticsRepository, SqlxSeatHoldRepository,
             SqlxStaffAuthRepository,
         },
-        email::resend::ResendEmailDeliveryGateway,
         http::build_router,
         password::Argon2PasswordService,
         payment::{
@@ -97,31 +96,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.with_manage_bookings(repository.clone(), config.manage_booking_signing_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;
     tracing::info!(address = %config.bind_address, "X-Fly API listening");
-    let email_worker = if config.email_transport.eq_ignore_ascii_case("resend") {
-        let gateway = Arc::new(ResendEmailDeliveryGateway::new(
-            config
-                .resend_api_key
-                .clone()
-                .expect("validated Resend API key"),
-            config.email_from.clone().expect("validated email sender"),
-        )?);
-        let service =
-            x_fly_api::application::booking_confirmation::BookingConfirmationEmailService::new(
-                repository.clone(),
-                repository.clone(),
-                gateway,
-                config.public_site_origin.clone(),
-            );
-        let worker_service = service.clone();
-        Some(tokio::spawn(async move {
-            loop {
-                let _ = worker_service.dispatch_once(Utc::now()).await;
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-        }))
-    } else {
-        None
-    };
     let refund_worker = tokio::spawn(async move {
         loop {
             if let Err(error) = refund_dispatcher.dispatch_once(Utc::now()).await {
@@ -133,10 +107,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, build_router(state))
         .with_graceful_shutdown(shutdown_signal())
         .await?;
-    if let Some(worker) = email_worker {
-        worker.abort();
-        let _ = worker.await;
-    }
     refund_worker.abort();
     let _ = refund_worker.await;
     Ok(())

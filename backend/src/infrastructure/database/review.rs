@@ -4,15 +4,14 @@ use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::domain::{
-    extras::{catalog_for_cabin, Money, PricedExtraSelection},
+    extras::{catalog_for_cabin, Money},
     passengers::{expected_passenger_slots, Passenger, PassengerType},
     pricing::{
         calculate_review_pricing, CalculatedReviewPricing, DEMO_AIRPORT_FEE_AMOUNT,
         DEMO_BOOKING_FEE_AMOUNT, DEMO_PASSENGER_TAX_AMOUNT, REVIEW_CURRENCY,
     },
     repositories::{
-        ExtraRepositoryError, PassengerRepositoryError, ReviewRepository, ReviewRepositoryError,
-        SeatHoldRepositoryError,
+        PassengerRepositoryError, ReviewRepository, ReviewRepositoryError, SeatHoldRepositoryError,
     },
     review::{
         DemoFareConditions, ReviewBaseFare, ReviewBaseFareLine, ReviewContext,
@@ -22,7 +21,7 @@ use crate::domain::{
     value_objects::PassengerCounts,
 };
 
-use super::{extras::load_selections, passengers::load_passengers, SqlxSeatHoldRepository};
+use super::{passengers::load_passengers, SqlxSeatHoldRepository};
 
 #[async_trait]
 impl ReviewRepository for SqlxSeatHoldRepository {
@@ -49,37 +48,44 @@ impl ReviewRepository for SqlxSeatHoldRepository {
         let hold = Self::hold_entity(&mut transaction, hold_row)
             .await
             .map_err(map_hold_error)?;
+        if !hold.cabin.is_customer_bookable() {
+            return Err(ReviewRepositoryError::PricingUnavailable);
+        }
         ensure_seats_ready(&mut transaction, hold_id, counts, hold.seats.len()).await?;
 
         let passengers = load_passengers(&mut transaction, hold_id)
             .await
             .map_err(map_passenger_error)?;
         ensure_passengers_ready(&passengers, counts)?;
-        let extras_saved_at = fixture
-            .extras_saved_at
-            .ok_or(ReviewRepositoryError::ExtrasNotReady)?;
-        let selections = load_selections(&mut transaction, hold_id)
-            .await
-            .map_err(map_extra_error)?;
-        let extras_amount = checked_extras_total(&selections)?;
         let base_fare_amount = fixture
             .base_fare_amount
             .ok_or(ReviewRepositoryError::PricingUnavailable)?;
-        if fixture.currency_code.as_deref() != Some(REVIEW_CURRENCY)
-            || selections
-                .iter()
-                .any(|selection| selection.unit_price.currency_code != REVIEW_CURRENCY)
-        {
+        if fixture.currency_code.as_deref() != Some(REVIEW_CURRENCY) {
             return Err(ReviewRepositoryError::PricingUnavailable);
         }
 
-        let snapshot = match load_snapshot(&mut transaction, hold_id, extras_saved_at).await? {
+        let snapshot = match load_snapshot(
+            &mut transaction,
+            hold_id,
+            fixture
+                .passenger_details_saved_at
+                .ok_or(ReviewRepositoryError::PassengersNotReady)?,
+        )
+        .await?
+        {
             Some(snapshot) => snapshot,
             None => {
-                let calculated = calculate_review_pricing(base_fare_amount, counts, extras_amount)
+                let calculated = calculate_review_pricing(base_fare_amount, counts, 0)
                     .map_err(|_| ReviewRepositoryError::PricingUnavailable)?;
-                materialize_snapshot(&mut transaction, hold_id, extras_saved_at, &calculated)
-                    .await?
+                materialize_snapshot(
+                    &mut transaction,
+                    hold_id,
+                    fixture
+                        .passenger_details_saved_at
+                        .ok_or(ReviewRepositoryError::PassengersNotReady)?,
+                    &calculated,
+                )
+                .await?
             }
         };
         if snapshot.currency_code != REVIEW_CURRENCY {
@@ -89,7 +95,7 @@ impl ReviewRepository for SqlxSeatHoldRepository {
         let catalog = catalog_for_cabin(hold.cabin);
         let review = ReviewContext {
             journey,
-            passengers: review_passengers(passengers, &selections),
+            passengers: review_passengers(passengers),
             seats: hold
                 .seats
                 .iter()
@@ -126,7 +132,8 @@ async fn load_fixture(
         "SELECT service.flight_number, service.origin_code, service.destination_code,
                 service.aircraft_code, service.departure_time, service.arrival_time,
                 service.arrival_day_offset, service.duration_minutes, service.stops,
-                cabin.base_fare_amount, cabin.currency_code, hold.extras_saved_at
+                cabin.base_fare_amount, cabin.currency_code,
+                hold.passenger_details_saved_at
          FROM seat_holds AS hold
          JOIN flight_instances AS instance ON instance.id = hold.flight_instance_id
          JOIN flight_services AS service ON service.id = instance.flight_service_id
@@ -177,18 +184,7 @@ fn ensure_passengers_ready(
     Ok(())
 }
 
-fn checked_extras_total(selections: &[PricedExtraSelection]) -> Result<i64, ReviewRepositoryError> {
-    selections.iter().try_fold(0_i64, |total, selection| {
-        total
-            .checked_add(selection.line_total.amount)
-            .ok_or(ReviewRepositoryError::PricingUnavailable)
-    })
-}
-
-fn review_passengers(
-    passengers: Vec<Passenger>,
-    selections: &[PricedExtraSelection],
-) -> Vec<ReviewPassenger> {
+fn review_passengers(passengers: Vec<Passenger>) -> Vec<ReviewPassenger> {
     passengers
         .into_iter()
         .map(|passenger| {
@@ -210,11 +206,6 @@ fn review_passengers(
                 ),
                 nationality_code: passenger.nationality_code,
                 travel_document_complete: true,
-                extras: selections
-                    .iter()
-                    .filter(|selection| selection.passenger_ordinal == passenger.ordinal)
-                    .cloned()
-                    .collect(),
             }
         })
         .collect()
@@ -255,7 +246,7 @@ fn required_time(value: Option<NaiveTime>) -> Result<String, ReviewRepositoryErr
 async fn load_snapshot(
     transaction: &mut Transaction<'_, Postgres>,
     hold_id: Uuid,
-    source_extras_saved_at: DateTime<Utc>,
+    source_passenger_details_saved_at: DateTime<Utc>,
 ) -> Result<Option<SnapshotRow>, ReviewRepositoryError> {
     sqlx::query_as::<_, SnapshotRow>(
         "SELECT currency_code, seated_base_fare_unit_amount, infant_base_fare_unit_amount,
@@ -263,10 +254,10 @@ async fn load_snapshot(
                 taxes_amount, demo_airport_fee_unit_amount, demo_airport_fee_amount,
                 demo_booking_fee_amount, fees_amount, grand_total_amount, priced_at
          FROM hold_review_pricing
-         WHERE seat_hold_id = $1 AND source_extras_saved_at = $2",
+         WHERE seat_hold_id = $1 AND source_passenger_details_saved_at = $2",
     )
     .bind(hold_id)
-    .bind(source_extras_saved_at)
+    .bind(source_passenger_details_saved_at)
     .fetch_optional(&mut **transaction)
     .await
     .map_err(ReviewRepositoryError::Infrastructure)
@@ -275,7 +266,7 @@ async fn load_snapshot(
 async fn materialize_snapshot(
     transaction: &mut Transaction<'_, Postgres>,
     hold_id: Uuid,
-    source_extras_saved_at: DateTime<Utc>,
+    source_passenger_details_saved_at: DateTime<Utc>,
     pricing: &CalculatedReviewPricing,
 ) -> Result<SnapshotRow, ReviewRepositoryError> {
     let seated_unit_amount = pricing
@@ -292,14 +283,14 @@ async fn materialize_snapshot(
         .ok_or(ReviewRepositoryError::PricingUnavailable)?;
     sqlx::query_as::<_, SnapshotRow>(
         "INSERT INTO hold_review_pricing (
-            seat_hold_id, source_extras_saved_at, currency_code,
+            seat_hold_id, source_passenger_details_saved_at, currency_code,
             seated_base_fare_unit_amount, infant_base_fare_unit_amount,
             base_fare_amount, extras_amount, demo_passenger_tax_unit_amount,
             taxes_amount, demo_airport_fee_unit_amount, demo_airport_fee_amount,
             demo_booking_fee_amount, fees_amount, grand_total_amount
          ) VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT (seat_hold_id) DO UPDATE SET
-            source_extras_saved_at = EXCLUDED.source_extras_saved_at,
+            source_passenger_details_saved_at = EXCLUDED.source_passenger_details_saved_at,
             currency_code = EXCLUDED.currency_code,
             seated_base_fare_unit_amount = EXCLUDED.seated_base_fare_unit_amount,
             infant_base_fare_unit_amount = EXCLUDED.infant_base_fare_unit_amount,
@@ -319,7 +310,7 @@ async fn materialize_snapshot(
             demo_booking_fee_amount, fees_amount, grand_total_amount, priced_at",
     )
     .bind(hold_id)
-    .bind(source_extras_saved_at)
+    .bind(source_passenger_details_saved_at)
     .bind(pricing.currency_code)
     .bind(seated_unit_amount)
     .bind(pricing.base_fare_amount)
@@ -377,7 +368,6 @@ fn pricing_from_snapshot(snapshot: &SnapshotRow, counts: PassengerCounts) -> Rev
             lines,
             amount: money(snapshot.base_fare_amount),
         },
-        extras: money(snapshot.extras_amount),
         taxes: vec![ReviewPricingLine {
             code: "DEMO_PASSENGER_TAX",
             quantity: seated_count,
@@ -426,13 +416,6 @@ fn map_passenger_error(error: PassengerRepositoryError) -> ReviewRepositoryError
     }
 }
 
-fn map_extra_error(error: ExtraRepositoryError) -> ReviewRepositoryError {
-    match error {
-        ExtraRepositoryError::Infrastructure(error) => ReviewRepositoryError::Infrastructure(error),
-        _ => ReviewRepositoryError::PricingUnavailable,
-    }
-}
-
 #[derive(FromRow)]
 struct ReviewFixtureRow {
     flight_number: String,
@@ -446,7 +429,7 @@ struct ReviewFixtureRow {
     stops: Option<String>,
     base_fare_amount: Option<i64>,
     currency_code: Option<String>,
-    extras_saved_at: Option<DateTime<Utc>>,
+    passenger_details_saved_at: Option<DateTime<Utc>>,
 }
 
 #[derive(FromRow)]
@@ -455,6 +438,7 @@ struct SnapshotRow {
     seated_base_fare_unit_amount: i64,
     infant_base_fare_unit_amount: i64,
     base_fare_amount: i64,
+    #[allow(dead_code)]
     extras_amount: i64,
     demo_passenger_tax_unit_amount: i64,
     taxes_amount: i64,

@@ -2,7 +2,7 @@ import type { SeatHold } from "@/components/booking/seats/seatHoldClient";
 
 type PassengerType = "ADULT" | "CHILD" | "INFANT";
 type PassengerTitle = "MR" | "MS";
-type PassengerGender = "MALE" | "FEMALE" | "UNSPECIFIED";
+type PassengerGender = "MALE" | "FEMALE";
 
 type PassengerSlot = {
   ordinal: number;
@@ -18,7 +18,6 @@ type EmergencyContact = {
 
 type Passenger = {
   dateOfBirth: string;
-  email: string;
   emergencyContact: EmergencyContact | null;
   familyName: string;
   gender: PassengerGender;
@@ -29,14 +28,12 @@ type Passenger = {
   passengerType: PassengerType;
   passportIssuingCountryCode: string;
   passportNumber: string;
-  phoneCountryCode: string;
-  phoneNumber: string;
   title: PassengerTitle;
 };
 
 type BookingContact = {
-  email: string;
-  preferredLocale: "EN" | "TH";
+  phoneCountryCode: string;
+  phoneNumber: string;
 };
 
 type PassengerFormValue = Omit<Passenger, "gender" | "middleName" | "title"> & {
@@ -60,7 +57,7 @@ type PassengerValidationCode =
   | "EMERGENCY_CONTACT_INCOMPLETE"
   | "INVALID_COUNTRY"
   | "INVALID_DATE"
-  | "INVALID_EMAIL"
+  | "INVALID_GENDER"
   | "INVALID_NAME"
   | "INVALID_PASSPORT"
   | "INVALID_PHONE"

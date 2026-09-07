@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use axum::{
     body::Bytes,
     extract::{rejection::JsonRejection, Path, Query, State},
@@ -22,7 +20,6 @@ use uuid::Uuid;
 use crate::{
     domain::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
-        extras::ExtraSelectionInput,
         manage_booking::ManageBookingLookup,
         passengers::{BookingContactInput, PassengerFieldError, PassengerInput},
         payment::{CreatePaymentRequest, PaymentMethod, PaymentSimulationOutcome},
@@ -61,10 +58,6 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/seat-holds/{hold_id}/passengers",
             get(get_passengers).put(save_passengers),
-        )
-        .route(
-            "/api/v1/seat-holds/{hold_id}/extras",
-            get(get_extras).put(save_extras),
         )
         .route("/api/v1/seat-holds/{hold_id}/review", get(get_review))
         .route("/api/v1/seat-holds/{hold_id}/payment", get(get_payment))
@@ -127,7 +120,7 @@ async fn seat_map(
     let selection = FlightSelection {
         flight_id,
         departure_date: query.departure,
-        cabin: CabinClass::from_str(&query.cabin).map_err(ApiError::validation)?,
+        cabin: CabinClass::parse_customer_booking(&query.cabin).map_err(ApiError::validation)?,
     };
     let owner = match query.hold_id {
         Some(hold_id) => Some((hold_id, token_hash_from_cookie(&headers, hold_id)?)),
@@ -159,7 +152,7 @@ async fn create_hold(
     State(state): State<AppState>,
     Json(request): Json<CreateHoldRequest>,
 ) -> Result<Response, ApiError> {
-    let cabin = CabinClass::from_str(&request.cabin).map_err(ApiError::validation)?;
+    let cabin = CabinClass::parse_customer_booking(&request.cabin).map_err(ApiError::validation)?;
     let passengers = PassengerCounts::new(
         request.passengers.adults,
         request.passengers.children,
@@ -270,43 +263,6 @@ async fn save_passengers(
     ))
 }
 
-async fn get_extras(
-    State(state): State<AppState>,
-    Path(hold_id): Path<Uuid>,
-    headers: HeaderMap,
-) -> Result<impl IntoResponse, ApiError> {
-    let token_hash = token_hash_from_cookie(&headers, hold_id)?;
-    let context = state.extras.get_extras(hold_id, token_hash).await?;
-    Ok((
-        [(header::CACHE_CONTROL, "no-store, private")],
-        Json(context),
-    ))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SaveExtrasRequest {
-    selections: Vec<ExtraSelectionInput>,
-}
-
-async fn save_extras(
-    State(state): State<AppState>,
-    Path(hold_id): Path<Uuid>,
-    headers: HeaderMap,
-    payload: Result<Json<SaveExtrasRequest>, JsonRejection>,
-) -> Result<impl IntoResponse, ApiError> {
-    let token_hash = token_hash_from_cookie(&headers, hold_id)?;
-    let request = payload.map_err(|_| ApiError::extras_bad_request())?.0;
-    let context = state
-        .extras
-        .save_extras(hold_id, token_hash, request.selections)
-        .await?;
-    Ok((
-        [(header::CACHE_CONTROL, "no-store, private")],
-        Json(context),
-    ))
-}
-
 async fn get_review(
     State(state): State<AppState>,
     Path(hold_id): Path<Uuid>,
@@ -358,7 +314,6 @@ async fn get_payment(
 struct CreatePaymentAttemptRequest {
     request_id: Uuid,
     method: PaymentMethod,
-    preferred_locale: crate::domain::booking_confirmation::BookingConfirmationLocale,
 }
 
 async fn create_payment_attempt(
@@ -378,7 +333,6 @@ async fn create_payment_attempt(
                 CreatePaymentRequest {
                     request_id: request.request_id,
                     method: request.method,
-                    preferred_locale: request.preferred_locale,
                 },
             )
             .await
@@ -966,16 +920,6 @@ impl ApiError {
         }
     }
 
-    fn extras_bad_request() -> Self {
-        Self {
-            status: StatusCode::UNPROCESSABLE_ENTITY,
-            code: "EXTRAS_VALIDATION_FAILED",
-            message: "Travel extras are invalid.",
-            conflicting_seats: Vec::new(),
-            field_errors: Vec::new(),
-        }
-    }
-
     fn payment_bad_request() -> Self {
         Self {
             status: StatusCode::UNPROCESSABLE_ENTITY,
@@ -1055,10 +999,6 @@ impl From<PaymentRepositoryError> for ApiError {
             PaymentRepositoryError::PassengersNotReady => conflict(
                 "PASSENGERS_NOT_READY",
                 "Passenger information must be completed before payment.",
-            ),
-            PaymentRepositoryError::ExtrasNotReady => conflict(
-                "EXTRAS_NOT_READY",
-                "Travel extras must be saved before payment.",
             ),
             PaymentRepositoryError::BookingContactNotReady => conflict(
                 "BOOKING_CONTACT_NOT_READY",
@@ -1223,10 +1163,6 @@ impl From<ReviewRepositoryError> for ApiError {
             ReviewRepositoryError::PassengersNotReady => state_error(
                 "PASSENGERS_NOT_READY",
                 "Passenger information must be completed before review.",
-            ),
-            ReviewRepositoryError::ExtrasNotReady => state_error(
-                "EXTRAS_NOT_READY",
-                "Travel extras must be explicitly saved before review.",
             ),
             ReviewRepositoryError::PricingUnavailable => Self {
                 status: StatusCode::SERVICE_UNAVAILABLE,

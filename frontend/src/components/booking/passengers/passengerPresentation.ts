@@ -17,7 +17,7 @@ const validationKeys = {
   EMERGENCY_CONTACT_INCOMPLETE: "passengerInformation.validation.emergencyIncomplete",
   INVALID_COUNTRY: "passengerInformation.validation.invalidCountry",
   INVALID_DATE: "passengerInformation.validation.invalidDate",
-  INVALID_EMAIL: "passengerInformation.validation.invalidEmail",
+  INVALID_GENDER: "passengerInformation.validation.invalidGender",
   INVALID_NAME: "passengerInformation.validation.invalidName",
   INVALID_PASSPORT: "passengerInformation.validation.invalidPassport",
   INVALID_PHONE: "passengerInformation.validation.invalidPhone",

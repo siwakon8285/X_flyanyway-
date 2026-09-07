@@ -7,7 +7,7 @@ import type { FlightSearchFormValues } from "@/components/booking/search/searchT
 import { FlightResultsPage } from "@/components/booking/results/FlightResultsPage";
 
 const validCriteria: FlightSearchFormValues = {
-  cabin: "premium-economy",
+  cabin: "business",
   departure: "2099-05-10",
   from: AIRPORT_FIXTURES[0],
   passengers: { adults: 1, children: 1, infants: 0 },
@@ -32,7 +32,7 @@ describe("FlightResultsPage", () => {
     expect(screen.getByText("Bangkok to London")).toBeInTheDocument();
     expect(screen.getByText("10 May 2099")).toBeInTheDocument();
     expect(screen.getByText(/2 passengers/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/premium economy/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/business/i).length).toBeGreaterThan(0);
     expect(screen.getByText("Select your outbound flight")).toBeInTheDocument();
   });
 
@@ -46,7 +46,7 @@ describe("FlightResultsPage", () => {
     expect(within(firstFlight).getByText("13h 25m")).toBeInTheDocument();
     expect(within(firstFlight).getByText("Direct")).toBeInTheDocument();
     expect(within(firstFlight).getByText("Airbus A350-900")).toBeInTheDocument();
-    expect(within(firstFlight).getByText("THB 32,900")).toBeInTheDocument();
+    expect(within(firstFlight).getByText("THB 68,900")).toBeInTheDocument();
     expect(within(firstFlight).getByText("Sample fare · per passenger")).toBeInTheDocument();
   });
 

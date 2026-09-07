@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use crate::domain::{
     entities::SeatHold,
-    extras::{BaggageAllowances, IncludedBenefits, Money, PricedExtraSelection},
+    extras::{BaggageAllowances, IncludedBenefits, Money},
     passengers::{PassengerType, Title},
     value_objects::SeatNumber,
 };
@@ -38,7 +38,6 @@ pub struct ReviewPassenger {
     pub display_name: String,
     pub nationality_code: String,
     pub travel_document_complete: bool,
-    pub extras: Vec<PricedExtraSelection>,
 }
 
 #[derive(Clone, Serialize)]
@@ -84,7 +83,6 @@ pub struct ReviewPricingLine {
 pub struct ReviewPricing {
     pub currency_code: String,
     pub base_fare: ReviewBaseFare,
-    pub extras: Money,
     pub taxes: Vec<ReviewPricingLine>,
     pub fees: Vec<ReviewPricingLine>,
     pub grand_total: Money,

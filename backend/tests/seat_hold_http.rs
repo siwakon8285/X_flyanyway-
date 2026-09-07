@@ -49,7 +49,25 @@ fn create_request(seat: &str, date: chrono::NaiveDate) -> Request<Body> {
             json!({
                 "flightId": "xf-201",
                 "departureDate": date,
-                "cabin": "economy",
+                "cabin": "business",
+                "passengers": { "adults": 1, "children": 0, "infants": 0 },
+                "seats": [seat]
+            })
+            .to_string(),
+        ))
+        .unwrap()
+}
+
+fn create_request_for_cabin(cabin: &str, seat: &str, date: chrono::NaiveDate) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri("/api/v1/seat-holds")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "flightId": "xf-201",
+                "departureDate": date,
+                "cabin": cabin,
                 "passengers": { "adults": 1, "children": 0, "infants": 0 },
                 "seats": [seat]
             })
@@ -59,13 +77,46 @@ fn create_request(seat: &str, date: chrono::NaiveDate) -> Request<Body> {
 }
 
 #[tokio::test]
+async fn customer_hold_api_accepts_business_and_first_and_rejects_legacy_cabins() {
+    let app = app().await;
+    let base = chrono::NaiveDate::from_ymd_opt(2190, 1, 1).unwrap()
+        + chrono::Duration::days((uuid::Uuid::new_v4().as_u128() % 1_000) as i64);
+
+    for (offset, cabin, seat) in [(0, "business", "3A"), (1, "first", "1A")] {
+        let response = app
+            .clone()
+            .oneshot(create_request_for_cabin(
+                cabin,
+                seat,
+                base + chrono::Duration::days(offset),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    for (offset, cabin, seat) in [(2, "economy", "20A"), (3, "premium-economy", "11A")] {
+        let response = app
+            .clone()
+            .oneshot(create_request_for_cabin(
+                cabin,
+                seat,
+                base + chrono::Duration::days(offset),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+}
+
+#[tokio::test]
 async fn create_conflict_and_scoped_http_only_authorization_contract() {
     let app = app().await;
     let date = chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap()
         + chrono::Duration::days((uuid::Uuid::new_v4().as_u128() % 100_000) as i64);
     let first_response = app
         .clone()
-        .oneshot(create_request("20F", date))
+        .oneshot(create_request("3K", date))
         .await
         .unwrap();
     assert_eq!(first_response.status(), StatusCode::CREATED);
@@ -94,7 +145,7 @@ async fn create_conflict_and_scoped_http_only_authorization_contract() {
 
     let conflict_response = app
         .clone()
-        .oneshot(create_request("20F", date))
+        .oneshot(create_request("3K", date))
         .await
         .unwrap();
     assert_eq!(conflict_response.status(), StatusCode::CONFLICT);
@@ -108,7 +159,7 @@ async fn create_conflict_and_scoped_http_only_authorization_contract() {
     )
     .unwrap();
     assert_eq!(conflict["error"]["code"], "SEAT_UNAVAILABLE");
-    assert_eq!(conflict["error"]["conflictingSeats"], json!(["20F"]));
+    assert_eq!(conflict["error"]["conflictingSeats"], json!(["3K"]));
 
     let unauthorized = app
         .clone()
@@ -148,9 +199,9 @@ async fn continue_validation_rejects_a_partial_hold() {
             json!({
                 "flightId": "xf-201",
                 "departureDate": date,
-                "cabin": "economy",
+                "cabin": "business",
                 "passengers": { "adults": 2, "children": 0, "infants": 0 },
-                "seats": ["20E"]
+                "seats": ["3G"]
             })
             .to_string(),
         ))

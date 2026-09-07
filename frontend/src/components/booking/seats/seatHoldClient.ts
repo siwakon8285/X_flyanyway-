@@ -1,4 +1,4 @@
-import type { CabinClass } from "@/components/booking/search/searchTypes";
+import type { CustomerCabinClass } from "@/components/booking/search/searchTypes";
 import {
   API_BASE_URL,
   BookingApiError,
@@ -14,7 +14,7 @@ type PassengerCounts = {
 };
 
 type SeatHold = {
-  cabin: CabinClass;
+  cabin: CustomerCabinClass;
   departureDate: string;
   expiresAt: string;
   flightId: string;
@@ -39,7 +39,7 @@ type SeatInventoryItem = {
 };
 
 type SeatInventory = {
-  cabin: CabinClass;
+  cabin: CustomerCabinClass;
   departureDate: string;
   flightId: string;
   seats: SeatInventoryItem[];
@@ -47,7 +47,7 @@ type SeatInventory = {
 };
 
 type CreateSeatHoldRequest = {
-  cabin: CabinClass;
+  cabin: CustomerCabinClass;
   departureDate: string;
   flightId: string;
   passengers: PassengerCounts;
@@ -61,7 +61,7 @@ const getSeatInventory = ({
   holdId,
   signal,
 }: {
-  cabin: CabinClass;
+  cabin: CustomerCabinClass;
   departureDate: string;
   flightId: string;
   holdId?: string | null;

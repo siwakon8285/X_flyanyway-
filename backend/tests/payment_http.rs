@@ -219,7 +219,7 @@ async fn complete_review(app: &axum::Router) -> (String, String) {
     complete_review_with_locale(app, "EN").await
 }
 
-async fn complete_review_with_locale(app: &axum::Router, locale: &str) -> (String, String) {
+async fn complete_review_with_locale(app: &axum::Router, _locale: &str) -> (String, String) {
     let departure = departure_date();
     let created = app
         .clone()
@@ -232,9 +232,9 @@ async fn complete_review_with_locale(app: &axum::Router, locale: &str) -> (Strin
                     json!({
                         "flightId": "xf-201",
                         "departureDate": departure,
-                        "cabin": "economy",
+                        "cabin": "business",
                         "passengers": { "adults": 1, "children": 0, "infants": 0 },
-                        "seats": ["20A"]
+                        "seats": ["4A"]
                     })
                     .to_string(),
                 ))
@@ -262,29 +262,19 @@ async fn complete_review_with_locale(app: &axum::Router, locale: &str) -> (Strin
         "nationalityCode": "TH",
         "passportNumber": format!("PH{:08X}", uuid::Uuid::new_v4().as_u128() as u32),
         "passportIssuingCountryCode": "TH",
-        "email": "payment-private@example.com",
-        "phoneCountryCode": "+66",
-        "phoneNumber": "812345678",
         "emergencyContact": null
     });
-    for (method, uri, payload) in [
-        (
-            "PUT",
-            format!("/api/v1/seat-holds/{hold_id}/passengers"),
-            json!({
-                "passengers": [passenger],
-                "bookingContact": {
-                    "email": "payment-private@example.com",
-                    "preferredLocale": locale
-                }
-            }),
-        ),
-        (
-            "PUT",
-            format!("/api/v1/seat-holds/{hold_id}/extras"),
-            json!({ "selections": [] }),
-        ),
-    ] {
+    for (method, uri, payload) in [(
+        "PUT",
+        format!("/api/v1/seat-holds/{hold_id}/passengers"),
+        json!({
+            "passengers": [passenger],
+            "bookingContact": {
+                "phoneCountryCode": "+66",
+                "phoneNumber": "812345678"
+            }
+        }),
+    )] {
         let response = app
             .clone()
             .oneshot(
@@ -331,12 +321,11 @@ async fn create_attempt_with_locale(
     cookie: &str,
     request_id: uuid::Uuid,
     method: &str,
-    locale: &str,
+    _locale: &str,
 ) -> axum::response::Response {
     let payload = json!({
         "requestId": request_id,
-        "method": method,
-        "preferredLocale": locale
+        "method": method
     });
     app.clone()
         .oneshot(
@@ -352,7 +341,7 @@ async fn create_attempt_with_locale(
         .unwrap()
 }
 
-async fn complete_payment_and_assert_confirmation_locale(
+async fn complete_payment_and_assert_no_confirmation_email(
     app: &axum::Router,
     pool: &PgPool,
     method: &str,
@@ -396,7 +385,7 @@ async fn complete_payment_and_assert_confirmation_locale(
             "type": "payment_intent.succeeded",
             "data": { "object": {
                 "id": provider_reference,
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "thb",
                 "status": "succeeded"
             }}
@@ -413,53 +402,49 @@ async fn complete_payment_and_assert_confirmation_locale(
         assert_eq!(replay.status(), StatusCode::OK);
     }
 
-    let persisted: (String, String, String, i64) = sqlx::query_as(
-        "SELECT contact.preferred_locale, outbox.locale, attempt.provider,
-                COUNT(*) OVER ()
+    let persisted: (String, i64) = sqlx::query_as(
+        "SELECT attempt.provider,
+                (SELECT COUNT(*) FROM booking_confirmation_email_outbox WHERE payment_attempt_id = attempt.id)
          FROM payment_attempts AS attempt
-         JOIN booking_contacts AS contact ON contact.seat_hold_id = attempt.seat_hold_id
-         JOIN booking_confirmation_email_outbox AS outbox ON outbox.payment_attempt_id = attempt.id
          WHERE attempt.id = $1",
     )
     .bind(uuid::Uuid::parse_str(attempt_id).unwrap())
     .fetch_one(pool)
     .await
     .unwrap();
-    assert_eq!(persisted.0, locale);
-    assert_eq!(persisted.1, locale);
     assert_eq!(
-        persisted.2,
+        persisted.0,
         if method == "CARD" {
             "STRIPE"
         } else {
             "MOCK_BITCOIN"
         }
     );
-    assert_eq!(persisted.3, 1);
+    assert_eq!(persisted.1, 0);
 }
 
 #[tokio::test]
-async fn mock_bitcoin_th_snapshots_th_booking_contact_locale() {
+async fn mock_bitcoin_th_does_not_enqueue_confirmation_email() {
     let (app, pool) = app().await;
-    complete_payment_and_assert_confirmation_locale(&app, &pool, "BITCOIN", "TH").await;
+    complete_payment_and_assert_no_confirmation_email(&app, &pool, "BITCOIN", "TH").await;
 }
 
 #[tokio::test]
-async fn mock_bitcoin_en_snapshots_en_booking_contact_locale() {
+async fn mock_bitcoin_en_does_not_enqueue_confirmation_email() {
     let (app, pool) = app().await;
-    complete_payment_and_assert_confirmation_locale(&app, &pool, "BITCOIN", "EN").await;
+    complete_payment_and_assert_no_confirmation_email(&app, &pool, "BITCOIN", "EN").await;
 }
 
 #[tokio::test]
-async fn stripe_th_snapshots_th_booking_contact_locale_and_replay_preserves_it() {
+async fn stripe_th_does_not_enqueue_confirmation_email_on_replay() {
     let (app, pool) = app().await;
-    complete_payment_and_assert_confirmation_locale(&app, &pool, "CARD", "TH").await;
+    complete_payment_and_assert_no_confirmation_email(&app, &pool, "CARD", "TH").await;
 }
 
 #[tokio::test]
-async fn stripe_en_snapshots_en_booking_contact_locale_and_replay_preserves_it() {
+async fn stripe_en_does_not_enqueue_confirmation_email_on_replay() {
     let (app, pool) = app().await;
-    complete_payment_and_assert_confirmation_locale(&app, &pool, "CARD", "EN").await;
+    complete_payment_and_assert_no_confirmation_email(&app, &pool, "CARD", "EN").await;
 }
 
 async fn get_payment_context(
@@ -526,7 +511,7 @@ async fn successful_mock_bitcoin_payment_returns_one_private_ticket_and_public_s
     assert_eq!(first.status(), StatusCode::OK);
     let first = body(first).await;
     assert_eq!(first["ticket"]["paymentStatus"], "SUCCEEDED");
-    assert_eq!(first["ticket"]["seats"], json!(["20A"]));
+    assert_eq!(first["ticket"]["seats"], json!(["4A"]));
     assert!(first["ticket"].get("providerReference").is_none());
     let second = body(get_ticket(&app, &hold_id, &attempt_id, &cookie).await).await;
     assert_eq!(first["ticket"]["id"], second["ticket"]["id"]);
@@ -552,7 +537,7 @@ async fn successful_mock_bitcoin_payment_returns_one_private_ticket_and_public_s
     let verify = body(verify).await;
     assert_eq!(verify["valid"], true);
     assert_eq!(verify["ticketStatus"], "ISSUED");
-    assert_eq!(verify["seats"], json!(["20A"]));
+    assert_eq!(verify["seats"], json!(["4A"]));
     assert!(verify.get("passengers").is_none());
     assert!(verify.get("amount").is_none());
 
@@ -694,19 +679,7 @@ async fn payment_context_reconciles_a_succeeded_stripe_intent_through_guarded_fi
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(intents, 1);
-    let locales: (String, String) = sqlx::query_as(
-        "SELECT contact.preferred_locale, outbox.locale
-         FROM payment_attempts AS attempt
-         JOIN booking_contacts AS contact ON contact.seat_hold_id = attempt.seat_hold_id
-         JOIN booking_confirmation_email_outbox AS outbox ON outbox.payment_attempt_id = attempt.id
-         WHERE attempt.id = $1",
-    )
-    .bind(uuid::Uuid::parse_str(&attempt_id).unwrap())
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(locales, ("TH".to_owned(), "TH".to_owned()));
+    assert_eq!(intents, 0);
 }
 
 #[tokio::test]
@@ -770,7 +743,7 @@ async fn loads_ready_payment_context_from_the_existing_review_snapshot() {
         "no-store, private"
     );
     let payload = body(response).await;
-    assert_eq!(payload["pricing"]["grandTotal"]["amount"], 23_400);
+    assert_eq!(payload["pricing"]["grandTotal"]["amount"], 70_400);
     assert_eq!(payload["pricing"]["currencyCode"], "THB");
     assert_eq!(payload["methods"], json!(["CARD", "BITCOIN"]));
     assert_eq!(payload["readyForPayment"], true);
@@ -809,7 +782,7 @@ async fn stripe_card_attempt_returns_a_client_session_and_preserves_held_invento
     assert_eq!(response.status(), StatusCode::CREATED);
     let payload = body(response).await;
     assert_eq!(payload["status"], "AWAITING_PAYMENT");
-    assert_eq!(payload["amount"]["amount"], 23_400);
+    assert_eq!(payload["amount"]["amount"], 70_400);
     assert!(payload["clientPaymentSession"]
         .as_str()
         .unwrap()
@@ -818,7 +791,7 @@ async fn stripe_card_attempt_returns_a_client_session_and_preserves_held_invento
         "SELECT hold.consumed_at IS NOT NULL, seat.booking_status, seat.hold_id,
                 hold.expires_at, attempt.payment_finalization_deadline
          FROM seat_holds AS hold
-         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '20A'
+         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '4A'
          JOIN payment_attempts AS attempt ON attempt.seat_hold_id = hold.id
          WHERE hold.id = $1",
     )
@@ -877,7 +850,7 @@ async fn creates_and_simulates_a_demo_bitcoin_invoice() {
 }
 
 #[tokio::test]
-async fn successful_payment_creates_one_confirmation_intent_before_ticket_is_requested() {
+async fn successful_payment_creates_no_confirmation_email_intent() {
     let (app, pool) = app().await;
     let (hold_id, cookie) = complete_review(&app).await;
     let created = create_attempt(&app, &hold_id, &cookie, uuid::Uuid::new_v4(), "BITCOIN").await;
@@ -911,7 +884,7 @@ async fn successful_payment_creates_one_confirmation_intent_before_ticket_is_req
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(events, 1);
+    assert_eq!(events, 0);
     assert_eq!(tickets, 0);
 }
 
@@ -1190,7 +1163,7 @@ async fn valid_stripe_success_webhook_atomically_finalizes_hold_and_seats() {
         "data": {
             "object": {
                 "id": pi_reference,
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "thb",
                 "status": "succeeded"
             }
@@ -1215,7 +1188,7 @@ async fn valid_stripe_success_webhook_atomically_finalizes_hold_and_seats() {
     ) = sqlx::query_as(
         "SELECT hold.consumed_at IS NOT NULL, seat.booking_status, seat.hold_id, seat.booked_at
          FROM seat_holds AS hold
-         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '20A'
+         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '4A'
          WHERE hold.id = $1",
     )
     .bind(uuid::Uuid::parse_str(&hold_id).unwrap())
@@ -1300,7 +1273,7 @@ async fn amount_and_currency_mismatch_rejects_and_does_not_finalize() {
         "data": {
             "object": {
                 "id": pi_reference,
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "usd",
                 "status": "succeeded"
             }
@@ -1319,7 +1292,7 @@ async fn amount_and_currency_mismatch_rejects_and_does_not_finalize() {
     let state: (bool, String) = sqlx::query_as(
         "SELECT hold.consumed_at IS NOT NULL, seat.booking_status
          FROM seat_holds AS hold
-         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '20A'
+         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '4A'
          WHERE hold.id = $1",
     )
     .bind(uuid::Uuid::parse_str(&hold_id).unwrap())
@@ -1352,7 +1325,7 @@ async fn duplicate_and_concurrent_success_webhook_deliveries_are_idempotent() {
         "data": {
             "object": {
                 "id": pi_reference,
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "thb",
                 "status": "succeeded"
             }
@@ -1391,7 +1364,7 @@ async fn duplicate_and_concurrent_success_webhook_deliveries_are_idempotent() {
         "data": {
             "object": {
                 "id": pi_reference2,
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "thb",
                 "status": "succeeded"
             }
@@ -1468,7 +1441,7 @@ async fn transient_local_failure_rolls_back_and_allows_webhook_retry() {
         "data": {
             "object": {
                 "id": pi_reference,
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "thb",
                 "status": "succeeded"
             }
@@ -1503,7 +1476,7 @@ async fn transient_local_failure_rolls_back_and_allows_webhook_retry() {
     assert_ne!(status, "FAILED");
 
     sqlx::query(
-        "UPDATE flight_seats SET hold_id = $1 WHERE flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1) AND seat_number = '20A'",
+        "UPDATE flight_seats SET hold_id = $1 WHERE flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1) AND seat_number = '4A'",
     )
     .bind(uuid::Uuid::parse_str(&hold_id).unwrap())
     .execute(&pool)
@@ -1544,7 +1517,7 @@ async fn payment_intent_failed_event_marks_attempt_failed_and_clears_protection(
         "data": {
             "object": {
                 "id": pi_reference,
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "thb",
                 "status": "requires_payment_method",
                 "last_payment_error": {
@@ -1581,7 +1554,7 @@ async fn payment_intent_failed_event_marks_attempt_failed_and_clears_protection(
     );
 
     let seat_status: String = sqlx::query_scalar(
-        "SELECT booking_status FROM flight_seats WHERE flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1) AND seat_number = '20A'",
+        "SELECT booking_status FROM flight_seats WHERE flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1) AND seat_number = '4A'",
     )
     .bind(uuid::Uuid::parse_str(&hold_id).unwrap())
     .fetch_one(&pool)
@@ -1636,7 +1609,7 @@ async fn valid_success_webhook_after_normal_expiry_and_deadline_still_finalizes(
         "data": {
             "object": {
                 "id": pi_reference,
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "thb",
                 "status": "succeeded"
             }
@@ -1655,7 +1628,7 @@ async fn valid_success_webhook_after_normal_expiry_and_deadline_still_finalizes(
     let state: (bool, String) = sqlx::query_as(
         "SELECT hold.consumed_at IS NOT NULL, seat.booking_status
          FROM seat_holds AS hold
-         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '20A'
+         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '4A'
          WHERE hold.id = $1",
     )
     .bind(uuid::Uuid::parse_str(&hold_id).unwrap())
@@ -1675,7 +1648,7 @@ async fn unknown_payment_intent_returns_retryable_5xx_and_does_not_mutate_state(
         "data": {
             "object": {
                 "id": "pi_unknown_nonexistent_999999",
-                "amount": 2_340_000,
+                "amount": 7_040_000,
                 "currency": "thb",
                 "status": "succeeded"
             }

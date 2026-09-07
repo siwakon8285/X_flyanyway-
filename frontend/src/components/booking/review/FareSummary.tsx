@@ -38,7 +38,6 @@ const FareSummary = ({ context, paymentHref, remainingMilliseconds }: { context:
       <dl className="mt-6 space-y-4 text-sm">
         <div className="flex justify-between gap-4"><dt>{t("review.fare.base")}</dt><dd className="tabular-nums">{display(context.pricing.baseFare.amount.amount)}</dd></div>
         {context.pricing.baseFare.lines.map((line) => <div className="flex justify-between gap-4 pl-3 text-xs text-muted-foreground" key={line.passengerType}><dt>{t("review.fare.passengerLine", { type: t(passengerTypeKey[line.passengerType]), quantity: line.quantity })}</dt><dd className="tabular-nums">{display(line.amount.amount)}</dd></div>)}
-        <div className="flex justify-between gap-4"><dt>{t("review.fare.extras")}</dt><dd className="review-value-emphasis tabular-nums" data-review-value="extras-total" key={context.pricing.extras.amount}>{display(context.pricing.extras.amount)}</dd></div>
         {context.pricing.taxes.map(renderLine)}
         {context.pricing.fees.map(renderLine)}
         <div className="flex items-end justify-between gap-4 border-t border-border pt-5"><dt className="font-semibold">{t("review.fare.grandTotal")}</dt><dd className="review-value-emphasis text-2xl font-semibold tabular-nums text-brand" data-review-value="grand-total" key={context.pricing.grandTotal.amount}>{display(context.pricing.grandTotal.amount)}</dd></div>

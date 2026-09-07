@@ -1,6 +1,5 @@
 import {
   buildPaymentHandoffHref,
-  buildExtrasHandoffHref,
   buildPassengerInformationHref,
   buildReviewHandoffHref,
 } from "@/components/booking/passengers/passengerRoute";
@@ -20,19 +19,7 @@ describe("passenger route contracts", () => {
     );
   });
 
-  it("hands off to Extras with only the public hold and allowlisted recovery context", () => {
-    expect(
-      buildExtrasHandoffHref({
-        holdId: "hold-123",
-        query:
-          "from=BKK&to=LHR&departure=2030-05-10&flightId=xf-201&selectedCabin=business&seats=20A%2C20B&email=private%40example.com",
-      }),
-    ).toBe(
-      "/booking/extras?from=BKK&to=LHR&departure=2030-05-10&flightId=xf-201&selectedCabin=business&holdId=hold-123",
-    );
-  });
-
-  it("prepares but does not navigate to the future Review route", () => {
+  it("hands Passenger directly to Review without sensitive query state", () => {
     expect(
       buildReviewHandoffHref({
         holdId: "hold-123",

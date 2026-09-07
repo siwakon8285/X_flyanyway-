@@ -150,7 +150,7 @@ async fn test_pool() -> PgPool {
     pool
 }
 
-fn passenger(ordinal: u8, email: &str) -> PassengerInput {
+fn passenger(ordinal: u8, _legacy_email: &str) -> PassengerInput {
     PassengerInput {
         ordinal,
         passenger_type: PassengerType::Adult,
@@ -166,9 +166,6 @@ fn passenger(ordinal: u8, email: &str) -> PassengerInput {
         nationality_code: "TH".to_owned(),
         passport_number: format!("MB{:08X}", Uuid::new_v4().as_u128() as u32),
         passport_issuing_country_code: "TH".to_owned(),
-        email: email.to_owned(),
-        phone_country_code: "+66".to_owned(),
-        phone_number: "812345678".to_owned(),
         emergency_contact: None,
     }
 }
@@ -190,12 +187,12 @@ async fn issued_booking_for(
                 selection: FlightSelection {
                     flight_id: "xf-201".to_owned(),
                     departure_date: departure,
-                    cabin: CabinClass::Economy,
+                    cabin: CabinClass::Business,
                 },
                 passengers: PassengerCounts::new(2, 0, 0).unwrap(),
                 seats: vec![
-                    SeatNumber::parse("20A").unwrap(),
-                    SeatNumber::parse("20B").unwrap(),
+                    SeatNumber::parse("3A").unwrap(),
+                    SeatNumber::parse("3D").unwrap(),
                 ],
                 token_hash: token,
             },
@@ -219,8 +216,8 @@ async fn issued_booking_for(
             hold.id,
             token,
             BookingContactInput {
-                email: "first@example.com".to_owned(),
-                preferred_locale: "EN".to_owned(),
+                phone_country_code: "+66".to_owned(),
+                phone_number: "812345678".to_owned(),
             },
         )
         .await
@@ -258,8 +255,6 @@ async fn issued_booking_for(
                     PaymentMethod::Card => PaymentProvider::Stripe,
                     PaymentMethod::Bitcoin => PaymentProvider::MockBitcoin,
                 },
-                preferred_locale:
-                    x_fly_api::domain::booking_confirmation::BookingConfirmationLocale::En,
             },
         )
         .await
@@ -354,7 +349,7 @@ async fn lookup_reads_authoritative_state_and_same_passenger_identity() {
     assert_eq!(record.booking.payment.status, PaymentStatus::Succeeded);
     assert_eq!(record.booking.journey.flight_number, "XF 201");
     assert_eq!(record.booking.journey.origin_code, "BKK");
-    assert_eq!(record.booking.seats, vec!["20A", "20B"]);
+    assert_eq!(record.booking.seats, vec!["3A", "3D"]);
     assert_eq!(record.booking.passengers.len(), 2);
     assert!(record
         .booking
@@ -396,6 +391,39 @@ async fn lookup_reads_authoritative_state_and_same_passenger_identity() {
         .await
         .unwrap()
         .is_some());
+    sweep_manage_booking_fixtures(repository.pool()).await;
+}
+
+#[tokio::test]
+async fn lookup_preserves_a_legacy_economy_cabin_for_historical_bookings() {
+    let _fixtures = fixture_guard().await;
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+    sweep_manage_booking_fixtures(repository.pool()).await;
+    let (ticket_id, reference) = issued_booking(&repository).await;
+
+    sqlx::query(
+        "UPDATE seat_holds
+         SET cabin = 'economy'
+         WHERE id = (
+             SELECT attempt.seat_hold_id
+             FROM tickets AS ticket
+             JOIN payment_attempts AS attempt ON attempt.id = ticket.payment_attempt_id
+             WHERE ticket.id = $1
+         )",
+    )
+    .bind(ticket_id)
+    .execute(repository.pool())
+    .await
+    .unwrap();
+
+    let lookup = ManageBookingLookup::new(reference, "Van der Meer".to_owned()).unwrap();
+    let record = repository
+        .lookup_manage_booking(&lookup, Utc::now())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(record.booking.journey.cabin, "economy");
     sweep_manage_booking_fixtures(repository.pool()).await;
 }
 
@@ -577,17 +605,17 @@ async fn concurrent_cancel_creates_one_event_and_released_seat_can_be_held_again
                 selection: FlightSelection {
                     flight_id: "xf-201".into(),
                     departure_date,
-                    cabin: CabinClass::Economy,
+                    cabin: CabinClass::Business,
                 },
                 passengers: PassengerCounts::new(1, 0, 0).unwrap(),
-                seats: vec![SeatNumber::parse("20A").unwrap()],
+                seats: vec![SeatNumber::parse("3A").unwrap()],
                 token_hash: [199; 32],
             },
             StdDuration::from_secs(600),
         )
         .await
         .unwrap();
-    let history:(i64,i64)=sqlx::query_as("SELECT (SELECT COUNT(*) FROM payment_attempt_seats ps JOIN tickets t ON t.payment_attempt_id=ps.payment_attempt_id WHERE t.id=$1 AND ps.released_at IS NOT NULL),(SELECT COUNT(*) FROM flight_seats WHERE hold_id=$2 AND seat_number='20A')").bind(ticket_id).bind(replacement.id).fetch_one(repository.pool()).await.unwrap();
+    let history:(i64,i64)=sqlx::query_as("SELECT (SELECT COUNT(*) FROM payment_attempt_seats ps JOIN tickets t ON t.payment_attempt_id=ps.payment_attempt_id WHERE t.id=$1 AND ps.released_at IS NOT NULL),(SELECT COUNT(*) FROM flight_seats WHERE hold_id=$2 AND seat_number='3A')").bind(ticket_id).bind(replacement.id).fetch_one(repository.pool()).await.unwrap();
     assert_eq!(history, (2, 1));
     repository
         .release_hold(replacement.id, [199; 32])

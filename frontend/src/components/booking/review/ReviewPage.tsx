@@ -4,7 +4,7 @@ import { ArrowLeft, Check } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { buildExtrasHandoffHref, buildPaymentHandoffHref, allowlistedRecoveryParams } from "@/components/booking/passengers/passengerRoute";
+import { buildPaymentHandoffHref, allowlistedRecoveryParams } from "@/components/booking/passengers/passengerRoute";
 import { FareSummary } from "@/components/booking/review/FareSummary";
 import { BookingApiError, getReviewContext } from "@/components/booking/review/reviewClient";
 import { ReviewDetails } from "@/components/booking/review/ReviewDetails";
@@ -19,12 +19,11 @@ import { gsapEasings } from "@/lib/motion/easing";
 import { gsap, useGSAP } from "@/lib/motion/gsap";
 import { useReducedMotion } from "@/lib/motion/reducedMotion";
 
-type RecoveryKind = "extras" | "passengers" | "retry" | "seats";
+type RecoveryKind = "passengers" | "retry" | "seats";
 type ReviewState = { action: RecoveryKind; message: TranslationKey };
 
 const stateForError = (error: BookingApiError): ReviewState => {
   if (error.code === "PASSENGERS_NOT_READY") return { action: "passengers", message: "review.state.passengers" };
-  if (error.code === "EXTRAS_NOT_READY") return { action: "extras", message: "review.state.extras" };
   if (error.code === "HOLD_EXPIRED") return { action: "seats", message: "review.state.expired" };
   if (error.code === "HOLD_RELEASED") return { action: "seats", message: "review.state.released" };
   if (error.code === "SEATS_NOT_READY") return { action: "seats", message: "review.state.seats" };
@@ -135,23 +134,20 @@ const ReviewPage = ({ backQuery, holdId }: { backQuery: string; holdId: string }
     },
   );
 
-  const extrasHref = buildExtrasHandoffHref({ holdId, query: backQuery });
   const paymentHref = buildPaymentHandoffHref({ holdId, query: backQuery });
   const actionHref = reviewState?.action === "passengers"
     ? passengerHref(backQuery, holdId)
-    : reviewState?.action === "extras"
-      ? extrasHref
-      : seatHref(backQuery, context);
-  const actionLabel = reviewState?.action === "passengers" ? "review.action.passengers" : reviewState?.action === "extras" ? "review.action.extras" : "review.action.seats";
+    : seatHref(backQuery, context);
+  const actionLabel = reviewState?.action === "passengers" ? "review.action.passengers" : "review.action.seats";
 
   return (
     <main className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]">
       <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[36rem] bg-[radial-gradient(circle_at_70%_0%,rgba(255,212,0,0.07),transparent_32rem)]" />
       <Container className="relative" ref={page}>
         <div data-review-reveal="navigation">
-          <Link className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none" href={extrasHref}><ArrowLeft aria-hidden="true" />{t("review.back")}</Link>
+          <Link className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none" href={passengerHref(backQuery, holdId)}><ArrowLeft aria-hidden="true" />{t("review.back")}</Link>
           <ol aria-label={t("review.progress.label")} className="mt-8 flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            {["seat", "passenger", "extras"].map((step) => <li className="flex items-center gap-2 text-foreground" key={step}><Check aria-hidden="true" className="size-4 text-brand" />{t(`review.progress.${step}` as TranslationKey)}</li>)}
+            {["seat", "passenger"].map((step) => <li className="flex items-center gap-2 text-foreground" key={step}><Check aria-hidden="true" className="size-4 text-brand" />{t(`review.progress.${step}` as TranslationKey)}</li>)}
             <li aria-current="step" className="text-brand">{t("review.progress.review")}</li><li>{t("review.progress.payment")}</li>
           </ol>
         </div>

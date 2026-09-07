@@ -120,13 +120,11 @@ The host-run backend and pgAdmin both connect through port `5433`, so they inspe
 
 The root Compose file intentionally contains PostgreSQL services only. `backend/Dockerfile` is retained for future production/self-hosted deployment builds, but it is not part of the local Compose workflow.
 
-## Travel Extras demo fixtures
+## Historical Travel Extras compatibility
 
-Travel Extras are persisted against the active, authorized seat hold in `hold_extras` and are exposed through `GET`/`PUT /api/v1/seat-holds/{hold_id}/extras`. The browser submits only `passengerOrdinal`, `productCode`, and `quantity`; the backend resolves eligibility and price. Saved rows retain a whole-baht unit-price snapshot in `THB`, and every PUT atomically replaces the complete selection set.
+Travel Extras are retired from the active customer booking flow. The former customer `GET`/`PUT /api/v1/seat-holds/{hold_id}/extras` endpoints are not routed, Review and Payment do not depend on `extras_saved_at`, and new customer bookings cannot add optional ancillary charges. The `hold_extras` schema, repository support, and product labels remain so Manage Booking can truthfully render selections recorded by historical bookings without rewriting or deleting them.
 
-Demo extra-baggage prices are `BAG_10KG` = THB 1,500, `BAG_20KG` = THB 2,800, and `BAG_30KG` = THB 3,900. Adults and children may select one baggage tier, one meal preference, and multiple assistance requests. Infants are informational-only in this MVP: they have no independent seat, extra-baggage purchase, meal preference, or assistance selection.
-
-Included cabin fixtures are:
+Included cabin benefits remain active fare properties rather than optional Travel Extras. The stored cabin fixtures are:
 
 | Cabin | Cabin baggage | Checked baggage | Seat selection | Meal service |
 | --- | ---: | ---: | --- | --- |
@@ -135,21 +133,21 @@ Included cabin fixtures are:
 | Business | 10 kg | 40 kg | Included | Premium |
 | First | 14 kg | 50 kg | Included | Signature |
 
-`seat_holds.extras_saved_at` is strictly a Travel Extras workflow-readiness marker. It means the customer explicitly reviewed and saved the Extras step, including an explicit save with no selections. It does **not** mean payment completed, a booking was confirmed, or a ticket was issued. Later booking, payment, and ticketing branches must use their own state and timestamps and must never reuse `extras_saved_at` for those meanings.
+The legacy `seat_holds.extras_saved_at` value is preserved for historical compatibility but has no role in the active customer workflow. `seat_holds.passenger_details_saved_at` now identifies the passenger-details version used by the authoritative Review snapshot.
 
 ## Booking Review and demo pricing
 
-`GET /api/v1/seat-holds/{hold_id}/review` requires the authorized hold to be active, all seated inventory to remain held, the complete passenger draft to match the hold party, and `extras_saved_at` to exist. It reads passenger-facing summary fields and persisted Extras only; passport numbers, contact details, and emergency contacts are not included in the Review response.
+`GET /api/v1/seat-holds/{hold_id}/review` requires a Business or First authorized hold to be active, all seated inventory to remain held, and the complete passenger draft to match the hold party. It reads only passenger-facing summary fields and included cabin benefits; passport numbers, contact details, emergency contacts, and historical Extras are not included in the Review response.
 
 The backend owns the Review amount. Demo flight-service schedules and whole-baht cabin fares are stored in PostgreSQL. Adults and children each pay 100% of the selected cabin fare, while the explicitly modeled lap-infant fare is THB 0. Deterministic fixture charges are `DEMO_PASSENGER_TAX` = THB 700 per seated passenger, `DEMO_AIRPORT_FEE` = THB 500 per seated passenger, and `DEMO_BOOKING_FEE` = THB 300 per hold. These are academic demo fixtures, not real government, airport, or airline charges.
 
-The first ready Review GET idempotently materializes one row in `hold_review_pricing`. This row is an internal cache/materialization of authoritative Review pricing so repeated reads and a future payment use case receive the same amount. It is **not** payment, booking confirmation, ticket issuance, or a general pattern for arbitrary GET side effects. Repeated GETs do not add rows or change prices. A successful Passenger or Extras re-save explicitly invalidates the row; the next ready Review GET materializes a new snapshot from current authoritative state. None of these operations updates `seat_holds.expires_at`.
+The first ready Review GET idempotently materializes one row in `hold_review_pricing`. This row is an internal cache/materialization of authoritative Review pricing so repeated reads and Payment receive the same amount. It is **not** payment, booking confirmation, ticket issuance, or a general pattern for arbitrary GET side effects. Repeated GETs do not add rows or change prices. A successful Passenger re-save explicitly invalidates the row; the next ready Review GET materializes a new snapshot from current authoritative state. None of these operations updates `seat_holds.expires_at`.
 
 The returned `DEMO_FIXTURE_NONREFUNDABLE_NO_CHANGES` condition is a project demo configuration only. It must always be presented as a fixture policy and never represented as a real airline fare rule.
 
 ## Stripe Test Mode payment and paid inventory lifecycle
 
-Payment is available only for an HttpOnly-cookie-authorized, active hold whose seats, passengers, saved Extras marker, and current `hold_review_pricing` snapshot all remain valid. `GET /api/v1/seat-holds/{hold_id}/payment` returns that server-owned amount and currency; create and simulation requests never accept pricing or card fields. Stripe Elements collects Card details directly; X-Fly receives only a UUID request ID and payment method.
+Payment is available only for an HttpOnly-cookie-authorized, active Business or First hold whose seats, passengers, phone-only booking contact, and current `hold_review_pricing` snapshot all remain valid. `GET /api/v1/seat-holds/{hold_id}/payment` returns that server-owned amount and currency; create and simulation requests never accept pricing or card fields. Stripe Elements collects Card details directly; X-Fly receives only a UUID request ID and payment method.
 
 `PaymentApplication` depends on a provider-neutral payment/reconciliation boundary. Stripe’s HTTP DTOs and API details remain in infrastructure; Bitcoin uses an invalid, deterministic demo destination and a fixed display conversion of 1 BTC = THB 2,000,000. It never generates key material or contacts a blockchain.
 
@@ -171,9 +169,7 @@ The application deliberately returns the same `BOOKING_NOT_FOUND` response for a
 
 ## Booking confirmation email
 
-Passenger email remains passenger data. The Passenger Details resource may also persist one explicit booking contact and `EN`/`TH` communication locale. A successful payment finalization transaction creates at most one `BOOKING_CONFIRMATION` outbox intent keyed by `payment_attempt_id`; it does not call an email provider. A background dispatcher later ensures the idempotent ticket exists and sends the concise HTML/plain-text confirmation through the configured provider gateway. Refreshing the ticket page, Manage Booking reads, webhook replays, and reconciliation retries cannot create another logical event. Provider failures only update outbox state and never roll back successful payment, consumed holds, booked seats, or tickets.
-
-Local development leaves `EMAIL_TRANSPORT=disabled`. Production/demo delivery uses Resend’s HTTPS API with backend-only `RESEND_API_KEY`, `EMAIL_FROM`, and `PUBLIC_SITE_ORIGIN`. Before enabling it, verify a dedicated sending subdomain such as `mail.x-fly.siwakondev.win` with the provider’s SPF/DKIM (and recommended DMARC) records. Automated tests inject a recording fake gateway and never contact Resend.
+The active Passenger Details resource persists one phone-only booking contact: country code and phone number. Customer booking confirmation email is retired from the active product flow. The historical outbox/provider modules and persisted records remain for non-destructive compatibility, but the API runtime does not start an email worker or enqueue new confirmation messages. Successful payment still atomically finalizes inventory and supports idempotent ticket issuance; customers recover bookings with Booking Reference and Last Name.
 
 Flight service departure times are local schedule values. `flight_services.origin_time_zone` stores the corresponding IANA timezone because the current schema has no normalized airport entity. PostgreSQL uses it to derive the departure instant and exact 24-hour cancellation boundary, including daylight-saving transitions.
 

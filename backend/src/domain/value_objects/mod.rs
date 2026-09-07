@@ -14,12 +14,27 @@ pub enum CabinClass {
 }
 
 impl CabinClass {
+    pub const CUSTOMER_BOOKABLE: [Self; 2] = [Self::Business, Self::First];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Economy => "economy",
             Self::PremiumEconomy => "premium-economy",
             Self::Business => "business",
             Self::First => "first",
+        }
+    }
+
+    pub const fn is_customer_bookable(self) -> bool {
+        matches!(self, Self::Business | Self::First)
+    }
+
+    pub fn parse_customer_booking(value: &str) -> Result<Self, DomainError> {
+        let cabin = value.parse::<Self>()?;
+        if cabin.is_customer_bookable() {
+            Ok(cabin)
+        } else {
+            Err(DomainError::InvalidCabin)
         }
     }
 }

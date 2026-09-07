@@ -333,6 +333,9 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
         selection: &FlightSelection,
         owner: Option<(Uuid, [u8; 32])>,
     ) -> Result<SeatMap, SeatHoldRepositoryError> {
+        if !selection.cabin.is_customer_bookable() {
+            return Err(SeatHoldRepositoryError::CabinUnavailable);
+        }
         let mut transaction = self
             .pool
             .begin()
@@ -417,6 +420,9 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
         command: CreateSeatHold,
         ttl: Duration,
     ) -> Result<SeatHold, SeatHoldRepositoryError> {
+        if !command.selection.cabin.is_customer_bookable() {
+            return Err(SeatHoldRepositoryError::CabinUnavailable);
+        }
         let requested = Self::normalized_seats(command.seats, command.passengers.required_seats())?;
         let mut transaction = self
             .pool
@@ -501,6 +507,9 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
             .cabin
             .parse()
             .expect("database cabin constraint is valid");
+        if !cabin.is_customer_bookable() {
+            return Err(SeatHoldRepositoryError::CabinUnavailable);
+        }
         let server_time = Self::server_time(&mut transaction).await?;
         let rows = Self::locked_inventory_rows(
             &mut transaction,

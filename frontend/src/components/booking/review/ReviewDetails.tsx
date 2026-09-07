@@ -1,9 +1,9 @@
 import { Check } from "lucide-react";
 
 import { cabinLabelKeys } from "@/components/booking/cabin/cabinPresentation";
-import { productLabelKey } from "@/components/booking/extras/extrasPresentation";
+import { mealServiceKeys } from "@/components/booking/extras/extrasPresentation";
 import type { ReviewContext } from "@/components/booking/review/reviewTypes";
-import { formatDate, formatDuration, formatPrice } from "@/i18n/formatters";
+import { formatDate, formatDuration } from "@/i18n/formatters";
 import { useLanguage } from "@/i18n/LanguageProvider";
 
 const passengerTypeKey = {
@@ -52,17 +52,9 @@ const ReviewDetails = ({ context }: { context: ReviewContext }) => {
         <div className="mt-5 flex flex-wrap gap-3">{context.seats.map(({ seatNumber }) => <span className="rounded-control border border-brand/45 bg-brand/10 px-4 py-2 font-semibold text-brand" key={seatNumber}>{seatNumber}</span>)}</div>
       </section>
 
-      <section className="review-interactive-card rounded-surface border border-border bg-surface/75 p-6 sm:p-8" aria-labelledby="review-extras" data-review-card="extras">
-        <h2 className="text-h3" id="review-extras">{t("review.section.extras")}</h2>
-        <div className="mt-6 space-y-6">
-          {context.passengers.map((passenger) => (
-            <div key={passenger.ordinal}>
-              <h3 className="font-semibold">{t("passengerInformation.passenger.label", { ordinal: passenger.ordinal, type: t(passengerTypeKey[passenger.passengerType]) })}</h3>
-              {passenger.extras.length ? <ul className="mt-3 space-y-2">{passenger.extras.map((extra) => <li className="flex justify-between gap-4 text-sm" key={`${extra.category}-${extra.productCode}`}><span>{t(productLabelKey(extra.productCode))}</span><span className={extra.lineTotal.amount === 0 ? "shrink-0" : "review-value-emphasis shrink-0"} data-review-value={extra.lineTotal.amount === 0 ? undefined : "paid-extra"} key={extra.lineTotal.amount}>{extra.lineTotal.amount === 0 ? t("review.label.free") : formatPrice(extra.lineTotal.amount, locale, extra.lineTotal.currencyCode)}</span></li>)}</ul> : <p className="mt-2 text-sm text-muted-foreground">{t("review.label.noExtras")}</p>}
-            </div>
-          ))}
-        </div>
-        <div className="mt-7 border-t border-border pt-6"><h3 className="text-caption text-brand">{t("review.section.included")}</h3><ul className="mt-3 grid gap-2 text-sm sm:grid-cols-3"><li>{t("review.label.cabinBaggage", { kg: context.includedBenefits.allowances.cabinBaggageKg })}</li><li>{t("review.label.checkedBaggage", { kg: context.includedBenefits.allowances.checkedBaggageKg })}</li><li>{t("review.label.seatIncluded")}</li></ul></div>
+      <section className="review-interactive-card rounded-surface border border-border bg-surface/75 p-6 sm:p-8" aria-labelledby="review-included" data-review-card="included">
+        <h2 className="text-h3" id="review-included">{t("review.section.included")}</h2>
+        <ul className="mt-5 grid gap-3 text-sm sm:grid-cols-2"><li>{t("review.label.cabinBaggage", { kg: context.includedBenefits.allowances.cabinBaggageKg })}</li><li>{t("review.label.checkedBaggage", { kg: context.includedBenefits.allowances.checkedBaggageKg })}</li><li>{t("review.label.seatIncluded")}</li><li>{t(mealServiceKeys[context.includedBenefits.benefits.mealService])}</li></ul>
       </section>
     </div>
   );

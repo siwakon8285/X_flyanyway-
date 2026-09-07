@@ -257,8 +257,6 @@ pub enum PaymentRepositoryError {
     SeatsNotReady,
     #[error("passenger information is not ready for payment")]
     PassengersNotReady,
-    #[error("travel extras are not ready for payment")]
-    ExtrasNotReady,
     #[error("booking contact is not ready for payment")]
     BookingContactNotReady,
     #[error("review snapshot is not ready for payment")]
@@ -504,8 +502,6 @@ pub enum ReviewRepositoryError {
     SeatsNotReady,
     #[error("passenger information is not ready for review")]
     PassengersNotReady,
-    #[error("travel extras have not been explicitly saved")]
-    ExtrasNotReady,
     #[error("authoritative review pricing is unavailable")]
     PricingUnavailable,
     #[error("database operation failed")]

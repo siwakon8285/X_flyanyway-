@@ -6,13 +6,13 @@ import type { PassengerContext } from "@/components/booking/passengers/passenger
 
 const context: PassengerContext = {
   hold: {
-    cabin: "economy",
+    cabin: "business",
     departureDate: "2030-05-10",
     expiresAt: "2030-05-01T10:10:00Z",
     flightId: "xf-201",
     id: "hold-123",
     passengers: { adults: 1, children: 0, infants: 0 },
-    seats: ["20A"],
+    seats: ["3A"],
     serverTime: "2030-05-01T10:00:00Z",
   },
   expectedPassengers: [{ ordinal: 1, passengerType: "ADULT" }],
@@ -79,9 +79,6 @@ describe("passenger client", () => {
         nationalityCode: "TH",
         passportNumber: "TH123456",
         passportIssuingCountryCode: "TH",
-        email: "nara@example.com",
-        phoneCountryCode: "+66",
-        phoneNumber: "812345678",
         emergencyContact: null,
       },
     ];
@@ -89,20 +86,21 @@ describe("passenger client", () => {
     await savePassengerDraft("hold-123", passengers);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("http://localhost:8080/api/v1/seat-holds/hold-123/passengers");
-    expect(String(url)).not.toContain("nara@example.com");
+    expect(String(url)).not.toContain("TH123456");
     expect(init).toMatchObject({ cache: "no-store", credentials: "include", method: "PUT" });
     expect(JSON.parse(String(init?.body))).toEqual({ passengers });
   });
 
-  it("submits the explicit booking contact and locale in the private request body", async () => {
+  it("submits the phone-only booking contact in the private request body", async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       json: async () => context,
       ok: true,
       status: 200,
     });
     Object.defineProperty(global, "fetch", { configurable: true, value: fetchMock, writable: true });
-    await savePassengerDraft("hold-123", [], { email: "booking@example.test", preferredLocale: "TH" });
+    await savePassengerDraft("hold-123", [], { phoneCountryCode: "+66", phoneNumber: "812345678" });
     const [, init] = fetchMock.mock.calls[0];
-    expect(JSON.parse(String(init?.body))).toEqual({ passengers: [], bookingContact: { email: "booking@example.test", preferredLocale: "TH" } });
+    expect(JSON.parse(String(init?.body))).toEqual({ passengers: [], bookingContact: { phoneCountryCode: "+66", phoneNumber: "812345678" } });
+    expect(String(init?.body)).not.toContain("email");
   });
 });

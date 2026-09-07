@@ -89,6 +89,10 @@ impl Gender {
             _ => None,
         }
     }
+
+    pub const fn is_allowed_for_new_booking(self) -> bool {
+        matches!(self, Self::Male | Self::Female)
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -112,15 +116,15 @@ pub struct EmergencyContactInput {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BookingContactInput {
-    pub email: String,
-    pub preferred_locale: String,
+    pub phone_country_code: String,
+    pub phone_number: String,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BookingContact {
-    pub email: String,
-    pub preferred_locale: String,
+    pub phone_country_code: String,
+    pub phone_number: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -137,9 +141,6 @@ pub struct PassengerInput {
     pub nationality_code: String,
     pub passport_number: String,
     pub passport_issuing_country_code: String,
-    pub email: String,
-    pub phone_country_code: String,
-    pub phone_number: String,
     pub emergency_contact: Option<EmergencyContactInput>,
 }
 
@@ -157,9 +158,6 @@ pub struct Passenger {
     pub nationality_code: String,
     pub passport_number: String,
     pub passport_issuing_country_code: String,
-    pub email: String,
-    pub phone_country_code: String,
-    pub phone_number: String,
     pub emergency_contact: Option<EmergencyContact>,
 }
 
@@ -216,6 +214,14 @@ impl PassengerDraft {
             }
             let family_name = normalize_name(&input.family_name);
             validate_name(ordinal, "familyName", &family_name, &mut errors);
+
+            if !input.gender.is_allowed_for_new_booking() {
+                errors.push(field_error(
+                    ordinal,
+                    "gender",
+                    PassengerValidationCode::InvalidGender,
+                ));
+            }
 
             let future_birth = input.date_of_birth > today;
             if future_birth {
@@ -276,41 +282,6 @@ impl PassengerDraft {
                 ));
             }
 
-            let email = input.email.trim().to_owned();
-            if !is_valid_email(&email) {
-                errors.push(field_error(
-                    ordinal,
-                    "email",
-                    PassengerValidationCode::InvalidEmail,
-                ));
-            }
-            let phone_input_valid =
-                is_valid_phone_input(&input.phone_country_code, &input.phone_number);
-            let phone_country_code = normalize_phone_country_code(&input.phone_country_code);
-            let phone_number = normalize_phone_number(&input.phone_number);
-            if phone_country_code == "+" {
-                errors.push(field_error(
-                    ordinal,
-                    "phoneCountryCode",
-                    PassengerValidationCode::Required,
-                ));
-            }
-            if phone_number.is_empty() {
-                errors.push(field_error(
-                    ordinal,
-                    "phoneNumber",
-                    PassengerValidationCode::Required,
-                ));
-            } else if phone_country_code != "+"
-                && (!phone_input_valid || !is_valid_phone(&phone_country_code, &phone_number))
-            {
-                errors.push(field_error(
-                    ordinal,
-                    "phoneNumber",
-                    PassengerValidationCode::InvalidPhone,
-                ));
-            }
-
             let emergency_contact = input.emergency_contact.map(|contact| {
                 let phone_input_valid =
                     is_valid_phone_input(&contact.phone_country_code, &contact.phone_number);
@@ -349,9 +320,6 @@ impl PassengerDraft {
                 nationality_code,
                 passport_number,
                 passport_issuing_country_code,
-                email,
-                phone_country_code,
-                phone_number,
                 emergency_contact,
             });
         }
@@ -410,7 +378,7 @@ pub enum PassengerValidationCode {
     InvalidCountry,
     InvalidPassport,
     DuplicatePassport,
-    InvalidEmail,
+    InvalidGender,
     InvalidPhone,
     EmergencyContactIncomplete,
 }
@@ -426,7 +394,7 @@ impl PassengerValidationCode {
             Self::InvalidCountry => "INVALID_COUNTRY",
             Self::InvalidPassport => "INVALID_PASSPORT",
             Self::DuplicatePassport => "DUPLICATE_PASSPORT",
-            Self::InvalidEmail => "INVALID_EMAIL",
+            Self::InvalidGender => "INVALID_GENDER",
             Self::InvalidPhone => "INVALID_PHONE",
             Self::EmergencyContactIncomplete => "EMERGENCY_CONTACT_INCOMPLETE",
         }
@@ -529,24 +497,24 @@ fn normalize_passport_number(value: &str) -> String {
         .to_ascii_uppercase()
 }
 
-fn is_valid_email(value: &str) -> bool {
-    if value.len() > 254 || value.chars().any(char::is_whitespace) {
-        return false;
-    }
-    let Some((local, domain)) = value.split_once('@') else {
-        return false;
-    };
-    !local.is_empty()
-        && local.len() <= 64
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
-        && domain.contains('.')
-        && !domain.contains('@')
-}
-
 fn normalize_phone_country_code(value: &str) -> String {
     let digits: String = value.chars().filter(char::is_ascii_digit).collect();
     format!("+{digits}")
+}
+
+pub fn validate_booking_contact(
+    input: BookingContactInput,
+) -> Result<BookingContact, PassengerValidationCode> {
+    let input_valid = is_valid_phone_input(&input.phone_country_code, &input.phone_number);
+    let phone_country_code = normalize_phone_country_code(&input.phone_country_code);
+    let phone_number = normalize_phone_number(&input.phone_number);
+    if !input_valid || !is_valid_phone(&phone_country_code, &phone_number) {
+        return Err(PassengerValidationCode::InvalidPhone);
+    }
+    Ok(BookingContact {
+        phone_country_code,
+        phone_number,
+    })
 }
 
 fn normalize_phone_number(value: &str) -> String {

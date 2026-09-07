@@ -48,15 +48,13 @@ describe("FlightDetailPage", () => {
     expect(screen.getByText(/all times shown in local airport time/i)).toBeInTheDocument();
   });
 
-  it("selects the searched cabin by default and displays all four cabin choices", () => {
+  it("selects the searched cabin by default and displays only Business and First", () => {
     renderDetail();
 
     const tabs = screen.getAllByRole("tab");
-    expect(tabs).toHaveLength(4);
-    expect(screen.getByRole("tab", { name: /^economy$/i })).toBeInTheDocument();
-    expect(
-      screen.getByRole("tab", { name: /premium economy/i }),
-    ).toBeInTheDocument();
+    expect(tabs).toHaveLength(2);
+    expect(screen.queryByRole("tab", { name: /^economy$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /premium economy/i })).not.toBeInTheDocument();
     expect(
       screen.getByRole("tab", { name: /business.*your searched cabin/i }),
     ).toHaveAttribute("aria-selected", "true");
@@ -72,12 +70,12 @@ describe("FlightDetailPage", () => {
   it("switches cabin imagery, content, pricing, and seat handoff without changing the searched cabin", async () => {
     renderDetail();
 
-    const economyTab = screen.getByRole("tab", { name: /^economy$/i });
-    fireEvent.mouseDown(economyTab, { button: 0, ctrlKey: false });
-    fireEvent.click(economyTab);
+    const firstTab = screen.getByRole("tab", { name: /^first$/i });
+    fireEvent.mouseDown(firstTab, { button: 0, ctrlKey: false });
+    fireEvent.click(firstTab);
 
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^economy$/i })).toHaveAttribute(
+      expect(screen.getByRole("tab", { name: /^first$/i })).toHaveAttribute(
         "aria-selected",
         "true",
       ),
@@ -85,19 +83,19 @@ describe("FlightDetailPage", () => {
     expect(
       screen.getByRole("tab", { name: /business.*your searched cabin/i }),
     ).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByText("THB 21,900")).toBeInTheDocument();
-    expect(screen.getByText("Practical comfort")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /economy cabin seating/i })).toHaveAttribute(
+    expect(screen.getByText("THB 114,900")).toBeInTheDocument();
+    expect(screen.getByText("Private suite")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /first class/i })).toHaveAttribute(
       "src",
-      expect.stringContaining("x-fly-cabin-economy-v1.png"),
+      expect.stringContaining("x-fly-cabin-first-v1.png"),
     );
 
     const seatLink = screen.getByRole("link", {
-      name: "Choose your seat in Economy on flight XF 201",
+      name: "Choose your seat in First on flight XF 201",
     });
     expect(seatLink).toHaveAttribute(
       "href",
-      "/flights/xf-201/seats?from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=1&children=1&infants=0&cabin=business&trip=round-trip&selectedCabin=economy",
+      "/flights/xf-201/seats?from=BKK&to=LHR&departure=2099-05-10&return=2099-05-18&adults=1&children=1&infants=0&cabin=business&trip=round-trip&selectedCabin=first",
     );
   });
 
@@ -182,7 +180,7 @@ describe("FlightDetailPage", () => {
       const cabinSection = screen.getByRole("region", {
         name: "Cabin experience",
       });
-      expect(within(cabinSection).getAllByRole("tab")).toHaveLength(4);
+      expect(within(cabinSection).getAllByRole("tab")).toHaveLength(2);
     } finally {
       if (originalFetch) {
         Object.defineProperty(global, "fetch", {

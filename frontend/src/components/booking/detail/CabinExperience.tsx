@@ -13,7 +13,7 @@ import {
 import { buildSeatSelectionHref } from "@/components/booking/detail/flightDetailUtils";
 import { getCabinPrice } from "@/components/booking/results/flightResultUtils";
 import type { FlightResult } from "@/components/booking/results/flightResultTypes";
-import type { CabinClass } from "@/components/booking/search/searchTypes";
+import type { CustomerCabinClass } from "@/components/booking/search/searchTypes";
 import { Button, buttonVariants } from "@/components/ui/Button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { motionDurations } from "@/lib/motion/durations";
@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils/cn";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { formatPrice } from "@/i18n/formatters";
 
-const isCabinClass = (value: string): value is CabinClass =>
+const isCabinClass = (value: string): value is CustomerCabinClass =>
   CABIN_PRESENTATIONS.some((cabin) => cabin.id === value);
 
 const CabinExperience = ({
@@ -33,11 +33,11 @@ const CabinExperience = ({
   searchedCabin,
 }: {
   flight: FlightResult;
-  initialCabin: CabinClass;
+  initialCabin: CustomerCabinClass;
   query: string;
-  searchedCabin: CabinClass;
+  searchedCabin: CustomerCabinClass;
 }) => {
-  const [activeCabin, setActiveCabin] = useState<CabinClass>(initialCabin);
+  const [activeCabin, setActiveCabin] = useState<CustomerCabinClass>(initialCabin);
   const reducedMotion = useReducedMotion();
   const { locale, t } = useLanguage();
   const cabin = CABIN_PRESENTATION_BY_ID[activeCabin];
@@ -96,7 +96,7 @@ const CabinExperience = ({
       >
         <TabsList
           aria-label={t("flightSearch.cabinClass")}
-          className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0 sm:grid-cols-4"
+          className="grid h-auto w-full grid-cols-2 gap-2 bg-transparent p-0"
         >
           {CABIN_PRESENTATIONS.map((option) => {
             const isSearchedCabin = option.id === searchedCabin;

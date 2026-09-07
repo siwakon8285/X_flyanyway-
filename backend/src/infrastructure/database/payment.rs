@@ -169,17 +169,6 @@ impl PaymentRepository for SqlxSeatHoldRepository {
             return Err(PaymentRepositoryError::AttemptInProgress);
         }
 
-        sqlx::query(
-            "UPDATE booking_contacts
-             SET preferred_locale = $2, updated_at = NOW()
-             WHERE seat_hold_id = $1",
-        )
-        .bind(hold_id)
-        .bind(command.preferred_locale.as_str())
-        .execute(&mut *transaction)
-        .await
-        .map_err(PaymentRepositoryError::Infrastructure)?;
-
         let snapshot = load_snapshot(&mut transaction, hold_id).await?;
         let payment_finalization_deadline = (command.provider == PaymentProvider::Stripe
             && command.method == PaymentMethod::Card)
@@ -333,9 +322,6 @@ impl PaymentRepository for SqlxSeatHoldRepository {
         .fetch_one(&mut *transaction)
         .await
         .map_err(PaymentRepositoryError::Infrastructure)?;
-        if transition.status == PaymentStatus::Succeeded {
-            enqueue_booking_confirmation_intent(&mut transaction, attempt_id).await?;
-        }
         transaction
             .commit()
             .await
@@ -500,8 +486,6 @@ impl PaymentRepository for SqlxSeatHoldRepository {
                 .execute(&mut *transaction)
                 .await
                 .map_err(PaymentRepositoryError::Infrastructure)?;
-
-                enqueue_booking_confirmation_intent(&mut transaction, current.id).await?;
 
                 sqlx::query(
                     "INSERT INTO stripe_webhook_events (stripe_event_id, event_type, payment_intent_id, processed_at)
@@ -811,34 +795,17 @@ async fn finalize_seats_and_hold(
     Ok(())
 }
 
-/// Creates the one durable notification intent only after the payment row is
-/// authoritative. Missing explicit contacts are intentionally ignored for
-/// historical bookings; no passenger email is ever inferred here.
-async fn enqueue_booking_confirmation_intent(
-    transaction: &mut Transaction<'_, Postgres>,
-    payment_attempt_id: Uuid,
-) -> Result<(), PaymentRepositoryError> {
-    sqlx::query(
-        "INSERT INTO booking_confirmation_email_outbox (
-             payment_attempt_id, recipient_email, locale
-         )
-         SELECT $1, contact.email, contact.preferred_locale
-         FROM payment_attempts AS attempt
-         JOIN booking_contacts AS contact ON contact.seat_hold_id = attempt.seat_hold_id
-         WHERE attempt.id = $1 AND attempt.status = 'SUCCEEDED'
-         ON CONFLICT (payment_attempt_id, notification_type) DO NOTHING",
-    )
-    .bind(payment_attempt_id)
-    .execute(&mut **transaction)
-    .await
-    .map_err(PaymentRepositoryError::Infrastructure)?;
-    Ok(())
-}
-
 async fn ensure_ready(
     transaction: &mut Transaction<'_, Postgres>,
     hold: &HoldRow,
 ) -> Result<(), PaymentRepositoryError> {
+    if !hold
+        .cabin
+        .parse::<crate::domain::value_objects::CabinClass>()
+        .is_ok_and(|cabin| cabin.is_customer_bookable())
+    {
+        return Err(PaymentRepositoryError::InvalidRequest);
+    }
     let counts = PassengerCounts::new(hold.adults as u8, hold.children as u8, hold.infants as u8)
         .expect("database passenger constraints are valid");
     let valid_seats: i64 = sqlx::query_scalar(
@@ -869,18 +836,14 @@ async fn ensure_ready(
     {
         return Err(PaymentRepositoryError::PassengersNotReady);
     }
-    let extras_saved: bool =
-        sqlx::query_scalar("SELECT extras_saved_at IS NOT NULL FROM seat_holds WHERE id = $1")
-            .bind(hold.id)
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(PaymentRepositoryError::Infrastructure)?;
-    if !extras_saved {
-        return Err(PaymentRepositoryError::ExtrasNotReady);
-    }
     if hold.booking_contact_required {
         let has_booking_contact: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM booking_contacts WHERE seat_hold_id = $1)",
+            "SELECT EXISTS(
+                SELECT 1 FROM booking_contacts
+                WHERE seat_hold_id = $1
+                  AND phone_country_code IS NOT NULL
+                  AND phone_number IS NOT NULL
+            )",
         )
         .bind(hold.id)
         .fetch_one(&mut **transaction)
@@ -907,7 +870,7 @@ async fn load_snapshot(
          FROM hold_review_pricing AS pricing
          JOIN seat_holds AS hold ON hold.id = pricing.seat_hold_id
          WHERE pricing.seat_hold_id = $1
-           AND pricing.source_extras_saved_at = hold.extras_saved_at",
+           AND pricing.source_passenger_details_saved_at = hold.passenger_details_saved_at",
     )
     .bind(hold_id)
     .fetch_optional(&mut **transaction)

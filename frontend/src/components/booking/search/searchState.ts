@@ -1,23 +1,18 @@
 import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import type {
   AirportOption,
-  CabinClass,
+  CustomerCabinClass,
   FlightSearchErrors,
   FlightSearchFormValues,
   TripType,
 } from "@/components/booking/search/searchTypes";
 
 const PASSENGER_UI_SAFETY_LIMIT = 99;
-const cabinClasses = [
-  "economy",
-  "premium-economy",
-  "business",
-  "first",
-] as const satisfies readonly CabinClass[];
+const BOOKABLE_CUSTOMER_CABINS = ["business", "first"] as const satisfies readonly CustomerCabinClass[];
 const tripTypes = ["round-trip", "one-way"] as const satisfies readonly TripType[];
 
 const createDefaultFlightSearchValues = (): FlightSearchFormValues => ({
-  cabin: "economy",
+  cabin: "business",
   departure: "",
   from: null,
   passengers: { adults: 1, children: 0, infants: 0 },
@@ -70,7 +65,8 @@ const parseFlightSearch = (params: URLSearchParams): FlightSearchFormValues => {
   const returnValue = params.get("return") ?? "";
   const trip = tripTypes.find((tripType) => tripType === tripValue) ?? defaults.trip;
   const cabin =
-    cabinClasses.find((cabinClass) => cabinClass === cabinValue) ?? defaults.cabin;
+    BOOKABLE_CUSTOMER_CABINS.find((cabinClass) => cabinClass === cabinValue) ??
+    defaults.cabin;
 
   return {
     cabin,
@@ -177,6 +173,7 @@ const validateFlightSearch = (
 
 export {
   PASSENGER_UI_SAFETY_LIMIT,
+  BOOKABLE_CUSTOMER_CABINS,
   createDefaultFlightSearchValues,
   getTodayDateInputValue,
   isCompleteFlightSearchQuery,

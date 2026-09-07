@@ -14,22 +14,22 @@ const context: ReviewContext = {
     refundable: false,
   },
   hold: {
-    cabin: "economy",
+    cabin: "business",
     departureDate: "2030-05-10",
     expiresAt: "2099-05-01T10:10:00Z",
     flightId: "xf-201",
     id: "hold-123",
     passengers: { adults: 1, children: 1, infants: 1 },
-    seats: ["20A", "20B"],
+    seats: ["3A", "3D"],
     serverTime: "2099-05-01T10:00:00Z",
   },
   includedBenefits: {
     allowances: {
       appliesToPassengerTypes: ["ADULT", "CHILD"],
-      cabinBaggageKg: 7,
-      checkedBaggageKg: 20,
+      cabinBaggageKg: 10,
+      checkedBaggageKg: 40,
     },
-    benefits: { mealService: "STANDARD", seatSelectionIncluded: true },
+    benefits: { mealService: "PREMIUM", seatSelectionIncluded: true },
   },
   journey: {
     aircraftCode: "Airbus A350-900",
@@ -45,24 +45,6 @@ const context: ReviewContext = {
   passengers: [
     {
       displayName: "MS Nara Suri",
-      extras: [
-        {
-          category: "BAGGAGE",
-          lineTotal: money(2800),
-          passengerOrdinal: 1,
-          productCode: "BAG_20KG",
-          quantity: 1,
-          unitPrice: money(2800),
-        },
-        {
-          category: "MEAL",
-          lineTotal: money(0),
-          passengerOrdinal: 1,
-          productCode: "MEAL_VEGETARIAN",
-          quantity: 1,
-          unitPrice: money(0),
-        },
-      ],
       nationalityCode: "TH",
       ordinal: 1,
       passengerType: "ADULT",
@@ -71,7 +53,6 @@ const context: ReviewContext = {
     },
     {
       displayName: "MS Mali Suri",
-      extras: [],
       nationalityCode: "TH",
       ordinal: 2,
       passengerType: "CHILD",
@@ -80,7 +61,6 @@ const context: ReviewContext = {
     },
     {
       displayName: "MS Dara Suri",
-      extras: [],
       nationalityCode: "TH",
       ordinal: 3,
       passengerType: "INFANT",
@@ -90,27 +70,26 @@ const context: ReviewContext = {
   ],
   pricing: {
     baseFare: {
-      amount: money(43800),
+      amount: money(137800),
       lines: [
-        { amount: money(21900), passengerType: "ADULT", quantity: 1, unitAmount: money(21900) },
-        { amount: money(21900), passengerType: "CHILD", quantity: 1, unitAmount: money(21900) },
+        { amount: money(68900), passengerType: "ADULT", quantity: 1, unitAmount: money(68900) },
+        { amount: money(68900), passengerType: "CHILD", quantity: 1, unitAmount: money(68900) },
         { amount: money(0), passengerType: "INFANT", quantity: 1, unitAmount: money(0) },
       ],
     },
     currencyCode: "THB",
-    extras: money(2800),
     fees: [
       { amount: money(1000), code: "DEMO_AIRPORT_FEE", quantity: 2, unitAmount: money(500) },
       { amount: money(300), code: "DEMO_BOOKING_FEE", quantity: 1, unitAmount: money(300) },
     ],
-    grandTotal: money(49300),
+    grandTotal: money(140500),
     pricedAt: "2099-05-01T10:00:01Z",
     taxes: [
       { amount: money(1400), code: "DEMO_PASSENGER_TAX", quantity: 2, unitAmount: money(700) },
     ],
   },
   readyForPayment: true,
-  seats: [{ seatNumber: "20A" }, { seatNumber: "20B" }],
+  seats: [{ seatNumber: "3A" }, { seatNumber: "3D" }],
 };
 
 const setFetch = (body: unknown, ok = true, status = 200) => {
@@ -148,11 +127,11 @@ describe("ReviewPage", () => {
     expect(screen.getByRole("status", { name: "Loading booking review" })).toBeInTheDocument();
   });
 
-  it("presents the authoritative journey passengers seats extras and pricing", async () => {
+  it("presents the authoritative journey passengers seats included benefits and pricing", async () => {
     setFetch(context);
     render(
       <ReviewPage
-        backQuery="flightId=xf-201&departure=2030-05-10&selectedCabin=economy"
+        backQuery="flightId=xf-201&departure=2030-05-10&selectedCabin=business"
         holdId="hold-123"
       />,
     );
@@ -163,18 +142,17 @@ describe("ReviewPage", () => {
     expect(screen.getByText("09:15")).toBeInTheDocument();
     expect(screen.getByText("Airbus A350-900")).toBeInTheDocument();
     expect(screen.getByText("MS Nara Suri")).toBeInTheDocument();
-    expect(screen.getByText("20A")).toBeInTheDocument();
-    expect(screen.getByText("+20 kg")).toBeInTheDocument();
-    expect(screen.getByText("Vegetarian")).toBeInTheDocument();
-    expect(screen.getByText("Free")).toBeInTheDocument();
+    expect(screen.getByText("3A")).toBeInTheDocument();
+    expect(screen.getByText("40 kg checked baggage")).toBeInTheDocument();
+    expect(screen.getByText("Premium meal included")).toBeInTheDocument();
 
     const summary = screen.getByRole("complementary", { name: "Fare summary" });
-    expect(within(summary).getByText("THB 43,800")).toBeInTheDocument();
+    expect(within(summary).getByText("THB 137,800")).toBeInTheDocument();
     expect(within(summary).getByText("Infant × 1")).toBeInTheDocument();
     expect(within(summary).getByText("THB 0")).toBeInTheDocument();
     expect(within(summary).getByText("Demo passenger tax")).toBeInTheDocument();
     expect(within(summary).getByText("Demo airport fee")).toBeInTheDocument();
-    expect(within(summary).getByText("THB 49,300")).toBeInTheDocument();
+    expect(within(summary).getByText("THB 140,500")).toBeInTheDocument();
     expect(screen.getByText(/demo fare configuration/i)).toBeInTheDocument();
     expect(screen.getByText("Non-refundable demo fare")).toBeInTheDocument();
 
@@ -182,10 +160,11 @@ describe("ReviewPage", () => {
     expect(payment).toBeDisabled();
     expect(screen.queryByRole("link", { name: "Proceed to Payment" })).not.toBeInTheDocument();
     expect(screen.getByText("Payment will be available in the next step.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to Travel Extras" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Back to Passenger Information" })).toHaveAttribute(
       "href",
-      expect.stringContaining("/booking/extras?"),
+      expect.stringContaining("/booking/passengers?"),
     );
+    expect(screen.queryByText(/travel extras/i)).not.toBeInTheDocument();
     expect(screen.getByTestId("review-layout")).toHaveClass("min-w-0");
   });
 
@@ -203,14 +182,10 @@ describe("ReviewPage", () => {
     ).toEqual(["navigation", "heading", "details", "summary", "confirmation"]);
     expect(container.querySelectorAll("[data-review-card]").length).toBeGreaterThanOrEqual(6);
     expect(container.querySelector('[data-review-value="grand-total"]')).toHaveTextContent(
-      "THB 49,300",
+      "THB 140,500",
     );
-    expect(container.querySelector('[data-review-value="extras-total"]')).toHaveTextContent(
-      "THB 2,800",
-    );
-    expect(container.querySelector('[data-review-value="paid-extra"]')).toHaveTextContent(
-      "THB 2,800",
-    );
+    expect(container.querySelector('[data-review-value="extras-total"]')).toBeNull();
+    expect(container.querySelector('[data-review-value="paid-extra"]')).toBeNull();
 
     const payment = screen.getByRole("button", { name: "Proceed to Payment" });
     expect(payment).toBeDisabled();
@@ -224,8 +199,8 @@ describe("ReviewPage", () => {
 
     expect(await screen.findByRole("heading", { name: "ตรวจสอบการเดินทางของคุณ" })).toBeInTheDocument();
     expect(await screen.findByText("MS Nara Suri")).toBeInTheDocument();
-    expect(screen.getByText("20A")).toBeInTheDocument();
-    expect(screen.getByText("THB 49,300")).toBeInTheDocument();
+    expect(screen.getByText("3A")).toBeInTheDocument();
+    expect(screen.getByText("THB 140,500")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ไปยังการชำระเงิน" })).toBeDisabled();
   });
 
@@ -250,7 +225,7 @@ describe("ReviewPage", () => {
 
   it("recovers to the exact prerequisite without fabricating review data", async () => {
     setFetch(
-      { error: { code: "EXTRAS_NOT_READY", message: "Extras not ready" } },
+      { error: { code: "PASSENGERS_NOT_READY", message: "Passengers not ready" } },
       false,
       409,
     );
@@ -258,17 +233,17 @@ describe("ReviewPage", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
-      "Save or confirm Travel Extras before reviewing your booking.",
+      "Complete Passenger Information before reviewing your booking.",
     );
     expect(alert.closest("[data-review-recovery]")).toHaveAttribute(
       "data-review-recovery",
-      "extras",
+      "passengers",
     );
-    expect(screen.getByRole("link", { name: "Go to Travel Extras" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Go to Passenger Information" })).toHaveAttribute(
       "href",
       expect.stringContaining("holdId=hold-123"),
     );
-    expect(screen.queryByText("THB 49,300")).not.toBeInTheDocument();
+    expect(screen.queryByText("THB 140,500")).not.toBeInTheDocument();
   });
 
   it("announces expiry once and removes the future-payment action", async () => {

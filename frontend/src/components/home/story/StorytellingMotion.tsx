@@ -49,7 +49,7 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
           element,
         );
         const journeyStory = element.querySelector<HTMLElement>("[data-journey-story]");
-        if (cabinStory && cabinFrame && cabinStack && cabinStages.length === 4) {
+        if (cabinStory && cabinFrame && cabinStack && cabinStages.length > 1) {
           const cabinAperture = cabinStory.querySelector<HTMLElement>(
             "[data-cabin-aperture]",
           );
@@ -78,7 +78,7 @@ const StorytellingMotion = ({ children }: StorytellingMotionProps) => {
           gsap.set(cabinStages.slice(1), { opacity: 0, y: 32 });
 
           // Initialize desktop media overlapping layers
-          if (cabinImages.length === 4) {
+          if (cabinImages.length === cabinStages.length) {
             gsap.set(cabinImages[0], { opacity: 1, scale: 1 });
             gsap.set(cabinImages.slice(1), { opacity: 0, scale: 1.03 });
           }

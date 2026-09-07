@@ -12,7 +12,7 @@ import {
 } from "@/components/booking/passengers/passengerClient";
 import { PassengerForm } from "@/components/booking/passengers/PassengerForm";
 import { PassengerSummary } from "@/components/booking/passengers/PassengerSummary";
-import { buildExtrasHandoffHref } from "@/components/booking/passengers/passengerRoute";
+import { buildReviewHandoffHref } from "@/components/booking/passengers/passengerRoute";
 import { validationKeys } from "@/components/booking/passengers/passengerPresentation";
 import type {
   PassengerContext,
@@ -23,7 +23,9 @@ import type {
 } from "@/components/booking/passengers/passengerTypes";
 import {
   createEmptyPassenger,
+  normalizeBookingContact,
   normalizePassengerDraft,
+  validateBookingContact,
   validatePassengerDraft,
 } from "@/components/booking/passengers/passengerValidation";
 import { getRemainingHoldMilliseconds } from "@/components/booking/seats/seatHoldClient";
@@ -34,7 +36,6 @@ import type { TranslationKey } from "@/i18n/types";
 
 const passengerFields = new Set<string>([
   "dateOfBirth",
-  "email",
   "emergencyContact",
   "familyName",
   "gender",
@@ -43,8 +44,6 @@ const passengerFields = new Set<string>([
   "nationalityCode",
   "passportIssuingCountryCode",
   "passportNumber",
-  "phoneCountryCode",
-  "phoneNumber",
   "title",
 ]);
 
@@ -58,11 +57,6 @@ const toFormValues = (context: PassengerContext): PassengerFormValue[] =>
         }
       : createEmptyPassenger(slot);
   });
-
-const withBookingContactCompatibility = (
-  values: PassengerFormValue[],
-  contact: Pick<PassengerFormValue, "email" | "phoneCountryCode" | "phoneNumber">,
-) => values.map((passenger) => ({ ...passenger, ...contact }));
 
 const lifecycleMessage = (error: BookingApiError): TranslationKey => {
   if (error.code === "HOLD_EXPIRED") return "passengerInformation.state.expired";
@@ -98,15 +92,14 @@ const PassengerInformationPage = ({
   backQuery: string;
   holdId: string;
 }) => {
-  const { locale, t } = useLanguage();
+  const { t } = useLanguage();
   const router = useRouter();
   const [context, setContext] = useState<PassengerContext | null>(null);
   const [values, setValues] = useState<PassengerFormValue[]>([]);
-  const [bookingContactEmail, setBookingContactEmail] = useState("");
   const [contactPhoneCountryCode, setContactPhoneCountryCode] = useState("");
   const [contactPhoneNumber, setContactPhoneNumber] = useState("");
+  const [contactPhoneError, setContactPhoneError] = useState(false);
   const [errors, setErrors] = useState<PassengerValidationError[]>([]);
-  const [bookingContactError, setBookingContactError] = useState(false);
   const [loading, setLoading] = useState(Boolean(holdId));
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
@@ -131,9 +124,8 @@ const PassengerInformationPage = ({
     );
     if (restoreValues) {
       setValues(toFormValues(next));
-      setBookingContactEmail(next.bookingContact?.email ?? next.passengers[0]?.email ?? "");
-      setContactPhoneCountryCode(next.passengers[0]?.phoneCountryCode ?? "");
-      setContactPhoneNumber(next.passengers[0]?.phoneNumber ?? "");
+      setContactPhoneCountryCode(next.bookingContact?.phoneCountryCode ?? "");
+      setContactPhoneNumber(next.bookingContact?.phoneNumber ?? "");
       setReady(next.readyToContinue);
     }
   }, []);
@@ -199,32 +191,31 @@ const PassengerInformationPage = ({
 
   const handleSave = async () => {
     if (!context || stateMessage || remainingMilliseconds <= 0) return;
-    const compatibilityValues = withBookingContactCompatibility(values, {
-      email: bookingContactEmail.trim(),
-      phoneCountryCode: contactPhoneCountryCode,
-      phoneNumber: contactPhoneNumber,
-    });
     const nextErrors = validatePassengerDraft(
-      compatibilityValues,
+      values,
       context.hold.departureDate,
       getTodayDateInputValue(),
     );
     setErrors(nextErrors);
-    const contactValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(bookingContactEmail.trim());
-    setBookingContactError(!contactValid);
+    const contactValid = validateBookingContact(
+      contactPhoneCountryCode,
+      contactPhoneNumber,
+    );
+    setContactPhoneError(!contactValid);
     if (nextErrors.length > 0 || !contactValid) return;
 
     setSaving(true);
     try {
-      const saved = await savePassengerDraft(holdId, normalizePassengerDraft(compatibilityValues), {
-        email: bookingContactEmail.trim(),
-        preferredLocale: locale.toUpperCase() as "EN" | "TH",
-      });
+      const saved = await savePassengerDraft(
+        holdId,
+        normalizePassengerDraft(values),
+        normalizeBookingContact(contactPhoneCountryCode, contactPhoneNumber),
+      );
       applyContext(saved, true);
       setErrors([]);
       setReady(true);
       setRecentlySaved(true);
-      router.push(buildExtrasHandoffHref({ holdId, query: backQuery }));
+      router.push(buildReviewHandoffHref({ holdId, query: backQuery }));
     } catch (error) {
       if (error instanceof BookingApiError) {
         if (["HOLD_EXPIRED", "HOLD_RELEASED", "HOLD_NOT_FOUND", "HOLD_UNAUTHORIZED"].includes(error.code)) {
@@ -269,7 +260,7 @@ const PassengerInformationPage = ({
           <li aria-hidden="true">—</li>
           <li aria-current="step" className="text-brand">{t("passengerInformation.progress.passenger")}</li>
           <li aria-hidden="true">—</li>
-          <li>{t("passengerInformation.progress.extras")}</li>
+          <li>{t("passengerInformation.progress.review")}</li>
         </ol>
         <p className="mt-10 text-label text-brand">{t("passengerInformation.eyebrow")}</p>
         <h1 className="mt-3 text-h1">{t("passengerInformation.heading")}</h1>
@@ -292,7 +283,6 @@ const PassengerInformationPage = ({
               onValuesChange={(next) => {
                 setValues(next);
                 setErrors([]);
-                setBookingContactError(false);
                 setReady(false);
                 setRecentlySaved(false);
               }}
@@ -300,28 +290,19 @@ const PassengerInformationPage = ({
               recentlySaved={recentlySaved}
               saving={saving}
               values={values}
-              contactEmail={bookingContactEmail}
-              contactEmailError={bookingContactError || errors.some((error) => error.field === "email")}
               contactPhoneCountryCode={contactPhoneCountryCode}
-              contactPhoneCountryCodeError={errors.some((error) => error.field === "phoneCountryCode")}
+              contactPhoneCountryCodeError={contactPhoneError}
               contactPhoneNumber={contactPhoneNumber}
-              contactPhoneNumberError={errors.some((error) => error.field === "phoneNumber")}
-              onContactEmailChange={(email) => {
-                setBookingContactEmail(email);
-                setBookingContactError(false);
-                setErrors((current) => current.filter((error) => error.field !== "email"));
-                setReady(false);
-                setRecentlySaved(false);
-              }}
+              contactPhoneNumberError={contactPhoneError}
               onContactPhoneCountryCodeChange={(countryCode) => {
                 setContactPhoneCountryCode(countryCode);
-                setErrors((current) => current.filter((error) => error.field !== "phoneCountryCode"));
+                setContactPhoneError(false);
                 setReady(false);
                 setRecentlySaved(false);
               }}
               onContactPhoneNumberChange={(phoneNumber) => {
                 setContactPhoneNumber(phoneNumber);
-                setErrors((current) => current.filter((error) => error.field !== "phoneNumber"));
+                setContactPhoneError(false);
                 setReady(false);
                 setRecentlySaved(false);
               }}

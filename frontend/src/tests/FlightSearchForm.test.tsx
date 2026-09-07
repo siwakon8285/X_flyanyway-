@@ -14,7 +14,7 @@ jest.mock("next/navigation", () => ({
 }));
 
 const createValidValues = (): FlightSearchFormValues => ({
-  cabin: "economy",
+  cabin: "business",
   departure: "2099-05-10",
   from: AIRPORT_FIXTURES[0],
   passengers: { adults: 1, children: 0, infants: 0 },
@@ -146,9 +146,13 @@ describe("FlightSearchForm", () => {
 
     const cabin = screen.getByRole("combobox", { name: "Cabin class" });
     fireEvent.keyDown(cabin, { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("option", { name: "Business" }));
+    const options = await screen.findAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual(["Business", "First"]);
+    expect(screen.queryByRole("option", { name: "Economy" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Premium Economy" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "First" }));
 
-    await waitFor(() => expect(cabin).toHaveTextContent("Business"));
+    await waitFor(() => expect(cabin).toHaveTextContent("First"));
   });
 
   it("blocks invalid submission and connects route and date errors to their controls", () => {

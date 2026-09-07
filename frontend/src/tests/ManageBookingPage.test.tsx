@@ -90,6 +90,32 @@ describe("ManageBookingPage", () => {
     expect(mockLookup).not.toHaveBeenCalled();
   });
 
+  it("keeps lookup fields equal-width on larger screens and stacked on mobile", async () => {
+    renderPage();
+
+    await screen.findByRole("heading", { name: "Manage Booking" });
+    const bookingReference = screen.getByLabelText("Booking Reference");
+    const lastName = screen.getByLabelText("Last Name");
+    const bookingReferenceField = bookingReference.parentElement;
+    const lastNameField = lastName.parentElement;
+    const layout = bookingReferenceField?.parentElement;
+
+    expect(layout).toHaveClass(
+      "grid",
+      "items-start",
+      "gap-6",
+      "sm:grid-cols-[repeat(2,minmax(0,1fr))]",
+    );
+    expect(bookingReferenceField).toHaveClass("min-w-0");
+    expect(lastNameField).toHaveClass("min-w-0");
+    expect(bookingReference).toHaveClass("h-12", "w-full");
+    expect(lastName).toHaveClass("h-12", "w-full");
+    expect(screen.getByRole("button", { name: "Find Booking" })).toHaveClass(
+      "w-full",
+      "sm:w-auto",
+    );
+  });
+
   it("uses one generic not-found message for rejected credentials", async () => {
     mockLookup.mockRejectedValue(
       new BookingApiError({
