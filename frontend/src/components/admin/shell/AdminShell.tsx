@@ -2,6 +2,7 @@
 
 import { Menu, ShieldCheck } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useState } from "react";
 
@@ -34,10 +35,11 @@ const roleTranslationKeys: Record<StaffRole,
 
 const AdminNavigation = ({ principal, onNavigate }: { principal: StaffPrincipal; onNavigate?: () => void }) => {
   const { t } = useLanguage();
+  const pathname = usePathname();
   return <nav aria-label={t("admin.navigation.label")}>
     <ul className="space-y-2">
       {getVisibleAdminNavigation(principal).map((item) => <li key={item.id}>
-        <Link className="flex min-h-11 items-center rounded-control border border-brand/20 bg-brand/10 px-4 text-sm font-semibold text-brand outline-none transition-colors hover:bg-brand/15 focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none" href={item.href} onClick={onNavigate}>
+        <Link aria-current={pathname === item.href ? "page" : undefined} className="flex min-h-11 items-center rounded-control border border-brand/20 bg-brand/10 px-4 text-sm font-semibold text-brand outline-none transition-colors hover:bg-brand/15 focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none" href={item.href} onClick={onNavigate}>
           {t(item.labelKey)}
         </Link>
       </li>)}
@@ -57,6 +59,7 @@ const Identity = ({ principal }: { principal: StaffPrincipal }) => {
 
 const AdminShell = ({ children, principal }: AdminShellProps) => {
   const { t } = useLanguage();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   return <div className="min-h-dvh bg-[#f6f3e9] text-[#171717]">
     <a className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-control focus:bg-brand focus:px-4 focus:py-3 focus:text-brand-foreground" href="#admin-content">{t("admin.shell.skip")}</a>
@@ -68,7 +71,7 @@ const AdminShell = ({ children, principal }: AdminShellProps) => {
     </aside>
     <div className="lg:pl-72">
       <header className="sticky top-0 z-30 flex min-h-20 items-center justify-between gap-4 border-b border-black/10 bg-[#f6f3e9]/95 px-4 backdrop-blur md:px-8">
-        <div><p className="text-caption text-black/50">{t("admin.shell.terminal")}</p><p className="font-semibold">{t("admin.navigation.workspace")}</p></div>
+        <div><p className="text-caption text-black/50">{t("admin.shell.terminal")}</p><p className="font-semibold">{t(pathname === "/admin/dashboard" ? "admin.navigation.overview" : "admin.navigation.workspace")}</p></div>
         <div className="flex items-center gap-2"><LanguageToggle />
           <Dialog onOpenChange={setOpen} open={open}>
             <DialogTrigger asChild><button aria-label={t("admin.shell.openNavigation")} className="inline-flex size-11 items-center justify-center rounded-control border border-black/15 outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden" type="button"><Menu aria-hidden="true" className="size-5" /></button></DialogTrigger>

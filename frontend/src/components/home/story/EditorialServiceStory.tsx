@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Container } from "@/components/layout/Container";
 import { useLanguage } from "@/i18n/LanguageProvider";
 
-const interiorImage = "/images/hero/x-fly-interior-premium-v1.png";
+const interiorImage = "/images/hero/x-fly-cabin-first-v1.png";
 const serviceImage = "/images/hero/x-fly-service-dining-v1.png";
 
 const EditorialServiceStory = () => {

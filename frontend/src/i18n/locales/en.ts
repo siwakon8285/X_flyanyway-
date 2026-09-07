@@ -1,4 +1,7 @@
+import { dashboardEn } from "./dashboard";
+
 const en = {
+  dashboard: dashboardEn,
   admin: {
     login: { email: "Staff email", password: "Password", signIn: "Sign in", signingIn: "Signing in…", invalid: "Email or password is incorrect.", tryLater: "Unable to sign in. Try again later.", unavailable: "Staff sign-in is temporarily unavailable.", eyebrow: "X-Fly internal access", heading: "Staff sign in", intro: "Use your individually provisioned X-Fly staff identity." },
     navigation: { label: "Staff navigation", workspace: "Workspace", overview: "Executive dashboard", flights: "Flights", bookings: "Bookings", tickets: "Tickets / Passengers", reports: "Reports", apiClients: "API Clients", staff: "Staff / Access" },
