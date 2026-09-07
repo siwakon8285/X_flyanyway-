@@ -13,7 +13,10 @@ use x_fly_api::{
     config::AppConfig,
     domain::cancellation::SystemClock,
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository, SqlxStaffAuthRepository},
+        database::{
+            prepare_database, SqlxAnalyticsRepository, SqlxSeatHoldRepository,
+            SqlxStaffAuthRepository,
+        },
         email::resend::ResendEmailDeliveryGateway,
         http::build_router,
         password::Argon2PasswordService,
@@ -45,6 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     prepare_database(&pool).await?;
 
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
+    let analytics = Arc::new(SqlxAnalyticsRepository::new(repository.pool().clone()));
     let staff_auth = StaffAuthService::new(
         Arc::new(SqlxStaffAuthRepository::new(repository.pool().clone())),
         Argon2PasswordService::default(),
@@ -88,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_stripe_webhook_secret(config.stripe_webhook_secret)
     .with_tickets(repository.clone(), config.ticket_qr_signing_secret)
     .with_cancellations(cancellation_service);
-    let state = state.with_staff_auth(staff_auth);
+    let state = state.with_staff_auth(staff_auth).with_analytics(analytics);
     let state =
         state.with_manage_bookings(repository.clone(), config.manage_booking_signing_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;

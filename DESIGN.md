@@ -30,6 +30,21 @@ Brand / business direction:
 - E-ticket: accessible through the website after Manage Booking verification
 - External systems: consume authorized X-Fly data through scoped API tokens
 
+## 1.1 Latest Stakeholder Requirement Override — 07 Sep 2026
+
+The following requirements are the **current authoritative customer-product scope** and override older historical branch descriptions elsewhere in this document when they conflict:
+
+- **Sellable cabins for all new customer bookings: Business and First only.**
+- `Economy` and `Premium Economy` are legacy/historical values only. Existing records may remain readable for audit/history, but customer search, availability, fare, seat-hold, review, and new-booking APIs must not offer or accept them for new bookings.
+- Passenger gender is **required** and new bookings accept **Male / Female only**. Do not offer `Unspecified` in the customer booking flow.
+- The active booking contact is **phone-only**: phone country code + phone number. Customer email is not required or collected for new bookings unless a later stakeholder requirement explicitly restores it.
+- X-Fly must **not send customer booking-confirmation email** in the active product scope. Booking success remains authoritative without email, and customers return through the website `Manage Booking` entry using **Booking Reference + Last Name**.
+- The standalone **Travel Extras** step/page is removed from the active customer flow. Do not sell or select optional baggage, meal, assistance, or ancillary extras in this MVP. Cabin-included baggage/service benefits may still be displayed as included benefits where truthful.
+- Existing historical database rows, legacy enum values, and prior completed branch history must not be destructively rewritten merely to match the new UI scope.
+- Implementation belongs in **Branch 20A — Customer Requirements Alignment**, after Branch 20 closes and before Branch 21 begins.
+
+This override exists to keep the roadmap and future coding-agent work aligned with the latest stakeholder direction without falsifying earlier implementation history.
+
 Product boundary:
 
 > X-Fly owns the **booking, payment, ticket, customer retrieval, cancellation/refund, internal management, reporting, and external-data API** domains.
@@ -383,9 +398,7 @@ Flight Detail + Cabin + Fare Conditions
   ↓
 Cinema-style Seat Selection
   ↓
-Passenger Details + Travel Documents + Contact
-  ↓
-Travel Extras
+Passenger Details + Travel Documents + Phone Contact
   ↓
 Booking Review
   ↓
@@ -395,8 +408,6 @@ Booking Confirmed
   ↓
 Final Booking Summary
   ↓
-Confirmation Email
-  ↓
 END OF PRIMARY BOOKING FLOW
 ```
 
@@ -405,27 +416,23 @@ The post-payment success page is a **final booking summary**, not the long-term 
 ## 8.2 Returning Customer / E-Ticket Lifecycle
 
 ```txt
-Confirmation Email ──────────────┐
-                                 │
-Website → Manage Booking ────────┤
-                                 ↓
-                         /manage-booking
-                                 ↓
+Website Navigation → Manage Booking
+                         ↓
+                  /manage-booking
+                         ↓
                     Booking Reference
                          + Last Name
-                                 ↓
-                         verified access
-                                 ↓
-                  /manage-booking/details
-                                 ↓
-               Booking Details / E-Ticket
-                                 ↓
-                  Verification QR available
+                         ↓
+                    verified access
+                         ↓
+              /manage-booking/details
+                         ↓
+           Booking Details / E-Ticket
+                         ↓
+              Verification QR available
 ```
 
-Email must contain the Booking Reference and a link to the public Manage Booking entry page. The email must **not** embed lookup credentials in query parameters and should not make the verification QR the primary email artifact.
-
-The website navigation must expose a clear **Manage Booking** entry so a customer can return even when the email is not currently open.
+The active product does **not** depend on customer email delivery. The website navigation must expose a clear **Manage Booking** entry, and the customer must retain the Booking Reference shown on the final Booking Confirmed summary.
 
 ## 8.3 Cancellation Lifecycle
 
@@ -508,9 +515,9 @@ X-Fly only provides authoritative booking/ticket data and authorized integration
 X-Fly models the parts required by the booking/ticketing requirement:
 
 - passenger identity and travel-document details
-- contact information
-- baggage allowance and optional extras
-- cabin and cinema-style seat selection
+- phone contact information
+- cabin-included baggage/service allowance
+- Business/First cabin and cinema-style seat selection
 - fare conditions
 - cancellation/refund rules
 - fare / taxes / fees breakdown
@@ -566,8 +573,6 @@ Payment confirmed
 Ticket issued
   ↓
 Booking confirmation shown
-  ↓
-Confirmation email
 ```
 
 A failed payment must never imply an issued ticket. Cancellation/refund must update each domain according to its own authoritative state.
@@ -820,14 +825,14 @@ Motion:
 - cancellation/refund policy summary
 - fare breakdown preview where useful
 
-Cabin tabs:
+Active sellable cabin tabs:
 
 ```txt
-Economy
-Premium Economy
 Business
 First
 ```
+
+`Economy` and `Premium Economy` may remain readable in historical records, but they are not selectable or accepted for new customer bookings.
 
 Fare context ต่อ cabin ควรอธิบายอย่างน้อย:
 
@@ -886,12 +891,12 @@ Motion:
 - selected-seat summary transition
 - no playful bounce or random shake
 
-Seat geometry must differ visibly by cabin, not only by color:
+Seat geometry must differ visibly between the two active sellable cabins, not only by color:
 
-- Economy — compact conventional seat, denser 3–aisle–3 style
-- Premium Economy — wider upgraded seat with increased spacing
-- Business — large pod/privacy-shell seat with much lower density
+- Business — large pod/privacy-shell seat with low density
 - First — private-suite visual with the largest footprint and fewest seats
+
+Legacy Economy/Premium Economy geometry may remain only where required to render historical records; it must not appear in the active new-booking seat-selection flow.
 
 Optional:
 
@@ -956,7 +961,7 @@ Countdown visible
 - Middle name (optional)
 - Family name / Surname
 - Date of birth
-- Gender where required by the project model
+- Gender — **Male / Female only; required for new bookings**
 - Nationality
 
 ต้องมีข้อความชัดเจน:
@@ -980,13 +985,12 @@ Do not implement government APIS transmission, visa checking, or Timatic.
 
 ## Contact Details
 
-Booking/contact details:
+Booking/contact details for new customer bookings:
 
-- Email
 - Phone country code
 - Phone number
 
-The post-booking email flow requires one authoritative **booking contact**. If current persistence stores contact fields per passenger, a later migration/use-case must explicitly designate the booking contact rather than guessing which passenger owns confirmation delivery.
+Email is not collected in the active customer flow because customer confirmation email has been removed from scope and Manage Booking uses Booking Reference + Last Name. Existing historical email values may remain stored/readable where required; do not invent placeholder email addresses to satisfy legacy schema constraints.
 
 Optional Emergency Contact:
 
@@ -1007,10 +1011,9 @@ Optional Emergency Contact:
 01 Flight
 02 Seat
 03 Passenger
-04 Extras
-05 Review
-06 Payment
-07 Booking Confirmed
+04 Review
+05 Payment
+06 Booking Confirmed
 ```
 
 ## Validation
@@ -1025,68 +1028,21 @@ Do not store raw sensitive travel-document data in insecure client persistence.
 
 ---
 
-# 19A. Travel Extras
+# 19A. Travel Extras — Removed from Active Scope
 
-เพิ่มขั้นตอนบริการเสริมเพื่อให้ booking flow ใกล้ airline retailing จริงขึ้น โดยยังคุม scope ให้เป็น MVP.
+The latest stakeholder requirement removes the standalone Travel Extras step/page from the customer booking flow.
 
-ขั้นต่ำให้รองรับ:
+Active rules:
 
-## Baggage
+- no optional extra-baggage purchase/selection
+- no meal-preference selection
+- no special-assistance selection in this MVP flow
+- no ancillary pricing fixture or extras total
+- `/booking/extras` must not remain a required navigation step
+- old/direct extras URLs should fail or redirect safely according to the Branch 20A implementation plan
+- Business/First cabin-included benefits such as baggage allowance or included meal/service may still be displayed as **included**, not as optional paid extras
 
-แสดง allowance ตาม cabin fixture เช่น:
-
-```txt
-Cabin baggage
-1 × 7 kg
-
-Checked baggage
-Economy         23 kg
-Premium Economy 30 kg
-Business        40 kg
-First           50 kg
-```
-
-ตัวเลขเหล่านี้เป็น X-Fly fixture policy ไม่ใช่มาตรฐานสากล.
-
-Optional extra baggage สามารถมีตัวเลือก เช่น:
-
-- +20 kg
-- +30 kg
-
-## Meal
-
-Optional meal preference เช่น:
-
-- Standard
-- Vegetarian
-- Vegan
-- Halal
-- Child meal
-
-ไม่ต้อง implement airline SSR code จริงใน MVP.
-
-## Special Assistance
-
-Optional request เช่น:
-
-- Wheelchair assistance
-- Hearing assistance
-- Visual assistance
-- Medical assistance request
-
-ต้องมีข้อความว่าบางคำขออาจต้องได้รับการยืนยันจากสายการบินในระบบ production จริง.
-
-## Scope
-
-Travel Extras เป็น typed booking state / fixture ใน frontend จนกว่า backend จะรองรับ.
-
-Do not implement:
-
-- real ancillary pricing engine
-- external airline service inventory
-- SSR/GDS integration
-- insurance sales
-- lounge partner integrationจริง
+The historical Branch 13A implementation may remain in Git history, but active customer state, Review, Payment, E-Ticket, and future documentation must not require selected extras.
 
 ---
 
@@ -1103,15 +1059,13 @@ Do not implement:
 - passengers
 - passenger travel-document completeness/status summary
 - seats
-- baggage
-- meals / special assistance if selected
+- cabin-included baggage/service benefits
 
 ขวา:
 
 - base fare
 - taxes
 - airport / passenger charges (fixture)
-- optional extras
 - seat fee if any
 - total
 - cancellation policy
@@ -1320,7 +1274,6 @@ Show only the final booking essentials:
 - Ticket Number
 - amount paid / currency
 - payment successful state
-- confirmation-email status/copy where available
 
 Recommended actions:
 
@@ -1337,16 +1290,19 @@ A visible Manage Booking entry may remain in the global navigation, but the post
 
 The verification QR belongs to the authenticated/retrieved **E-Ticket / Manage Booking Details** experience. This keeps the final purchase confirmation concise and separates booking completion from later ticket retrieval.
 
-## Email Boundary
+## No Customer Confirmation Email
 
-After successful booking/ticket issuance, the system should send a confirmation email in Branch 17A. The email is downstream notification behavior and must not be required for payment/ticket finalization to remain successful.
+The latest stakeholder requirement removes customer booking-confirmation email from the active product scope.
 
-Failure to send an email must not roll back:
+After successful payment/ticket issuance:
 
-- successful payment
-- booked inventory
-- consumed hold
-- issued ticket
+- payment success remains final according to authoritative backend state
+- booked inventory / consumed hold / issued ticket remain unchanged
+- the customer receives the Booking Reference and Ticket Number on the Booking Confirmed summary
+- later retrieval uses Website → Manage Booking → Booking Reference + Last Name
+- no new customer confirmation-email delivery should be required or triggered for new bookings
+
+Historical Branch 17A email/outbox/provider code and persisted delivery records must be retired or disabled safely in Branch 20A without destructive DEV-data cleanup.
 
 ## State Separation
 
@@ -1368,7 +1324,7 @@ E-Ticket / Booking Details should include:
 - Cabin
 - booked seat(s)
 - departure / arrival date-time
-- baggage / selected extras summary
+- cabin-included baggage/service summary
 - payment summary/status
 - cancellation status/eligibility
 - signed verification QR
@@ -1478,7 +1434,7 @@ After verification, show the complete customer booking information in a compact,
 - travel-document completeness only; mask sensitive values
 - cabin
 - finalized seats
-- baggage / selected extras
+- cabin-included baggage/service benefits
 - amount/currency
 - Booking Reference
 - Ticket Number
@@ -1497,19 +1453,13 @@ Do **not** show:
 
 ## Navigation
 
-Customers must be able to reach Manage Booking through either:
-
-```txt
-Confirmation Email → Manage Booking
-```
-
-or:
+Customers must be able to reach Manage Booking through the X-Fly website:
 
 ```txt
 X-Fly Website Navigation → Manage Booking
 ```
 
-Desktop should use clear text such as `Manage Booking`; do not rely on an ambiguous icon alone.
+The flow must not depend on confirmation email. Desktop should use clear text such as `Manage Booking`; do not rely on an ambiguous icon alone.
 
 ## Privacy
 
@@ -1716,8 +1666,8 @@ Fields may include:
 - departure / arrival local schedule
 - authoritative origin timezone
 - cabin availability
-- cabin pricing
-- seat capacity/inventory template
+- Business/First cabin pricing for new sellable inventory
+- Business/First seat capacity/inventory template
 - status
 - approved operational cost field/fixture when required for profit/loss reporting
 
@@ -1750,7 +1700,7 @@ Details may include:
 - passenger identity fields appropriate to the staff role
 - flight
 - seat
-- extras / baggage
+- cabin-included baggage/service context
 - ticket
 - payment status (not raw card details)
 - cancellation
@@ -1977,7 +1927,6 @@ components/
   seat/
   ticket/
   payment/
-  extras/
   manage-booking/
   admin/
   analytics/
@@ -1989,7 +1938,6 @@ features/
   booking/
   payment/
   manage-booking/
-  travel-extras/
   cancellation/
   admin-auth/
   admin-rbac/
@@ -2012,7 +1960,7 @@ types/
 
 Do not create customer check-in or boarding-pass feature modules in this product scope.
 
-Email delivery is a backend/infrastructure responsibility; the frontend only renders confirmation state and links.
+Customer booking-confirmation email is outside the active scope. Legacy email infrastructure may remain temporarily for safe retirement, but the frontend must not depend on email delivery.
 
 # 36. Motion Utility Architecture
 
@@ -2619,14 +2567,14 @@ feat/13-passenger-flow
 - Title
 - Given / Middle / Family name
 - DOB
-- Gender where modeled
+- Gender — required; Male / Female only for new bookings
 - Nationality
 - Passport number
 - Passport issuing country
 - Passport expiry
 - optional passport issue date
-- contact email
 - phone country code + phone
+- no customer email field for new bookings
 - optional emergency contact
 - validation
 - travel-document-name warning
@@ -2644,7 +2592,7 @@ feat/13-passenger-flow
 
 ---
 
-# 53A. BRANCH 13A — Travel Extras
+# 53A. BRANCH 13A — Travel Extras (Historical / Superseded)
 
 ## Branch
 
@@ -2652,29 +2600,15 @@ feat/13-passenger-flow
 feat/13a-travel-extras
 ```
 
-## Goal
+## Status
 
-เพิ่ม realistic ancillary step ก่อน Booking Review.
+**Completed historically, but superseded by the latest stakeholder requirement.**
 
-## Tasks
+Branch 13A remains part of repository history, but its standalone Travel Extras customer step is no longer active product scope.
 
-- cabin baggage allowance
-- checked baggage allowance
-- optional extra baggage
-- meal preference
-- special meal options
-- special assistance request
-- per-passenger applicability where relevant
-- typed pricing fixtures
-- summary integration
-- accessible optional-service controls
+Branch 20A must remove the active extras route/step/state/pricing dependencies while preserving any non-destructive historical data required by existing records.
 
-## Out of Scope
-
-- real ancillary inventory
-- GDS/SSR integration
-- insurance sale
-- external lounge inventory
+Cabin-included Business/First baggage or service benefits may remain visible as included benefits.
 
 ---
 
@@ -2693,12 +2627,10 @@ feat/14-booking-review
 - travel-document completeness summary
 - seat assignment
 - cabin
-- baggage
-- meal / assistance extras
+- cabin-included baggage/service benefits
 - base fare
 - taxes fixture
 - airport/passenger charges fixture
-- ancillary fees
 - total
 - fare conditions
 - baggage conditions
@@ -2953,7 +2885,7 @@ A separate pre-existing test-suite lifecycle defect was reproduced on the Branch
 
 ---
 
-# 57A. BRANCH 17A — Booking Confirmation Email
+# 57A. BRANCH 17A — Booking Confirmation Email (Historical / Superseded)
 
 ## Branch
 
@@ -2961,46 +2893,22 @@ A separate pre-existing test-suite lifecycle defect was reproduced on the Branch
 feat/17a-booking-confirmation-email
 ```
 
-## Goal
+## Status
 
-Send the booking customer a concise confirmation email after successful ticket issuance.
+**Completed historically, but superseded by the 07 Sep 2026 stakeholder requirement.**
 
-Email content:
+Branch 17A introduced durable confirmation-email delivery after ticket issuance. That implementation remains part of repository/schema history, but customer confirmation email is no longer active product scope.
 
-- X-Fly branding
-- booking confirmed message
-- route / flight / departure summary
-- Booking Reference
-- link to `/manage-booking`
+Branch 20A must:
 
-Do not include:
+- stop requiring/collecting customer email for new bookings
+- stop creating new booking-confirmation delivery work for new bookings
+- remove customer-facing copy that promises an email
+- preserve successful payment, inventory finalization, ticket issuance, Booking Confirmed, Manage Booking, and cancellation/refund behavior
+- preserve historical email/outbox records without destructive DEV-database cleanup
+- remove or disable unused worker/provider paths safely where they are dedicated only to booking confirmation
 
-- QR as the main email artifact
-- surname/email in URL query parameters
-- passport data
-- payment secrets
-- Stripe identifiers/client secret
-
-## Authoritative Recipient
-
-The system must define one authoritative booking-contact email.
-
-If the current schema only stores email per passenger and has no booking contact, Branch 17A must introduce/define that ownership explicitly rather than guessing or emailing every passenger.
-
-## Delivery Architecture
-
-Use a backend email-provider abstraction.
-
-Email delivery must be idempotent enough to avoid duplicate sends caused by refresh, webhook replay, or retry.
-
-Email failure must not roll back a successful:
-
-- payment
-- seat finalization
-- hold consumption
-- ticket issuance
-
-A delivery-status/outbox approach is preferred if persistence is required.
+Manage Booking remains Website → Booking Reference + Last Name.
 
 ---
 
@@ -3075,7 +2983,7 @@ Company-managed-device access is not proven by application login or browser chec
 
 ---
 
-# 60. BRANCH 20 — Executive Dashboard + Reports
+# 60. BRANCH 20 — Executive Dashboard / Owner Analytics
 
 ## Branch
 
@@ -3083,23 +2991,108 @@ Company-managed-device access is not proven by application login or browser chec
 feat/20-executive-analytics-reports
 ```
 
-## Tasks
+## Status
 
-- Revenue
-- Bookings
-- Passengers
-- Seats sold
-- Load Factor
-- Cancellation/Refund rate
-- route popularity
-- most/least booked flights
-- nationality distribution
-- cabin mix
-- Daily / Weekly / Monthly / Custom reports
-- origin/destination/flight/date/cabin filters
-- export/print strategy where useful
+**Implementation complete and manually reviewed. Final read-only branch audit remains before user commit/merge.**
 
-Profit/Loss requires authoritative/demo operational cost data. Do not fake profit from revenue alone.
+Automated verification reported clean frontend/backend gates, responsive EN/TH behavior, no dashboard console errors during manual QA, and no deployment/commit/push performed by coding agents.
+
+## Implemented boundary
+
+Branch 20 adds one consolidated, read-only executive analytics endpoint and a premium bilingual dashboard inside the Branch 19 Admin Shell. Both backend access and frontend navigation require the effective union of `dashboard:read`, `analytics:read`, and `reports:read`; role names are never treated as authorization and `SYSTEM_ADMIN` remains limited to its explicit grants.
+
+Commercial metrics use one authoritative cohort: `payment_attempts` rows with `status = 'SUCCEEDED'`, `currency_code = 'THB'`, the selected provider, and `succeeded_at` within inclusive Bangkok calendar dates. The existing unique successful-payment-per-hold constraint prevents retry double-counting. Gross Booking Revenue is the stored paid amount before refunds; average booking value is derived from that amount and booking count. Tickets, cancellations, and refund lifecycle values join the existing one-to-one historical records without mutating them.
+
+The dashboard provides gross revenue, booking and ticket counts, average booking value, cancellation rate, completed and pending refund values, route and cabin aggregates, zero-filled daily revenue/demand trends, most-booked and highest-revenue flights, and deterministic observations. Current recorded seat occupancy uses sellable `flight_seats` for departures in the selected dates. Because flight inventory is materialized on demand, the UI explicitly describes this as recorded seat occupancy rather than fleet-wide load factor.
+
+Its visual system is an editorial executive terminal rather than a conventional card dashboard: an abstract non-geographic flight-path opening, asymmetric commercial command deck, distinct revenue and demand instruments, commercial-corridor rankings, instrumented cabin composition, refund-state rail, flight ranking board, recorded-capacity runway, and numbered executive brief. GSAP owns the scoped entrance, first-viewport, path, and data-refresh choreography; CSS owns short control feedback. Reduced-motion users receive stable final content immediately without animation-dependent meaning or interaction.
+
+The final chart refinement uses a point-preserving smoothed revenue curve and a larger demand instrument while keeping the exact daily dataset authoritative. Successful filter refreshes rerun chart reveal/draw choreography. Both charts support premium nearest-day inspection: mouse/pointer, touch, and keyboard (`Left`/`Right`/`Home`/`End`/`Escape`) snap only to real daily API points and show localized date + authoritative value/count; no tooltip value is interpolated from the visual curve.
+
+Filters support inclusive custom dates (maximum 366 days), Today, 7 Days, 30 Days, This Month, route, cabin, and the currently valid stored providers `STRIPE` and `MOCK_BITCOIN`. Queries run in a PostgreSQL read-only repeatable-read transaction. Responses contain aggregates, flight/route identifiers, and dates only; passenger identity, booking references, ticket numbers, provider references, and secrets are excluded.
+
+Because Branch 20 predates the latest Business/First-only stakeholder scope, its read-only analytics may truthfully surface legacy Economy/Premium Economy history already stored in PostgreSQL. Branch 20A must restrict **new bookings**, not falsify or delete historical analytics.
+
+Profit/Loss, passenger nationality, reporting/export workflows, scheduled delivery, and PDF/CSV output are intentionally absent. Profit requires authoritative operating-cost data, nationality is passenger-sensitive and not needed for this first dashboard, and report generation belongs to later approved scope.
+
+Manual QA also found one unrelated customer-storytelling regression: the `X-FLY SERVICE` image referenced a non-existent asset path. The focused fix points the section to an existing tracked cabin image and adds a regression check; this does not change booking/business behavior.
+
+---
+
+# 60A. BRANCH 20A — Customer Requirements Alignment
+
+## Branch
+
+```txt
+feat/20a-customer-requirements-alignment
+```
+
+## Goal
+
+Align the already-built customer booking lifecycle with the latest stakeholder requirements **before Branch 21 begins**, without weakening the completed payment/ticket/cancellation foundations or destructively rewriting historical data.
+
+## Required changes
+
+### Cabin scope
+
+- new customer bookings offer **Business** and **First** only
+- remove Economy/Premium Economy from customer search/detail/seat-selection controls
+- backend new-booking/hold/review/payment boundaries must reject non-sellable legacy cabins rather than trusting frontend filtering
+- preserve historical Economy/Premium Economy records where they already exist
+- update fare fixtures, cabin availability, seat geometry/templates, Review, and tests consistently
+
+### Passenger gender
+
+- gender is required for new bookings
+- accepted customer values: **Male / Female only**
+- remove `Unspecified` from customer controls and new-booking validation
+- do not destructively rewrite historical rows solely to remove a legacy value
+
+### Contact data
+
+- new booking contact is **phone country code + phone number**
+- remove required customer email from Passenger/Contact UI
+- backend/persistence must not require a fake placeholder email
+- if legacy schema requires migration, make email nullable/optional safely while preserving historical values
+- Manage Booking remains Booking Reference + Last Name
+
+### Confirmation email retirement
+
+- no new customer booking-confirmation email
+- remove UI copy promising email delivery
+- stop creating new confirmation-email outbox work for new bookings
+- safely disable/remove worker/provider paths that exist only for booking confirmation
+- keep historical delivery records/schema unless a later migration can remove them safely
+- payment/ticket finalization must remain independent from notification code
+
+### Travel Extras removal
+
+- remove the active Travel Extras step/page from the primary booking lifecycle
+- customer flow becomes Seat → Passenger + Phone Contact → Review → Payment
+- remove selected-extras state/pricing from Review/payment snapshots where active
+- safe redirect/recovery behavior for stale/direct `/booking/extras` URLs
+- Business/First cabin-included benefits may still display as included benefits
+
+## Safety / regression boundaries
+
+- do not reset or destroy the DEV PostgreSQL volume
+- do not rewrite historical bookings merely to match the new customer UI
+- preserve seat-hold concurrency
+- preserve Stripe Test Mode + Mock Bitcoin
+- preserve payment/ticket lifecycle separation
+- preserve Manage Booking / E-Ticket / signed QR
+- preserve cancellation/refund rules
+- preserve Admin/RBAC/Branch 20 analytics behavior; analytics may truthfully include legacy cabin history until data naturally ages out or a separately approved data migration exists
+
+## Exit criteria
+
+- Business/First-only new booking is enforced frontend + backend
+- Male/Female-only required gender is enforced frontend + backend
+- new bookings no longer collect customer email
+- no booking-confirmation email is created/sent for new bookings
+- Travel Extras is no longer in the active booking path
+- Review/Payment/Booking Confirmed/Manage Booking remain coherent
+- EN/TH, responsive, keyboard, reduced-motion, tests, build, and customer E2E regressions pass
 
 ---
 
@@ -3325,14 +3318,12 @@ test/29-production-readiness
 ```txt
 Search
 → Flight
-→ Cabin
+→ Business / First
 → Seat Hold
-→ Passenger
-→ Extras
+→ Passenger + Phone Contact
 → Review
 → Stripe Test / Mock Bitcoin
 → Booking Confirmed
-→ Confirmation Email boundary
 → Manage Booking lookup
 → E-Ticket / QR
 → Cancellation eligibility / cancellation
@@ -3340,6 +3331,12 @@ Search
 
 Must include:
 
+- Business/First-only new-booking enforcement
+- backend rejection of legacy/non-sellable cabin attempts for new bookings
+- required Male/Female gender validation
+- phone-only booking contact with no required customer email
+- no active Travel Extras step / safe stale extras-route behavior
+- no customer booking-confirmation email creation/delivery for new bookings
 - seat conflict / hold expiry
 - payment decline/failure
 - ticket not issued on failed payment
@@ -4281,7 +4278,7 @@ Presentation assets:
 ↓
 13 Passenger + Travel Documents
 ↓
-13A Travel Extras
+13A Travel Extras (historical; superseded by 20A)
 ↓
 14 Review + Fare Conditions
 ↓
@@ -4293,13 +4290,15 @@ Presentation assets:
 ↓
 17 Manage Booking / E-Ticket Retrieval
 ↓
-17A Booking Confirmation Email
+17A Booking Confirmation Email (historical; superseded by 20A)
 ↓
 18 Cancellation + Full Refund
 ↓
 19 Admin Authentication + RBAC
 ↓
 20 Executive Dashboard + Reports
+↓
+20A Customer Requirements Alignment
 ↓
 21 Flight Management
 ↓
@@ -4328,7 +4327,7 @@ Presentation assets:
 33 Documentation / Presentation
 ```
 
-`17A` extends the roadmap without renumbering already completed numeric branches.
+`17A` extends the historical roadmap without renumbering already completed numeric branches. `20A` is the latest stakeholder-alignment branch inserted after Branch 20 and before Branch 21; it supersedes the active product behavior introduced by historical Branches 13A and 17A where noted.
 
 Customer online check-in and Boarding Pass branches are intentionally removed from the implementation roadmap because they belong to downstream airport operations, not the X-Fly booking/ticketing product.
 
@@ -4442,11 +4441,11 @@ The premium effect should come from the combination of:
 5. Moon future-vision storytelling
 6. Smooth section choreography
 7. Premium booking transitions
-8. Cinema-like cabin/seat selection
+8. Business/First-only cinema-like cabin/seat selection
 9. Server-authoritative seat-hold experience
 10. Confident Stripe Test payment experience
 11. Clear Booking Confirmed finish
-12. Elegant confirmation email
+12. Direct website Manage Booking recovery without email dependency
 13. Secure returning-customer Manage Booking
 14. Premium online E-Ticket with signed verification QR
 15. Dark + Yellow identity
@@ -4612,11 +4611,11 @@ The goal is:
 Public experience:
 
 - Landing should feel premium and global
-- Search/seat selection should be fast and interactive
+- Business/First-only search and seat selection should be fast and interactive
+- Passenger/contact capture should be minimal: required Male/Female gender + phone contact, with no customer email requirement
 - Payment should feel trustworthy
 - `Booking Confirmed` should clearly end the purchase
-- confirmation email should make later retrieval easy
-- Manage Booking should be concise and secure
+- Manage Booking should be concise, secure, and reachable directly from the website without email dependency
 - E-Ticket/QR should be available after verification
 - Cancellation/refund should follow the 24-hour rule
 
@@ -4690,12 +4689,14 @@ Review:
 
 Review complete customer booking/ticketing lifecycle:
 
-- Passenger + Travel Documents
-- Travel Extras
+- Passenger + Travel Documents + Phone Contact
+- Business/First-only active cabin scope
+- Male/Female-only required gender
+- no active Travel Extras step
 - Review + Fare Conditions
 - Payment / Ticket separation
 - Booking Confirmed summary
-- confirmation-email boundary
+- no customer confirmation-email dependency
 - Manage Booking
 - E-Ticket / QR
 - Cancellation / Refund
@@ -4737,16 +4738,17 @@ X-Fly Anyway is successful when:
 - Motion is smooth and does not block usability
 - Customer can book without registering/logging in
 - Flight search and cabin/seat selection work on responsive devices
-- Cinema-style seat plan clearly supports Business and other cabin filtering
+- new customer booking offers and accepts **Business and First only**
+- Cinema-style seat plan clearly differentiates Business and First
 - seat concurrency/hold rules are server-authoritative
-- passenger/travel-document/contact data flow is realistic and protected
+- passenger/travel-document/contact data flow is realistic and protected; gender is required as Male/Female and new booking contact is phone-only
 - Review shows fare conditions and cancellation policy clearly
 - Stripe Test Mode Card works without exposing raw card data
 - Mock Bitcoin remains clearly demo-only
 - successful purchase ends at a concise **Booking Confirmed** summary
 - Booking Reference and Ticket Number remain separate
-- confirmation email is sent/idempotent and contains a safe Manage Booking link
-- customer can return through Email or website `Manage Booking`
+- new bookings do not create/send customer confirmation email
+- customer can return through website `Manage Booking` using Booking Reference + Last Name
 - Manage Booking uses Booking Reference + Last Name and is anti-enumeration safe
 - stale authorization can never display a different booking
 - E-Ticket/booking details show authoritative data and signed verification QR

@@ -14,6 +14,7 @@ use crate::domain::{
     value_objects::{CabinClass, PassengerCounts, SeatNumber},
 };
 
+mod analytics;
 mod booking_confirmation;
 mod cancellation;
 mod extras;
@@ -24,6 +25,7 @@ mod review;
 mod staff_auth;
 mod ticket;
 
+pub use analytics::SqlxAnalyticsRepository;
 pub use staff_auth::SqlxStaffAuthRepository;
 
 #[derive(Debug, Error)]

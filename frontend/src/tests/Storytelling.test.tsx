@@ -1,7 +1,10 @@
 import { act, screen, within } from "@testing-library/react";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { render } from "@/tests/renderWithLanguage";
 
 import Home from "@/app/(customer)/page";
+import { interiorImage, serviceImage } from "@/components/home/story/EditorialServiceStory";
 import { Storytelling } from "@/components/home/story/Storytelling";
 import { REDUCED_MOTION_QUERY } from "@/lib/motion/reducedMotion";
 
@@ -420,7 +423,7 @@ describe("scroll storytelling", () => {
     expect(serviceImages).toHaveLength(2);
     expect(serviceImages?.[0]).toHaveAttribute(
       "src",
-      expect.stringContaining("x-fly-interior-premium-v1.png"),
+      expect.stringContaining("x-fly-cabin-first-v1.png"),
     );
     expect(serviceImages?.[1]).toHaveAttribute(
       "src",
@@ -429,6 +432,9 @@ describe("scroll storytelling", () => {
 
     for (const image of Array.from(serviceImages ?? [])) {
       expect(image.getAttribute("src")).not.toContain("aircraft");
+    }
+    for (const image of [interiorImage, serviceImage]) {
+      expect(existsSync(join(process.cwd(), "public", image))).toBe(true);
     }
 
     expect(

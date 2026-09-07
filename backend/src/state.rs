@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
+    application::analytics::AnalyticsRepository,
     application::booking_confirmation::BookingConfirmationEmailService,
     application::cancellation::CancellationService,
     application::staff_auth::StaffAuthService,
@@ -30,6 +31,7 @@ pub struct AppState {
     pub booking_confirmation: Option<BookingConfirmationEmailService>,
     pub cancellations: Option<CancellationService>,
     pub staff_auth: Option<StaffAuthService>,
+    pub analytics: Option<Arc<dyn AnalyticsRepository>>,
 }
 
 impl AppState {
@@ -57,6 +59,7 @@ impl AppState {
             booking_confirmation: None,
             cancellations: None,
             staff_auth: None,
+            analytics: None,
         }
     }
 
@@ -101,6 +104,11 @@ impl AppState {
 
     pub fn with_staff_auth(mut self, service: StaffAuthService) -> Self {
         self.staff_auth = Some(service);
+        self
+    }
+
+    pub fn with_analytics(mut self, repository: Arc<dyn AnalyticsRepository>) -> Self {
+        self.analytics = Some(repository);
         self
     }
 }

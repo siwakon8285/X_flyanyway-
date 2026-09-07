@@ -66,4 +66,23 @@ async function fetchStaffPrincipal(cookieHeader: string): Promise<StaffPrincipal
   return parseStaffPrincipal(await response.json());
 }
 
-export { fetchStaffPrincipal, forwardAdminAuthRequest, parseStaffPrincipal };
+async function forwardDashboardRequest(request: Request): Promise<Response> {
+  const headers = new Headers();
+  const cookie = staffCookie(request.headers.get("cookie"));
+  if (cookie) headers.set("cookie", cookie);
+  try {
+    const response = await fetch(`${API_URL}/admin/dashboard${new URL(request.url).search}`, {
+      method: "GET", headers, cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(15_000),
+    });
+    return new Response(response.body, {
+      status: response.status,
+      headers: { "content-type": "application/json", "cache-control": "no-store, private" },
+    });
+  } catch {
+    return Response.json({ error: { code: "DASHBOARD_UNAVAILABLE" } }, {
+      status: 503, headers: { "cache-control": "no-store, private" },
+    });
+  }
+}
+
+export { fetchStaffPrincipal, forwardAdminAuthRequest, forwardDashboardRequest, parseStaffPrincipal };

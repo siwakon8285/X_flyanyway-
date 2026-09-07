@@ -1,13 +1,18 @@
 use axum::{
-    extract::{rejection::JsonRejection, FromRequestParts, State},
+    extract::{
+        rejection::{JsonRejection, QueryRejection},
+        FromRequestParts, Query, State,
+    },
     http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    application::analytics::AnalyticsFilter,
     application::staff_auth::StaffAuthError,
     domain::staff::{PermissionCode, StaffPrincipal},
     state::AppState,
@@ -23,6 +28,58 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/admin/auth/login", post(login))
         .route("/api/v1/admin/auth/session", get(session))
         .route("/api/v1/admin/auth/logout", post(logout))
+        .route("/api/v1/admin/dashboard", get(dashboard))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DashboardQuery {
+    from: Option<String>,
+    to: Option<String>,
+    route: Option<String>,
+    cabin: Option<String>,
+    provider: Option<String>,
+}
+
+async fn dashboard(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    query: Result<Query<DashboardQuery>, QueryRejection>,
+) -> Response {
+    let result = async {
+        for permission in [
+            PermissionCode::DashboardRead,
+            PermissionCode::AnalyticsRead,
+            PermissionCode::ReportsRead,
+        ] {
+            staff
+                .require(permission)
+                .map_err(|_| AdminApiError::permission_denied())?;
+        }
+        let query = query
+            .map_err(|_| AdminApiError::dashboard_filter_invalid())?
+            .0;
+        let filter = AnalyticsFilter::parse(
+            query.from.as_deref(),
+            query.to.as_deref(),
+            query.route.as_deref(),
+            query.cabin.as_deref(),
+            query.provider.as_deref(),
+            Utc::now(),
+        )
+        .map_err(|_| AdminApiError::dashboard_filter_invalid())?;
+        let repository = state
+            .analytics
+            .as_ref()
+            .ok_or_else(AdminApiError::dashboard_unavailable)?;
+        let report = repository
+            .dashboard(&filter)
+            .await
+            .map_err(|_| AdminApiError::dashboard_unavailable())?;
+        Ok::<_, AdminApiError>(Json(report).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
 }
 
 #[derive(Deserialize)]
@@ -259,6 +316,20 @@ impl AdminApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "STAFF_AUTH_UNAVAILABLE",
             message: "Staff authentication is temporarily unavailable.",
+        }
+    }
+    fn dashboard_filter_invalid() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "DASHBOARD_FILTER_INVALID",
+            message: "The dashboard filters are invalid.",
+        }
+    }
+    fn dashboard_unavailable() -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: "DASHBOARD_UNAVAILABLE",
+            message: "Executive analytics are temporarily unavailable.",
         }
     }
 }
