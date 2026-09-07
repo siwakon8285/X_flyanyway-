@@ -33,13 +33,13 @@ const baseAttempt: PaymentAttempt = {
 const context: PaymentContext = {
   attempts: [],
   hold: {
-    cabin: "economy",
+    cabin: "business",
     departureDate: "2099-05-10",
     expiresAt: "2099-05-01T10:10:00Z",
     flightId: "xf-201",
     id: "hold-123",
     passengers: { adults: 1, children: 0, infants: 0 },
-    seats: ["20A"],
+    seats: ["3A"],
     serverTime: "2099-05-01T10:00:00Z",
   },
   journey: {
@@ -133,14 +133,14 @@ describe("Payment page", () => {
     expect(screen.getByRole("button", { name: "Pay THB 49,300 in demo" })).toBeEnabled();
     expect(fetchMock).toHaveBeenLastCalledWith(
       "http://localhost:8080/api/v1/seat-holds/hold-123/payment-attempts",
-      expect.objectContaining({
-        body: expect.stringContaining('"preferredLocale":"EN"'),
-      }),
+      expect.objectContaining({ method: "POST" }),
     );
-    expect(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body)).not.toContain("scenario");
+    const requestBody = String((fetchMock.mock.calls[1]?.[1] as RequestInit).body);
+    expect(requestBody).not.toContain("scenario");
+    expect(requestBody).not.toContain("preferredLocale");
   });
 
-  it("snapshots the active Thai locale through the provider-neutral payment request", async () => {
+  it("does not add locale or email-delivery state to a Thai payment request", async () => {
     const stripeAttempt: PaymentAttempt = {
       ...baseAttempt,
       clientPaymentSession: "pi_test_secret_123",
@@ -155,8 +155,9 @@ describe("Payment page", () => {
     const request = fetchMock.mock.calls[1]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toEqual(expect.objectContaining({
       method: "CARD",
-      preferredLocale: "TH",
     }));
+    expect(String(request.body)).not.toContain("preferredLocale");
+    expect(String(request.body)).not.toContain("email");
   });
 
   it("waits for authoritative payment context after Stripe confirmation", async () => {

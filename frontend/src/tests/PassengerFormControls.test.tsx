@@ -7,7 +7,6 @@ import { render } from "@/tests/renderWithLanguage";
 
 const passenger = (overrides: Partial<PassengerFormValue> = {}): PassengerFormValue => ({
   dateOfBirth: "1990-01-01",
-  email: "nara@example.com",
   emergencyContact: null,
   familyName: "Suri",
   gender: "FEMALE",
@@ -18,8 +17,6 @@ const passenger = (overrides: Partial<PassengerFormValue> = {}): PassengerFormVa
   passengerType: "ADULT",
   passportIssuingCountryCode: "TH",
   passportNumber: "TH123456",
-  phoneCountryCode: "",
-  phoneNumber: "812345678",
   title: "MS",
   ...overrides,
 });
@@ -31,11 +28,9 @@ const renderForm = (
   const onValuesChange = jest.fn();
   render(
     <PassengerForm
-      contactEmail={value.email}
-      contactPhoneCountryCode={value.phoneCountryCode}
-      contactPhoneNumber={value.phoneNumber}
+      contactPhoneCountryCode="+66"
+      contactPhoneNumber="812345678"
       errors={[]}
-      onContactEmailChange={jest.fn()}
       onContactPhoneCountryCodeChange={jest.fn()}
       onContactPhoneNumberChange={jest.fn()}
       onSave={jest.fn()}
@@ -76,6 +71,10 @@ describe("Passenger form controls", () => {
     expect(screen.queryByRole("option", { name: "Mrs" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Passport issue date")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Passport expiry date")).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Male" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Female" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Unspecified" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
   });
 
   it("keeps date fields focusable when showPicker is unavailable", () => {
@@ -160,14 +159,14 @@ describe("Passenger form controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Nationality" }));
     fireEvent.click(screen.getByRole("option", { name: /Thailand/ }));
     expect(onValuesChange).toHaveBeenLastCalledWith([
-      expect.objectContaining({ nationalityCode: "TH", phoneCountryCode: "" }),
+      expect.objectContaining({ nationalityCode: "TH" }),
     ]);
   });
 
   it("preserves a saved phone code when nationality changes", () => {
     const FormHarness = () => {
-      const [values, setValues] = useState([passenger({ nationalityCode: "TH", phoneCountryCode: "+1" })]);
-      return <PassengerForm contactEmail="nara@example.com" contactPhoneCountryCode="+1" contactPhoneNumber="812345678" errors={[]} onContactEmailChange={jest.fn()} onContactPhoneCountryCodeChange={jest.fn()} onContactPhoneNumberChange={jest.fn()} onSave={jest.fn()} onValuesChange={setValues} ready={false} recentlySaved={false} saving={false} values={values} />;
+      const [values, setValues] = useState([passenger({ nationalityCode: "TH" })]);
+      return <PassengerForm contactPhoneCountryCode="+1" contactPhoneNumber="812345678" errors={[]} onContactPhoneCountryCodeChange={jest.fn()} onContactPhoneNumberChange={jest.fn()} onSave={jest.fn()} onValuesChange={setValues} ready={false} recentlySaved={false} saving={false} values={values} />;
     };
     render(<FormHarness />);
 
@@ -177,8 +176,19 @@ describe("Passenger form controls", () => {
     expect(screen.getByRole("button", { name: "Phone country code" })).toHaveTextContent("United States +1");
   });
 
+  it("uses balanced contact columns that stack naturally on mobile", () => {
+    renderForm();
+
+    expect(document.querySelector("[data-booking-contact-layout='balanced']")).toHaveClass(
+      "grid",
+      "sm:grid-cols-2",
+    );
+    expect(screen.getByRole("button", { name: "Phone country code" })).toHaveClass("h-12", "w-full");
+    expect(screen.getByLabelText("Phone number")).toHaveClass("h-12", "w-full");
+  });
+
   it("renders localized country labels while preserving calling-code values", () => {
-    renderForm(passenger({ nationalityCode: "TH", phoneCountryCode: "+66" }), { locale: "th" });
+    renderForm(passenger({ nationalityCode: "TH" }), { locale: "th" });
 
     fireEvent.click(screen.getByRole("button", { name: "รหัสประเทศของโทรศัพท์" }));
     expect(screen.getByRole("option", { name: /ไทย.*\+66/ })).toBeInTheDocument();

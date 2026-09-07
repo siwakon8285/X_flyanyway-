@@ -1,4 +1,4 @@
-import type { CabinClass } from "@/components/booking/search/searchTypes";
+import type { CustomerCabinClass } from "@/components/booking/search/searchTypes";
 
 const buildPassengerInformationHref = ({
   flightId,
@@ -9,7 +9,7 @@ const buildPassengerInformationHref = ({
   flightId: string;
   holdId: string;
   query: string;
-  selectedCabin: CabinClass;
+  selectedCabin: CustomerCabinClass;
 }) => {
   const params = new URLSearchParams(query);
   params.set("flightId", flightId);
@@ -39,18 +39,6 @@ const allowlistedRecoveryParams = (query: string) => {
     if (recoveryKeys.has(key)) result.set(key, value);
   });
   return result;
-};
-
-const buildExtrasHandoffHref = ({
-  holdId,
-  query,
-}: {
-  holdId: string;
-  query: string;
-}) => {
-  const params = allowlistedRecoveryParams(query);
-  params.set("holdId", holdId);
-  return `/booking/extras?${params.toString()}`;
 };
 
 const buildReviewHandoffHref = ({
@@ -94,7 +82,6 @@ const buildTicketHandoffHref = ({
 
 export {
   allowlistedRecoveryParams,
-  buildExtrasHandoffHref,
   buildPaymentHandoffHref,
   buildPassengerInformationHref,
   buildReviewHandoffHref,

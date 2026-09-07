@@ -517,28 +517,28 @@ describe("scroll storytelling", () => {
     expect(container.querySelectorAll("[data-hero-search]")).toHaveLength(1);
   });
 
-  it("presents 4 dedicated cabin tiers with photography and without interactive controls", () => {
+  it("presents the two bookable premium cabins with photography and without interactive controls", () => {
     const { container } = render(<Home />);
     const cabins = container.querySelector("#cabins");
 
     expect(cabins).not.toBeNull();
 
     const stages = Array.from(cabins?.querySelectorAll("[data-cabin-stage]") ?? []);
-    expect(stages).toHaveLength(4);
+    expect(stages).toHaveLength(2);
 
     for (const stage of stages) {
       expect(within(stage as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
       expect(within(stage as HTMLElement).queryByRole("radio")).not.toBeInTheDocument();
     }
 
-    const cabinLabels = ["Economy", "Premium Economy", "Business", "First"];
+    const cabinLabels = ["Business", "First"];
     cabinLabels.forEach((label) => {
       expect(within(cabins as HTMLElement).getByRole("heading", { level: 3, name: label })).toBeInTheDocument();
     });
 
     const cabinImages = cabins?.querySelectorAll("img");
-    expect(cabinImages?.length).toBeGreaterThanOrEqual(4);
-    expect(cabins?.querySelectorAll("[data-cabin-atmosphere]")).toHaveLength(4);
+    expect(cabinImages?.length).toBeGreaterThanOrEqual(2);
+    expect(cabins?.querySelectorAll("[data-cabin-atmosphere]")).toHaveLength(2);
     expect(cabins?.querySelector("[data-cabin-media-frame]")).toBeInTheDocument();
   });
 
@@ -550,7 +550,7 @@ describe("scroll storytelling", () => {
       container.querySelectorAll("[data-service-panel]"),
     );
 
-    expect(stages).toHaveLength(4);
+    expect(stages).toHaveLength(2);
     for (const stage of stages) {
       expect(stage).toBeVisible();
       expect(stage).not.toHaveStyle({ opacity: "0" });
@@ -597,7 +597,7 @@ describe("scroll storytelling", () => {
         ),
       ).toHaveLength(0);
       expect(container.querySelectorAll('[data-cabin-stage][style*="position: absolute"]')).toHaveLength(
-        4,
+        2,
       );
       for (const frame of serviceFrames) {
         expect(frame.style.clipPath).not.toContain("100%");

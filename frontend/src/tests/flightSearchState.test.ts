@@ -45,7 +45,7 @@ describe("flight search state", () => {
     );
 
     expect(parsed).toEqual({
-      cabin: "economy",
+      cabin: "business",
       departure: "",
       from: bkk,
       passengers: { adults: 1, children: 0, infants: 0 },

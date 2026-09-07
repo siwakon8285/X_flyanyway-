@@ -13,7 +13,7 @@ import {
 } from "@/components/booking/search/searchState";
 import type {
   AirportOption,
-  CabinClass,
+  CustomerCabinClass,
   FlightSearchErrors,
   FlightSearchFormValues,
   PassengerCounts,
@@ -61,7 +61,7 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
     clearError(field);
     setValues((current) => ({ ...current, [field]: airport }));
   };
-  const setCabin = (cabin: CabinClass) => {
+  const setCabin = (cabin: CustomerCabinClass) => {
     setSubmitted(false);
     setValues((current) => ({ ...current, cabin }));
   };

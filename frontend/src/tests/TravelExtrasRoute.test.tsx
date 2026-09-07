@@ -1,47 +1,43 @@
-import { screen } from "@testing-library/react";
-
 import TravelExtrasRoute from "@/app/(customer)/booking/extras/page";
-import { render } from "@/tests/renderWithLanguage";
 
-jest.mock("@/components/booking/extras/TravelExtrasPage", () => ({
-  TravelExtrasPage: ({
-    backQuery,
-    holdId,
-  }: {
-    backQuery: string;
-    holdId: string;
-  }) => <div data-back-query={backQuery}>extras:{holdId}</div>,
+const mockRedirect = jest.fn((href: string): never => {
+  throw new Error(`NEXT_REDIRECT:${href}`);
+});
+
+jest.mock("next/navigation", () => ({
+  redirect: (href: string) => mockRedirect(href),
 }));
 
-describe("Travel Extras route", () => {
-  it("passes public hold authority separately from allowlisted recovery context", async () => {
-    const route = await TravelExtrasRoute({
-      searchParams: Promise.resolve({
-        departure: "2027-05-10",
-        email: "private@example.com",
-        flightId: "xf-201",
-        holdId: "hold-123",
-        seats: "20A,20B",
-        selectedCabin: "economy",
-      }),
-    });
-    render(route);
+describe("legacy Travel Extras route", () => {
+  beforeEach(() => mockRedirect.mockClear());
 
-    expect(screen.getByText("extras:hold-123")).toHaveAttribute(
-      "data-back-query",
-      "departure=2027-05-10&flightId=xf-201&selectedCabin=economy",
+  it("redirects a valid legacy URL to Review while preserving hold recovery state", async () => {
+    await expect(
+      TravelExtrasRoute({
+        searchParams: Promise.resolve({
+          departure: "2027-05-10",
+          email: "private@example.com",
+          flightId: "xf-201",
+          holdId: "hold-123",
+          seats: "3A,3D",
+          selectedCabin: "business",
+        }),
+      }),
+    ).rejects.toThrow("NEXT_REDIRECT:/booking/review?");
+
+    expect(mockRedirect).toHaveBeenCalledWith(
+      "/booking/review?departure=2027-05-10&flightId=xf-201&selectedCabin=business&holdId=hold-123",
     );
   });
 
-  it("does not invent a missing hold id", async () => {
-    const route = await TravelExtrasRoute({
-      searchParams: Promise.resolve({ flightId: "xf-201" }),
-    });
-    render(route);
-    expect(screen.getByText("extras:")).toHaveAttribute(
-      "data-back-query",
-      "flightId=xf-201",
+  it("redirects missing-hold legacy URLs without inventing authority", async () => {
+    await expect(
+      TravelExtrasRoute({
+        searchParams: Promise.resolve({ flightId: "xf-201" }),
+      }),
+    ).rejects.toThrow("NEXT_REDIRECT:/booking/review?flightId=xf-201");
+    expect(mockRedirect).toHaveBeenCalledWith(
+      "/booking/review?flightId=xf-201",
     );
   });
 });
-

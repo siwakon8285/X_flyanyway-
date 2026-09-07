@@ -90,12 +90,6 @@ impl ExtraRepository for SqlxSeatHoldRepository {
         .execute(&mut *transaction)
         .await
         .map_err(ExtraRepositoryError::Infrastructure)?;
-        sqlx::query("DELETE FROM hold_review_pricing WHERE seat_hold_id = $1")
-            .bind(hold_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(ExtraRepositoryError::Infrastructure)?;
-
         let context = load_context_with_passengers(&mut transaction, hold_row, passengers).await?;
         transaction
             .commit()

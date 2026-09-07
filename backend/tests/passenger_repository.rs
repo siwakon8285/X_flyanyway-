@@ -10,7 +10,7 @@ use sqlx::PgPool;
 use x_fly_api::{
     domain::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
-        passengers::{Gender, PassengerInput, PassengerType, Title},
+        passengers::{BookingContactInput, Gender, PassengerInput, PassengerType, Title},
         repositories::{PassengerRepository, PassengerRepositoryError, SeatHoldRepository},
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
@@ -49,7 +49,7 @@ async fn create_hold(
         .await
         .unwrap();
     let seats = (0..counts.required_seats())
-        .map(|index| SeatNumber::parse(["20A", "20B", "20C"][index]).unwrap())
+        .map(|index| SeatNumber::parse(["3A", "3D", "3G"][index]).unwrap())
         .collect();
     repository
         .create_hold(
@@ -57,7 +57,7 @@ async fn create_hold(
                 selection: FlightSelection {
                     flight_id: "xf-201".to_owned(),
                     departure_date,
-                    cabin: CabinClass::Economy,
+                    cabin: CabinClass::Business,
                 },
                 passengers: counts,
                 seats,
@@ -82,9 +82,6 @@ fn passenger(ordinal: u8, passenger_type: PassengerType, dob: NaiveDate) -> Pass
         nationality_code: "th".to_owned(),
         passport_number: format!("th{ordinal}234567"),
         passport_issuing_country_code: "th".to_owned(),
-        email: format!("nara{ordinal}@example.com"),
-        phone_country_code: "+66".to_owned(),
-        phone_number: format!("81234567{ordinal}"),
         emergency_contact: None,
     }
 }
@@ -118,7 +115,7 @@ async fn saves_and_reloads_a_normalized_full_draft() {
         .await
         .unwrap();
     assert_eq!(saved.hold.expires_at, hold.expires_at);
-    assert!(saved.ready_to_continue);
+    assert!(!saved.ready_to_continue);
     assert_eq!(saved.passengers.len(), 3);
     assert_eq!(saved.passengers[0].given_name, "Nara");
     assert_eq!(
@@ -126,13 +123,35 @@ async fn saves_and_reloads_a_normalized_full_draft() {
         PassengerType::Infant
     );
 
+    repository
+        .save_booking_contact(
+            hold.id,
+            [41; 32],
+            BookingContactInput {
+                phone_country_code: "+66".to_owned(),
+                phone_number: "812345678".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
     let reloaded = repository.get_passengers(hold.id, [41; 32]).await.unwrap();
     assert!(reloaded.ready_to_continue);
+    let persisted_contact: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT email, phone_country_code, phone_number FROM booking_contacts WHERE seat_hold_id = $1",
+    )
+    .bind(hold.id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        persisted_contact,
+        (None, Some("+66".to_owned()), Some("812345678".to_owned()))
+    );
     assert_eq!(reloaded.hold.expires_at, hold.expires_at);
     assert_eq!(reloaded.passengers[2].ordinal, 3);
 
     repository
-        .replace_seats(hold.id, [41; 32], vec![SeatNumber::parse("20A").unwrap()])
+        .replace_seats(hold.id, [41; 32], vec![SeatNumber::parse("3A").unwrap()])
         .await
         .unwrap();
     let partial = repository.get_passengers(hold.id, [41; 32]).await.unwrap();

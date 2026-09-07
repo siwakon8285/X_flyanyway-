@@ -16,7 +16,6 @@ const createEmptyPassenger = ({
   passengerType,
 }: PassengerSlot): PassengerFormValue => ({
   dateOfBirth: "",
-  email: "",
   emergencyContact: null,
   familyName: "",
   gender: "",
@@ -27,8 +26,6 @@ const createEmptyPassenger = ({
   passengerType,
   passportIssuingCountryCode: "",
   passportNumber: "",
-  phoneCountryCode: "",
-  phoneNumber: "",
   title: "",
 });
 
@@ -53,9 +50,6 @@ const normalizePassengerDraft = (values: PassengerFormValue[]): Passenger[] =>
     passportIssuingCountryCode: normalizeCountryCode(
       value.passportIssuingCountryCode,
     ),
-    email: value.email.trim(),
-    phoneCountryCode: normalizePhoneCountryCode(value.phoneCountryCode),
-    phoneNumber: normalizePhoneNumber(value.phoneNumber),
     emergencyContact: value.emergencyContact
       ? {
           name: normalizeName(value.emergencyContact.name),
@@ -101,21 +95,6 @@ const passengerTypeAt = (dateOfBirth: string, departure: string): PassengerType 
 const validName = (value: string) =>
   value.length <= 100 && /^[\p{L} .\-'’]+$/u.test(value);
 
-const validEmail = (value: string) => {
-  if (value.length > 254 || /\s/.test(value)) return false;
-  const parts = value.split("@");
-  if (parts.length !== 2) return false;
-  const [local, domain] = parts;
-  return Boolean(
-    local &&
-      local.length <= 64 &&
-      domain &&
-      domain.includes(".") &&
-      !domain.startsWith(".") &&
-      !domain.endsWith("."),
-  );
-};
-
 const validPhone = (countryCode: string, phoneNumber: string) => {
   const countryDigits = countryCode.replace(/\D/g, "");
   const numberDigits = phoneNumber.replace(/\D/g, "");
@@ -157,6 +136,9 @@ const validatePassengerDraft = (
     }
     if (!passenger.title) add(passenger.ordinal, "title", "REQUIRED");
     if (!passenger.gender) add(passenger.ordinal, "gender", "REQUIRED");
+    else if (passenger.gender !== "MALE" && passenger.gender !== "FEMALE") {
+      add(passenger.ordinal, "gender", "INVALID_GENDER");
+    }
 
     if (!passenger.dateOfBirth) {
       add(passenger.ordinal, "dateOfBirth", "REQUIRED");
@@ -188,19 +170,6 @@ const validatePassengerDraft = (
       passports.add(passenger.passportNumber);
     }
 
-    if (!passenger.email) add(passenger.ordinal, "email", "REQUIRED");
-    else if (!validEmail(passenger.email)) add(passenger.ordinal, "email", "INVALID_EMAIL");
-    if (!passenger.phoneCountryCode) {
-      add(passenger.ordinal, "phoneCountryCode", "REQUIRED");
-    }
-    if (!passenger.phoneNumber) add(passenger.ordinal, "phoneNumber", "REQUIRED");
-    else if (
-      !validPhoneInput(values[index]?.phoneCountryCode ?? "", values[index]?.phoneNumber ?? "") ||
-      !validPhone(passenger.phoneCountryCode, passenger.phoneNumber)
-    ) {
-      add(passenger.ordinal, "phoneNumber", "INVALID_PHONE");
-    }
-
     if (passenger.emergencyContact) {
       const contact = passenger.emergencyContact;
       if (
@@ -220,8 +189,23 @@ const validatePassengerDraft = (
   return errors;
 };
 
+const normalizeBookingContact = (phoneCountryCode: string, phoneNumber: string) => ({
+  phoneCountryCode: normalizePhoneCountryCode(phoneCountryCode),
+  phoneNumber: normalizePhoneNumber(phoneNumber),
+});
+
+const validateBookingContact = (phoneCountryCode: string, phoneNumber: string) => {
+  const normalized = normalizeBookingContact(phoneCountryCode, phoneNumber);
+  return (
+    validPhoneInput(phoneCountryCode, phoneNumber) &&
+    validPhone(normalized.phoneCountryCode, normalized.phoneNumber)
+  );
+};
+
 export {
   createEmptyPassenger,
+  normalizeBookingContact,
   normalizePassengerDraft,
+  validateBookingContact,
   validatePassengerDraft,
 };

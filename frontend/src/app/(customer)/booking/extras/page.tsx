@@ -1,5 +1,5 @@
-import { TravelExtrasPage } from "@/components/booking/extras/TravelExtrasPage";
 import { allowlistedRecoveryParams } from "@/components/booking/passengers/passengerRoute";
+import { redirect } from "next/navigation";
 
 type ExtrasRouteQuery = Record<string, string | string[] | undefined>;
 
@@ -16,10 +16,6 @@ export default async function TravelExtrasRoute({
   });
   const recovery = allowlistedRecoveryParams(raw.toString());
 
-  return (
-    <TravelExtrasPage
-      backQuery={recovery.toString()}
-      holdId={holdId}
-    />
-  );
+  if (holdId) recovery.set("holdId", holdId);
+  redirect(`/booking/review?${recovery.toString()}`);
 }

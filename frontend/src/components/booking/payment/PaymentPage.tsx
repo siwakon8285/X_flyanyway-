@@ -4,7 +4,7 @@ import { ArrowLeft, Check, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { allowlistedRecoveryParams, buildExtrasHandoffHref, buildReviewHandoffHref } from "@/components/booking/passengers/passengerRoute";
+import { allowlistedRecoveryParams, buildReviewHandoffHref } from "@/components/booking/passengers/passengerRoute";
 import { BitcoinPaymentPanel } from "@/components/booking/payment/BitcoinPaymentPanel";
 import { CardPaymentForm } from "@/components/booking/payment/CardPaymentForm";
 import { PaymentMethodSelector } from "@/components/booking/payment/PaymentMethodSelector";
@@ -23,12 +23,11 @@ import { gsapEasings } from "@/lib/motion/easing";
 import { gsap, useGSAP } from "@/lib/motion/gsap";
 import { useReducedMotion } from "@/lib/motion/reducedMotion";
 
-type RecoveryAction = "extras" | "passengers" | "retry" | "review" | "seats";
+type RecoveryAction = "passengers" | "retry" | "review" | "seats";
 type RecoveryState = { action: RecoveryAction; message: TranslationKey };
 
 const recoveryForError = (error: BookingApiError): RecoveryState => {
   if (error.code === "PASSENGERS_NOT_READY") return { action: "passengers", message: "payment.recovery.passengers" };
-  if (error.code === "EXTRAS_NOT_READY") return { action: "extras", message: "payment.recovery.extras" };
   if (["REVIEW_NOT_READY", "REVIEW_PRICING_UNAVAILABLE"].includes(error.code)) return { action: "review", message: "payment.recovery.review" };
   if (error.code === "HOLD_EXPIRED") return { action: "seats", message: "payment.recovery.expired" };
   if (error.code === "HOLD_RELEASED") return { action: "seats", message: "payment.recovery.released" };
@@ -140,7 +139,6 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
   }, [context, receivedAt, recovery, succeeded]);
 
   const updateAttempt = (attempt: PaymentAttempt) => setContext((current) => current ? { ...current, attempts: [attempt, ...current.attempts.filter((item) => item.id !== attempt.id)], readyForPayment: attempt.status !== "SUCCEEDED" } : current);
-  const preferredLocale = locale.toUpperCase() as "EN" | "TH";
   const run = async (operation: () => Promise<PaymentAttempt>) => {
     setBusy(true);
     try { updateAttempt(await operation()); }
@@ -151,19 +149,18 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
   };
   const submitCard = async () => {
     setBusy(true);
-    try { const attempt = await createPaymentAttempt(holdId, { method: "CARD", preferredLocale, requestId: createRequestId() }); updateAttempt(attempt); setCardSession(attempt.clientPaymentSession); setCardConfirming(false); setStillConfirming(false); }
+    try { const attempt = await createPaymentAttempt(holdId, { method: "CARD", requestId: createRequestId() }); updateAttempt(attempt); setCardSession(attempt.clientPaymentSession); setCardConfirming(false); setStillConfirming(false); }
     catch (error) { setRecovery(error instanceof BookingApiError ? recoveryForError(error) : { action: "retry", message: "payment.recovery.unavailable" }); }
     finally { setBusy(false); }
   };
-  const createBitcoin = () => run(() => createPaymentAttempt(holdId, { method: "BITCOIN", preferredLocale, requestId: createRequestId() }));
+  const createBitcoin = () => run(() => createPaymentAttempt(holdId, { method: "BITCOIN", requestId: createRequestId() }));
   const simulateBitcoin = (outcome: BitcoinSimulationOutcome) => latestAttempt ? run(() => simulateBitcoinPayment(holdId, latestAttempt.id, outcome)) : Promise.resolve();
   const amount = useMemo(() => context ? formatPrice(context.pricing.grandTotal.amount, locale, context.pricing.currencyCode) : "", [context, locale]);
   const reviewHref = buildReviewHandoffHref({ holdId, query: backQuery });
-  const extrasHref = buildExtrasHandoffHref({ holdId, query: backQuery });
   const passengerParams = allowlistedRecoveryParams(backQuery);
   passengerParams.set("holdId", holdId);
-  const recoveryHref = recovery?.action === "passengers" ? `/booking/passengers?${passengerParams.toString()}` : recovery?.action === "extras" ? extrasHref : recovery?.action === "review" ? reviewHref : seatHref(backQuery, context);
-  const recoveryLabel = recovery?.action === "passengers" ? "payment.recovery.passengersAction" : recovery?.action === "extras" ? "payment.recovery.extrasAction" : recovery?.action === "review" ? "payment.recovery.reviewAction" : "payment.recovery.seatsAction";
+  const recoveryHref = recovery?.action === "passengers" ? `/booking/passengers?${passengerParams.toString()}` : recovery?.action === "review" ? reviewHref : seatHref(backQuery, context);
+  const recoveryLabel = recovery?.action === "passengers" ? "payment.recovery.passengersAction" : recovery?.action === "review" ? "payment.recovery.reviewAction" : "payment.recovery.seatsAction";
   const open = ["CREATED", "PROCESSING", "AWAITING_PAYMENT"].includes(latestAttempt?.status ?? "");
   const revealReady = Boolean(context && !loading && !recovery);
 
@@ -202,7 +199,7 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
       <Container className="relative" ref={page}>
         <div data-payment-reveal="navigation">
           <Link className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none" href={reviewHref}><ArrowLeft aria-hidden="true" />{t("payment.back")}</Link>
-          <ol aria-label={t("payment.progress.label")} className="mt-8 flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{["seat", "passenger", "extras", "review"].map((step) => <li className="flex items-center gap-2 text-foreground" key={step}><Check aria-hidden="true" className="size-4 text-brand" />{t(`payment.progress.${step}` as TranslationKey)}</li>)}<li aria-current="step" className="text-brand">{t("payment.progress.payment")}</li></ol>
+          <ol aria-label={t("payment.progress.label")} className="mt-8 flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">{["seat", "passenger", "review"].map((step) => <li className="flex items-center gap-2 text-foreground" key={step}><Check aria-hidden="true" className="size-4 text-brand" />{t(`payment.progress.${step}` as TranslationKey)}</li>)}<li aria-current="step" className="text-brand">{t("payment.progress.payment")}</li></ol>
         </div>
         <div className="mt-10" data-payment-reveal="heading"><p className="text-label text-brand">{t("payment.eyebrow")}</p><h1 className="mt-3 text-h1">{t("payment.heading")}</h1><p className="mt-5 max-w-2xl text-body-lg text-muted-foreground">{t("payment.intro")}</p></div>
         {loading ? <div aria-label={t("payment.loading")} className="mt-10 min-h-72 animate-pulse rounded-surface border border-border bg-surface/60 motion-reduce:animate-none" role="status" /> : recovery ? <section className="payment-failure-in mt-10 rounded-surface border border-destructive/45 bg-destructive/10 p-7" data-payment-failure="true"><p role="alert">{t(recovery.message)}</p>{recovery.action === "retry" ? <Button className="mt-5" onClick={() => setLoadAttempt((value) => value + 1)}>{t("payment.recovery.retry")}</Button> : <Link className="mt-5 inline-flex min-h-11 items-center gap-2 font-medium text-brand focus-visible:ring-2 focus-visible:ring-focus" href={recoveryHref}><ArrowLeft aria-hidden="true" />{t(recoveryLabel)}</Link>}</section> : context ? <div className="mt-10 grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start" data-payment-layout><div className="min-w-0"><div className="rounded-control border border-brand/35 bg-brand/5 p-4" data-payment-reveal="notice"><p className="flex items-center gap-2 text-sm font-semibold text-brand"><ShieldCheck aria-hidden="true" className="size-5" />{t("payment.demo.badge")}</p><p className="mt-2 text-sm text-muted-foreground">{t("payment.demo.notice")}</p></div>          <div className="md:min-h-[31rem]" data-payment-reveal="checkout">

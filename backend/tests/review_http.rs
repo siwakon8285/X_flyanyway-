@@ -65,9 +65,9 @@ async fn create_hold(app: &axum::Router) -> (String, String, NaiveDate) {
                     json!({
                         "flightId": "xf-201",
                         "departureDate": departure,
-                        "cabin": "economy",
+                        "cabin": "business",
                         "passengers": { "adults": 1, "children": 0, "infants": 0 },
-                        "seats": ["20A"]
+                        "seats": ["3A"]
                     })
                     .to_string(),
                 ))
@@ -100,9 +100,6 @@ async fn complete_hold(app: &axum::Router) -> (String, String) {
         "nationalityCode": "TH",
         "passportNumber": format!("RH{:08X}", uuid::Uuid::new_v4().as_u128() as u32),
         "passportIssuingCountryCode": "TH",
-        "email": "review-private@example.com",
-        "phoneCountryCode": "+66",
-        "phoneNumber": "812345678",
         "emergencyContact": null
     });
     let saved_passenger = app
@@ -119,27 +116,6 @@ async fn complete_hold(app: &axum::Router) -> (String, String) {
         .await
         .unwrap();
     assert_eq!(saved_passenger.status(), StatusCode::OK, "{departure}");
-    let saved_extras = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri(format!("/api/v1/seat-holds/{hold_id}/extras"))
-                .header(header::CONTENT_TYPE, "application/json")
-                .header(header::COOKIE, &cookie)
-                .body(Body::from(
-                    json!({ "selections": [{
-                        "passengerOrdinal": 1,
-                        "productCode": "BAG_30KG",
-                        "quantity": 1
-                    }] })
-                    .to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(saved_extras.status(), StatusCode::OK);
     (hold_id, cookie)
 }
 
@@ -168,12 +144,12 @@ async fn returns_authorized_review_with_server_pricing_and_minimal_pii() {
     let payload = body(response).await;
     assert_eq!(payload["readyForPayment"], true);
     assert_eq!(payload["pricing"]["currencyCode"], "THB");
-    assert_eq!(payload["pricing"]["grandTotal"]["amount"], 27_300);
+    assert_eq!(payload["pricing"]["grandTotal"]["amount"], 70_400);
     assert_eq!(payload["journey"]["flightNumber"], "XF 201");
     assert_eq!(payload["passengers"][0]["displayName"], "MS Nara Suri");
     let serialized = payload.to_string();
-    assert!(!serialized.contains("review-private@example.com"));
-    assert!(!serialized.contains("812345678"));
+    assert!(!serialized.contains("email"));
+    assert!(!serialized.contains("extras"));
     assert!(!serialized.contains("passportNumber"));
 }
 

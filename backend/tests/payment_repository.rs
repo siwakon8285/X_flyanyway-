@@ -56,9 +56,6 @@ fn passenger() -> PassengerInput {
         nationality_code: "TH".to_owned(),
         passport_number: format!("PY{:08X}", Uuid::new_v4().as_u128() as u32),
         passport_issuing_country_code: "TH".to_owned(),
-        email: "payment@example.com".to_owned(),
-        phone_country_code: "+66".to_owned(),
-        phone_number: "812345678".to_owned(),
         emergency_contact: None,
     }
 }
@@ -71,10 +68,10 @@ async fn ready_hold(repository: &SqlxSeatHoldRepository, token: [u8; 32]) -> Uui
                 selection: FlightSelection {
                     flight_id: "xf-201".to_owned(),
                     departure_date: departure,
-                    cabin: CabinClass::Economy,
+                    cabin: CabinClass::Business,
                 },
                 passengers: PassengerCounts::new(1, 0, 0).unwrap(),
-                seats: vec![SeatNumber::parse("20A").unwrap()],
+                seats: vec![SeatNumber::parse("4A").unwrap()],
                 token_hash: token,
             },
             Duration::from_secs(600),
@@ -90,8 +87,8 @@ async fn ready_hold(repository: &SqlxSeatHoldRepository, token: [u8; 32]) -> Uui
             hold.id,
             token,
             BookingContactInput {
-                email: "payment@example.com".to_owned(),
-                preferred_locale: "EN".to_owned(),
+                phone_country_code: "+66".to_owned(),
+                phone_number: "812345678".to_owned(),
             },
         )
         .await
@@ -161,7 +158,6 @@ fn command(method: PaymentMethod) -> PaymentRepositoryCommand {
             PaymentMethod::Card => PaymentProvider::Stripe,
             PaymentMethod::Bitcoin => PaymentProvider::MockBitcoin,
         },
-        preferred_locale: x_fly_api::domain::booking_confirmation::BookingConfirmationLocale::En,
     }
 }
 
@@ -201,10 +197,10 @@ async fn competing_hold(
                 selection: FlightSelection {
                     flight_id: "xf-201".to_owned(),
                     departure_date: departure,
-                    cabin: CabinClass::Economy,
+                    cabin: CabinClass::Business,
                 },
                 passengers: PassengerCounts::new(1, 0, 0).unwrap(),
-                seats: vec![SeatNumber::parse("20A").unwrap()],
+                seats: vec![SeatNumber::parse("4A").unwrap()],
                 token_hash: token,
             },
             Duration::from_secs(600),
@@ -223,7 +219,7 @@ async fn reserves_only_the_authoritative_review_amount() {
         .await
         .unwrap();
 
-    assert_eq!(attempt.amount.amount, 27_300);
+    assert_eq!(attempt.amount.amount, 70_400);
     assert_eq!(attempt.amount.currency_code, "THB");
     assert_eq!(attempt.status, PaymentStatus::Created);
 }
@@ -266,7 +262,7 @@ async fn successful_payment_atomically_consumes_the_hold_and_books_its_seat() {
             .unwrap();
     assert!(consumed_at.is_some());
     let seat: (String, Option<Uuid>, Option<chrono::DateTime<Utc>>) = sqlx::query_as(
-        "SELECT booking_status, hold_id, booked_at FROM flight_seats WHERE seat_number = '20A' AND flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1)",
+        "SELECT booking_status, hold_id, booked_at FROM flight_seats WHERE seat_number = '4A' AND flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1)",
     )
     .bind(hold_id)
     .fetch_one(repository.pool())
@@ -284,7 +280,7 @@ async fn successful_payment_atomically_consumes_the_hold_and_books_its_seat() {
     .unwrap();
     assert_eq!(finalized_seats, 1);
     let context = repository.get_payment(hold_id, token).await.unwrap();
-    assert_eq!(context.hold.seats, vec![SeatNumber::parse("20A").unwrap()]);
+    assert_eq!(context.hold.seats, vec![SeatNumber::parse("4A").unwrap()]);
 }
 
 #[tokio::test]
@@ -344,7 +340,7 @@ async fn paid_attempt_issues_one_ticket_without_changing_finalized_payment_state
 
     assert_eq!(first.id, second.id);
     assert_eq!(first.booking_reference, second.booking_reference);
-    assert_eq!(first.seats, vec!["20A"]);
+    assert_eq!(first.seats, vec!["4A"]);
     let after: (
         String,
         Option<chrono::DateTime<Utc>>,
@@ -402,7 +398,7 @@ async fn failed_attempt_leaves_the_active_hold_and_inventory_unchanged() {
             .unwrap();
     assert_eq!(hold_state, (None, None));
     let seat: (String, Option<Uuid>) = sqlx::query_as(
-        "SELECT booking_status, hold_id FROM flight_seats WHERE seat_number = '20A' AND flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1)",
+        "SELECT booking_status, hold_id FROM flight_seats WHERE seat_number = '4A' AND flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1)",
     )
     .bind(hold_id)
     .fetch_one(repository.pool())
@@ -505,7 +501,7 @@ async fn stripe_success_after_normal_expiry_still_atomically_finalizes_inventory
     let inventory: (Option<chrono::DateTime<Utc>>, String, Option<Uuid>) = sqlx::query_as(
         "SELECT hold.consumed_at, seat.booking_status, seat.hold_id
          FROM seat_holds AS hold
-         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '20A'
+         JOIN flight_seats AS seat ON seat.flight_instance_id = hold.flight_instance_id AND seat.seat_number = '4A'
          WHERE hold.id = $1",
     )
     .bind(hold_id)
@@ -562,10 +558,10 @@ async fn paid_seat_stays_booked_after_the_original_hold_expiry() {
                 selection: FlightSelection {
                     flight_id: "xf-201".to_owned(),
                     departure_date: departure,
-                    cabin: CabinClass::Economy,
+                    cabin: CabinClass::Business,
                 },
                 passengers: PassengerCounts::new(1, 0, 0).unwrap(),
-                seats: vec![SeatNumber::parse("20A").unwrap()],
+                seats: vec![SeatNumber::parse("4A").unwrap()],
                 token_hash: [127; 32],
             },
             Duration::from_secs(600),
@@ -913,7 +909,7 @@ async fn unresolved_stripe_attempt_protects_expired_inventory_even_after_its_dea
             &FlightSelection {
                 flight_id: "xf-201".to_owned(),
                 departure_date: departure,
-                cabin: CabinClass::Economy,
+                cabin: CabinClass::Business,
             },
             None,
         )
@@ -922,7 +918,7 @@ async fn unresolved_stripe_attempt_protects_expired_inventory_even_after_its_dea
     assert_eq!(
         map.seats
             .iter()
-            .find(|seat| seat.seat_number.as_str() == "20A")
+            .find(|seat| seat.seat_number.as_str() == "4A")
             .unwrap()
             .status,
         SeatAvailability::Unavailable
@@ -930,7 +926,7 @@ async fn unresolved_stripe_attempt_protects_expired_inventory_even_after_its_dea
     let assigned_hold: Option<Uuid> = sqlx::query_scalar(
         "SELECT hold_id FROM flight_seats
          WHERE flight_instance_id = (SELECT flight_instance_id FROM seat_holds WHERE id = $1)
-           AND seat_number = '20A'",
+           AND seat_number = '4A'",
     )
     .bind(hold_id)
     .fetch_one(repository.pool())
@@ -1017,7 +1013,7 @@ async fn protected_stripe_attempt_blocks_upstream_mutations_and_explicit_release
             .replace_seats(
                 seat_hold,
                 seat_token,
-                vec![SeatNumber::parse("20B").unwrap()],
+                vec![SeatNumber::parse("3D").unwrap()],
             )
             .await
             .unwrap_err()

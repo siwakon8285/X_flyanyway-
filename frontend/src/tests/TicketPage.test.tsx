@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import Link from "next/link";
 
 import { BookingApiError } from "@/components/booking/ticket/ticketClient";
 import type { TicketResponse } from "@/components/booking/ticket/ticketTypes";
@@ -8,6 +9,11 @@ import { TicketPage } from "@/components/booking/ticket/TicketPage";
 import { LanguageProvider } from "@/i18n/LanguageProvider";
 
 const mockGetTicket = jest.fn();
+const mockPush = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
 
 jest.mock("@/components/booking/ticket/ticketClient", () => {
   const actual = jest.requireActual(
@@ -113,6 +119,10 @@ describe("TicketPage", () => {
     // Reference numbers
     expect(screen.getByTestId("ticket-booking-reference")).toHaveTextContent("XF7K9P");
     expect(screen.getByTestId("ticket-number")).toHaveTextContent("026-1234567890");
+    expect(screen.getByRole("heading", { name: "Keep this information" })).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "You will need your Booking Reference together with the passenger's last name to access your E-Ticket and manage this booking later.",
+    );
 
     // Financial
     expect(screen.getByTestId("ticket-amount")).toHaveTextContent("THB 49,300");
@@ -124,14 +134,93 @@ describe("TicketPage", () => {
     expect(screen.queryByTestId("ticket-qr-container")).not.toBeInTheDocument();
     expect(screen.queryByText("Ticket Verification")).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain(mockTicketResponse.qrToken);
-    expect(screen.getByText("Your booking is confirmed and payment has been completed. Keep your booking reference for future access.")).toBeInTheDocument();
+    expect(screen.getByText("Your booking is confirmed and payment has been completed. Keep your booking reference and use it with the passenger last name in Manage Booking for future access.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Manage Booking" })).toHaveAttribute("href", "/manage-booking");
+    expect(document.body.textContent).not.toMatch(/sent.*email|check your email|emailed/i);
 
     // Action buttons
     expect(screen.getByRole("button", { name: "Print Booking Summary" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Home" })).toHaveAttribute("href", "/");
     expect(screen.queryByRole("link", { name: "Return Home" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Manage Booking" })).not.toBeInTheDocument();
     expect(document.querySelector("[data-ticket-page]")).toHaveClass("min-h-screen", "print:p-0");
+  });
+
+  it("opens an accessible leave dialog and Cancel keeps the customer on Booking Confirmed", async () => {
+    mockGetTicket.mockResolvedValue(mockTicketResponse);
+    renderTicketPage();
+
+    await screen.findByRole("heading", { name: "Booking Confirmed" });
+    const backHome = screen.getByRole("link", { name: "Back to Home" });
+    fireEvent.click(backHome);
+
+    expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Are you sure you want to leave this page?" })).toBeInTheDocument();
+    expect(screen.getByText("Have you saved your booking information?")).toBeInTheDocument();
+    expect(screen.getByText(/access the booking through Manage Booking later/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mockPush).not.toHaveBeenCalled();
+    await waitFor(() => expect(backHome).toHaveFocus());
+  });
+
+  it("preserves the requested internal destination and continues only after Confirm", async () => {
+    mockGetTicket.mockResolvedValue(mockTicketResponse);
+    render(
+      <LanguageProvider initialLocale="en">
+        <Link href="/#cabins">Cabins</Link>
+        <TicketPage attemptId="attempt-1" holdId="hold-1" />
+      </LanguageProvider>,
+    );
+
+    await screen.findByRole("heading", { name: "Booking Confirmed" });
+    const cabins = screen.getByRole("link", { name: "Cabins" });
+    fireEvent.click(cabins);
+    expect(mockPush).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/#cabins");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("treats Escape as Cancel and returns focus without navigating", async () => {
+    mockGetTicket.mockResolvedValue(mockTicketResponse);
+    renderTicketPage();
+
+    await screen.findByRole("heading", { name: "Booking Confirmed" });
+    const backHome = screen.getByRole("link", { name: "Back to Home" });
+    fireEvent.click(backHome);
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mockPush).not.toHaveBeenCalled();
+    await waitFor(() => expect(backHome).toHaveFocus());
+  });
+
+  it("leaves the intended Manage Booking CTA unguarded", async () => {
+    mockGetTicket.mockResolvedValue(mockTicketResponse);
+    renderTicketPage();
+
+    await screen.findByRole("heading", { name: "Booking Confirmed" });
+    const manageBooking = screen.getByRole("link", { name: "Manage Booking" });
+    manageBooking.addEventListener("click", (event) => event.preventDefault(), { once: true });
+    fireEvent.click(manageBooking);
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("registers the browser-native close and refresh warning only after confirmation loads", async () => {
+    mockGetTicket.mockResolvedValue(mockTicketResponse);
+    renderTicketPage();
+    await screen.findByRole("heading", { name: "Booking Confirmed" });
+
+    const event = new Event("beforeunload", { cancelable: true });
+    expect(window.dispatchEvent(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("copies booking reference and ticket number to clipboard", async () => {
@@ -210,6 +299,16 @@ describe("TicketPage", () => {
     expect(screen.queryByTestId("ticket-qr-container")).not.toBeInTheDocument();
     expect(screen.getByTestId("ticket-origin").parentElement?.parentElement).toHaveClass("flex-col", "sm:flex-row");
     expect(screen.getByText(/16.*2026/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "โปรดเก็บข้อมูลนี้ไว้" })).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent(
+      "คุณจะต้องใช้ รหัสการจอง (Booking Reference) ร่วมกับ นามสกุลผู้โดยสาร เพื่อเข้าดู E-Ticket และจัดการการจองในภายหลัง",
+    );
+
+    fireEvent.click(screen.getAllByRole("link", { name: "กลับสู่หน้าหลัก" })[0]);
+    expect(screen.getByRole("heading", { name: "คุณยืนยันที่จะออกจากหน้านี้ใช่ไหม?" })).toBeInTheDocument();
+    expect(screen.getByText("คุณบันทึกข้อมูลการจองแล้วใช่ไหม?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ยกเลิก" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ยืนยัน" })).toBeInTheDocument();
   });
 
   it("removes the screen-height print constraint from the booking summary page", () => {

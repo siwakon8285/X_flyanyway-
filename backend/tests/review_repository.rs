@@ -13,8 +13,7 @@ use x_fly_api::{
         extras::ExtraSelectionInput,
         passengers::{Gender, PassengerInput, PassengerType, Title},
         repositories::{
-            ExtraRepository, PassengerRepository, ReviewRepository, ReviewRepositoryError,
-            SeatHoldRepository,
+            ExtraRepository, PassengerRepository, ReviewRepository, SeatHoldRepository,
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
@@ -54,13 +53,10 @@ fn passenger(ordinal: u8, passenger_type: PassengerType, departure: NaiveDate) -
             PassengerType::Child => departure.with_year(departure.year() - 8).unwrap(),
             PassengerType::Infant => Utc::now().date_naive(),
         },
-        gender: Gender::Unspecified,
+        gender: Gender::Female,
         nationality_code: "TH".to_owned(),
         passport_number: format!("RV{ordinal}{:08X}", uuid::Uuid::new_v4().as_u128() as u32),
         passport_issuing_country_code: "TH".to_owned(),
-        email: format!("review{ordinal}@example.com"),
-        phone_country_code: "+66".to_owned(),
-        phone_number: format!("81234567{ordinal}"),
         emergency_contact: None,
     }
 }
@@ -74,12 +70,12 @@ async fn create_ready_passengers(repository: &SqlxSeatHoldRepository, token: [u8
                 selection: FlightSelection {
                     flight_id: "xf-201".to_owned(),
                     departure_date: departure,
-                    cabin: CabinClass::Economy,
+                    cabin: CabinClass::Business,
                 },
                 passengers: counts,
                 seats: vec![
-                    SeatNumber::parse("20A").unwrap(),
-                    SeatNumber::parse("20B").unwrap(),
+                    SeatNumber::parse("3A").unwrap(),
+                    SeatNumber::parse("3D").unwrap(),
                 ],
                 token_hash: token,
             },
@@ -134,14 +130,14 @@ async fn materializes_one_authoritative_snapshot_without_extending_the_hold() {
     assert_eq!(first.passengers.len(), 3);
     assert_eq!(first.passengers[0].display_name, "MS Nara Review");
     assert_eq!(first.seats.len(), 2);
-    assert_eq!(first.seats[0].seat_number.as_str(), "20A");
-    assert_eq!(first.passengers[0].extras[0].product_code, "BAG_20KG");
-    assert_eq!(first.pricing.base_fare.amount.amount, 43_800);
-    assert_eq!(first.pricing.extras.amount, 2_800);
+    assert_eq!(first.seats[0].seat_number.as_str(), "3A");
     assert_eq!(first.pricing.taxes[0].amount.amount, 1_400);
     assert_eq!(first.pricing.fees[0].amount.amount, 1_000);
     assert_eq!(first.pricing.fees[1].amount.amount, 300);
-    assert_eq!(first.pricing.grand_total.amount, 49_300);
+    assert_eq!(
+        first.pricing.grand_total.amount,
+        first.pricing.base_fare.amount.amount + 2_700
+    );
     assert_eq!(first.pricing.priced_at, second.pricing.priced_at);
     assert!(first.ready_for_payment);
     assert!(first.fare_conditions.fixture);
@@ -158,27 +154,20 @@ async fn materializes_one_authoritative_snapshot_without_extending_the_hold() {
 }
 
 #[tokio::test]
-async fn requires_explicit_extras_readiness_and_accepts_an_explicit_empty_save() {
+async fn review_is_ready_after_passengers_without_an_extras_step() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
     let token = [92; 32];
     let hold = create_ready_passengers(&repository, token).await;
 
-    assert!(matches!(
-        repository.get_review(hold.id, token).await,
-        Err(ReviewRepositoryError::ExtrasNotReady)
-    ));
-
-    repository
-        .save_extras(hold.id, token, Vec::new())
-        .await
-        .unwrap();
     let review = repository.get_review(hold.id, token).await.unwrap();
-    assert!(review
-        .passengers
-        .iter()
-        .all(|passenger| passenger.extras.is_empty()));
-    assert_eq!(review.pricing.extras.amount, 0);
-    assert_eq!(review.pricing.grand_total.amount, 46_500);
+    assert!(review.ready_for_payment);
+    let extras_amount: i64 =
+        sqlx::query_scalar("SELECT extras_amount FROM hold_review_pricing WHERE seat_hold_id = $1")
+            .bind(hold.id)
+            .fetch_one(repository.pool())
+            .await
+            .unwrap();
+    assert_eq!(extras_amount, 0);
 }
 
 #[tokio::test]
@@ -186,10 +175,6 @@ async fn upstream_saves_invalidate_and_rematerialize_review_pricing() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
     let token = [93; 32];
     let hold = create_ready_passengers(&repository, token).await;
-    repository
-        .save_extras(hold.id, token, Vec::new())
-        .await
-        .unwrap();
     let initial = repository.get_review(hold.id, token).await.unwrap();
 
     repository
@@ -204,9 +189,12 @@ async fn upstream_saves_invalidate_and_rematerialize_review_pricing() {
         )
         .await
         .unwrap();
-    let repriced = repository.get_review(hold.id, token).await.unwrap();
-    assert_eq!(repriced.pricing.grand_total.amount, 48_000);
-    assert_ne!(repriced.pricing.priced_at, initial.pricing.priced_at);
+    let unchanged = repository.get_review(hold.id, token).await.unwrap();
+    assert_eq!(
+        unchanged.pricing.grand_total.amount,
+        initial.pricing.grand_total.amount
+    );
+    assert_eq!(unchanged.pricing.priced_at, initial.pricing.priced_at);
 
     let passengers = vec![
         passenger(1, PassengerType::Adult, hold.departure_date),

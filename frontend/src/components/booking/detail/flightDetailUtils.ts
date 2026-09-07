@@ -6,7 +6,7 @@ import {
   serializeFlightSearch,
 } from "@/components/booking/search/searchState";
 import type {
-  CabinClass,
+  CustomerCabinClass,
   FlightSearchFormValues,
 } from "@/components/booking/search/searchTypes";
 import type { FlightResult } from "@/components/booking/results/flightResultTypes";
@@ -16,20 +16,15 @@ type RouteQuery = Record<string, string | string[] | undefined>;
 type FlightDetailRequest = {
   criteria: FlightSearchFormValues;
   flight: FlightResult;
-  previewCabin: CabinClass;
+  previewCabin: CustomerCabinClass;
   query: string;
 };
 
 type SeatSelectionRequest = FlightDetailRequest & {
-  selectedCabin: CabinClass;
+  selectedCabin: CustomerCabinClass;
 };
 
-const cabinClasses = [
-  "economy",
-  "premium-economy",
-  "business",
-  "first",
-] as const satisfies readonly CabinClass[];
+const cabinClasses = ["business", "first"] as const satisfies readonly CustomerCabinClass[];
 
 const toUrlSearchParams = (query: RouteQuery) => {
   const params = new URLSearchParams();
@@ -41,7 +36,7 @@ const toUrlSearchParams = (query: RouteQuery) => {
   return params;
 };
 
-const isCabinClass = (value: string | null): value is CabinClass =>
+const isCabinClass = (value: string | null): value is CustomerCabinClass =>
   cabinClasses.some((cabin) => cabin === value);
 
 const resolveFlightDetailRequest = (
@@ -85,7 +80,7 @@ const buildFlightDetailHref = ({
 }: {
   flightId: string;
   query: string;
-  selectedCabin: CabinClass;
+  selectedCabin: CustomerCabinClass;
 }) => {
   const params = new URLSearchParams(query);
   params.set("selectedCabin", selectedCabin);
@@ -100,7 +95,7 @@ const buildSeatSelectionHref = ({
 }: {
   flightId: string;
   query: string;
-  selectedCabin: CabinClass;
+  selectedCabin: CustomerCabinClass;
 }) => {
   const params = new URLSearchParams(query);
   params.set("selectedCabin", selectedCabin);

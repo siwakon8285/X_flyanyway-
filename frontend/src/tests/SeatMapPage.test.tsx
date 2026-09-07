@@ -4,7 +4,7 @@ import { render } from "@/tests/renderWithLanguage";
 import { resolveSeatSelectionRequest } from "@/components/booking/detail/flightDetailUtils";
 import { SeatMapPage } from "@/components/booking/seats/SeatMapPage";
 import { getSeatMapFixture } from "@/components/booking/seats/seatMapFixtures";
-import type { CabinClass } from "@/components/booking/search/searchTypes";
+import type { CustomerCabinClass } from "@/components/booking/search/searchTypes";
 
 const baseQuery = {
   adults: "2",
@@ -18,7 +18,7 @@ const baseQuery = {
   trip: "round-trip",
 } as const;
 
-const renderSeatMap = (selectedCabin: CabinClass = "business") => {
+const renderSeatMap = (selectedCabin: CustomerCabinClass = "business") => {
   const request = resolveSeatSelectionRequest("xf-201", {
     ...baseQuery,
     selectedCabin,
@@ -42,7 +42,7 @@ const installSuccessfulSeatHoldFetch = () => {
   const fetchMock = jest.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     if (url.includes("/flights/")) {
-      const cabin = new URL(url).searchParams.get("cabin") as CabinClass;
+      const cabin = new URL(url).searchParams.get("cabin") as CustomerCabinClass;
       const fixture = getSeatMapFixture("Airbus A350-900", cabin);
       return response({
         cabin,
@@ -68,7 +68,7 @@ const installSuccessfulSeatHoldFetch = () => {
     if (url.endsWith("/validation")) return response(currentHold);
     if (init?.method === "POST" || init?.method === "PUT") {
       const body = JSON.parse(String(init.body)) as {
-        cabin?: CabinClass;
+        cabin?: CustomerCabinClass;
         departureDate?: string;
         flightId?: string;
         passengers?: { adults: number; children: number; infants: number };
@@ -128,8 +128,6 @@ describe("SeatMapPage", () => {
   });
 
   it.each([
-    ["economy", "economy"],
-    ["premium-economy", "premium-economy"],
     ["business", "business"],
     ["first", "first"],
   ] as const)("renders the distinct %s seat model", (cabin, model) => {
@@ -139,8 +137,6 @@ describe("SeatMapPage", () => {
   });
 
   it.each([
-    ["economy", "conventional", ["headrest", "backrest", "seat-pan", "armrests"]],
-    ["premium-economy", "wide-recliner", ["headrest", "padded-backrest", "seat-pan", "armrests"]],
     ["business", "lie-flat-pod", ["privacy-shell", "seat", "console"]],
     ["first", "private-suite", ["suite-shell", "armchair", "console"]],
   ] as const)(
@@ -163,8 +159,6 @@ describe("SeatMapPage", () => {
   it.each([
     ["first", "foremost", "Foremost cabin", "3", "19"],
     ["business", "forward", "Forward cabin", "19", "44"],
-    ["premium-economy", "central", "Central cabin", "44", "61"],
-    ["economy", "mid-rear", "Mid-rear cabin", "61", "94"],
   ] as const)(
     "places %s in the shared aircraft %s section",
     (cabin, location, sectionLabel, sectionStart, sectionEnd) => {
@@ -188,9 +182,9 @@ describe("SeatMapPage", () => {
   );
 
   it("renders a recognizable widebody overview with distinct flight surfaces", () => {
-    const { container } = renderSeatMap("premium-economy");
+    const { container } = renderSeatMap("business");
     const overview = screen.getByRole("img", {
-      name: /X-Fly Widebody aircraft overview.*Central cabin/i,
+      name: /X-Fly Widebody aircraft overview.*Forward cabin/i,
     });
 
     expect(
@@ -217,24 +211,22 @@ describe("SeatMapPage", () => {
       "secondary",
     );
     expect(
-      container.querySelector('[data-current-section="central"]'),
+      container.querySelector('[data-current-section="forward"]'),
     ).toHaveAttribute("data-highlight-clip", "fuselage");
   });
 
   it("renders restrained, section-specific aircraft plan context", () => {
-    renderSeatMap("premium-economy");
+    renderSeatMap("business");
 
     expect(screen.getByText("Cabin bulkhead")).toBeInTheDocument();
-    expect(screen.getByText("Wing leading area")).toBeInTheDocument();
-    expect(screen.getByText("Overwing exit")).toBeInTheDocument();
+    expect(screen.getByText("Door 2")).toBeInTheDocument();
+    expect(screen.getAllByText("Exit").length).toBeGreaterThan(0);
     expect(screen.queryByText("Rear galley")).not.toBeInTheDocument();
   });
 
   it.each([
     ["business", "true"],
     ["first", "false"],
-    ["premium-economy", "false"],
-    ["economy", "false"],
   ] as const)(
     "marks contained horizontal scrolling for %s as %s",
     (cabin, expected) => {
@@ -248,11 +240,11 @@ describe("SeatMapPage", () => {
   );
 
   it("renders row markers and descriptive native seat buttons", () => {
-    renderSeatMap("economy");
+    renderSeatMap("business");
 
-    expect(screen.getByText("20", { selector: "[data-row-number]" })).toBeInTheDocument();
+    expect(screen.getByText("3", { selector: "[data-row-number]" })).toBeInTheDocument();
     const availableSeat = screen.getAllByRole("button", {
-      name: /Seat \d+[A-Z], Economy, (window|middle|aisle), available/i,
+      name: /Seat \d+[A-Z], Business, (window|aisle), available/i,
     })[0];
     expect(availableSeat?.tagName).toBe("BUTTON");
     expect(availableSeat).toHaveAttribute("type", "button");

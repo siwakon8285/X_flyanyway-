@@ -8,32 +8,10 @@ import type { TranslationKey } from "@/i18n/types";
 
 const cabinImages = {
   business: "/images/hero/x-fly-cabin-business-v1.png",
-  economy: "/images/hero/x-fly-cabin-economy-v1.png",
   first: "/images/hero/x-fly-cabin-first-v1.png",
-  "premium-economy": "/images/hero/x-fly-cabin-premium-economy-v1.png",
 } as const;
 
 const cabins = [
-  {
-    altKey: "home.cabins.economy.alt",
-    atmosphere:
-      "bg-[radial-gradient(circle_at_78%_48%,rgba(84,105,124,0.13),transparent_43%)]",
-    copyKey: "home.cabins.economy.copy",
-    id: "economy",
-    image: cabinImages.economy,
-    labelKey: "common.cabins.economy",
-    position: "object-[52%_48%]",
-  },
-  {
-    altKey: "home.cabins.premiumEconomy.alt",
-    atmosphere:
-      "bg-[radial-gradient(circle_at_76%_46%,rgba(185,151,91,0.12),transparent_45%)]",
-    copyKey: "home.cabins.premiumEconomy.copy",
-    id: "premium-economy",
-    image: cabinImages["premium-economy"],
-    labelKey: "common.cabins.premiumEconomy",
-    position: "object-[50%_50%]",
-  },
   {
     altKey: "home.cabins.business.alt",
     atmosphere:
@@ -158,7 +136,7 @@ const CabinStory = () => {
             >
               <div>
                 <p className="text-caption text-muted-foreground">
-                  {String(index + 1).padStart(2, "0")} / 04
+                  {String(index + 1).padStart(2, "0")} / {String(cabins.length).padStart(2, "0")}
                 </p>
                 <h3 className="mt-4 text-[clamp(2.75rem,7vw,7rem)] font-semibold leading-[0.86] tracking-[-0.07em] text-foreground text-balance">
                   {t(cabin.labelKey)}
@@ -199,7 +177,7 @@ const CabinStory = () => {
               data-cabin-progress-line
             />
           </span>
-          <span className="font-mono text-[0.6875rem]">04</span>
+          <span className="font-mono text-[0.6875rem]">{String(cabins.length).padStart(2, "0")}</span>
         </div>
       </Container>
     </div>

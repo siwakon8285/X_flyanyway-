@@ -51,7 +51,7 @@ async fn complete_hold(
         .await
         .unwrap();
     let departure = test_date();
-    let seats = ["20A", "20B", "20C"]
+    let seats = ["3A", "3D", "3G"]
         .iter()
         .take(counts.required_seats())
         .map(|seat| SeatNumber::parse(seat).unwrap())
@@ -62,7 +62,7 @@ async fn complete_hold(
                 selection: FlightSelection {
                     flight_id: "xf-201".to_owned(),
                     departure_date: departure,
-                    cabin: CabinClass::Economy,
+                    cabin: CabinClass::Business,
                 },
                 passengers: counts,
                 seats,
@@ -110,9 +110,6 @@ fn passenger(ordinal: u8, passenger_type: PassengerType, departure: NaiveDate) -
         nationality_code: "TH".to_owned(),
         passport_number: format!("EX{ordinal}{:08X}", uuid::Uuid::new_v4().as_u128() as u32),
         passport_issuing_country_code: "TH".to_owned(),
-        email: format!("extra{ordinal}@example.com"),
-        phone_country_code: "+66".to_owned(),
-        phone_number: format!("81234567{ordinal}"),
         emergency_contact: None,
     }
 }

@@ -7,21 +7,21 @@ import { getSeatMapFixture } from "@/components/booking/seats/seatMapFixtures";
 
 const request = resolveSeatSelectionRequest("xf-201", {
   adults: "1",
-  cabin: "economy",
+  cabin: "business",
   children: "0",
   departure: "2099-05-10",
   from: "BKK",
   infants: "0",
-  selectedCabin: "economy",
+  selectedCabin: "business",
   to: "LHR",
   trip: "one-way",
 });
 if (!request) throw new Error("Expected valid seat selection request");
-const seatMap = getSeatMapFixture(request.flight.aircraft, "economy");
+const seatMap = getSeatMapFixture(request.flight.aircraft, "business");
 if (!seatMap) throw new Error("Expected seat map fixture");
 
 const inventory = {
-  cabin: "economy",
+  cabin: "business",
   departureDate: "2099-05-10",
   flightId: "xf-201",
   seats: seatMap.rows.flatMap((row) =>
@@ -37,13 +37,13 @@ const inventory = {
 };
 
 const hold = {
-  cabin: "economy",
+  cabin: "business",
   departureDate: "2099-05-10",
   expiresAt: "2099-05-10T10:10:00Z",
   flightId: "xf-201",
   id: "8d256f1e-4758-4997-861f-3f20a53c5846",
   passengers: { adults: 1, children: 0, infants: 0 },
-  seats: ["20A"],
+  seats: ["3A"],
   serverTime: "2099-05-10T10:00:00Z",
 };
 
@@ -86,7 +86,7 @@ describe("server-authoritative seat hold experience", () => {
     Object.defineProperty(global, "fetch", { configurable: true, value: fetchMock });
 
     const { container } = render(<SeatMapPage request={request} seatMap={seatMap} />);
-    const seat = await screen.findByRole("button", { name: /Seat 20A.*available/i });
+    const seat = await screen.findByRole("button", { name: /Seat 3A.*available/i });
     fireEvent.click(seat);
 
     expect(container.querySelector('[data-hold-state="pending"]')).toBeInTheDocument();
@@ -106,7 +106,7 @@ describe("server-authoritative seat hold experience", () => {
           {
             error: {
               code: "SEAT_UNAVAILABLE",
-              conflictingSeats: ["20A"],
+              conflictingSeats: ["3A"],
               message: "One or more seats were just taken.",
             },
           },
@@ -116,17 +116,17 @@ describe("server-authoritative seat hold experience", () => {
       .mockResolvedValue(response({
         ...inventory,
         seats: inventory.seats.map((seat) =>
-          seat.seatNumber === "20A" ? { ...seat, status: "UNAVAILABLE" } : seat,
+          seat.seatNumber === "3A" ? { ...seat, status: "UNAVAILABLE" } : seat,
         ),
       }));
     Object.defineProperty(global, "fetch", { configurable: true, value: fetchMock });
 
     render(<SeatMapPage request={request} seatMap={seatMap} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Seat 20A.*available/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Seat 3A.*available/i }));
 
     expect(await screen.findByText("That seat was just taken. Choose another seat.")).toBeInTheDocument();
     expect(screen.getByText("0 of 1 seat selected")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: /Seat 20A.*unavailable/i })).toBeDisabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Seat 3A.*unavailable/i })).toBeDisabled());
   });
 
   it("blocks Continue when authoritative revalidation reports an expired hold", async () => {
@@ -142,7 +142,7 @@ describe("server-authoritative seat hold experience", () => {
     Object.defineProperty(global, "fetch", { configurable: true, value: fetchMock });
 
     render(<SeatMapPage request={request} seatMap={seatMap} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Seat 20A.*available/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /Seat 3A.*available/i }));
     const continueButton = await screen.findByRole("button", { name: "Continue with 1 seat" });
     fireEvent.click(continueButton);
 

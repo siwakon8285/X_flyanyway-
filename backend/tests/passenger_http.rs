@@ -74,7 +74,7 @@ async fn create_hold(
                     json!({
                         "flightId": "xf-201",
                         "departureDate": departure,
-                        "cabin": "economy",
+                        "cabin": "business",
                         "passengers": passengers,
                         "seats": seats
                     })
@@ -119,9 +119,6 @@ fn passenger(ordinal: u8, passenger_type: &str, departure: NaiveDate) -> Value {
         "nationalityCode": "th",
         "passportNumber": format!("TH-{ordinal}234567"),
         "passportIssuingCountryCode": "th",
-        "email": format!("nara{ordinal}@example.com"),
-        "phoneCountryCode": "+66",
-        "phoneNumber": format!("81234567{ordinal}"),
         "emergencyContact": null
     })
 }
@@ -138,7 +135,7 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
         &app,
         departure,
         json!({ "adults": 1, "children": 1, "infants": 1 }),
-        json!(["20A", "20B"]),
+        json!(["3A", "3D"]),
     )
     .await;
     let passengers = vec![
@@ -147,8 +144,8 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
         passenger(3, "INFANT", departure),
     ];
     let booking_contact = json!({
-        "email": "booking-contact@example.com",
-        "preferredLocale": "TH"
+        "phoneCountryCode": "+66",
+        "phoneNumber": "812345678"
     });
     let saved = app
         .clone()
@@ -178,11 +175,9 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
     assert_eq!(saved["readyToContinue"], true);
     assert_eq!(saved["passengers"][0]["givenName"], "Nara");
     assert_eq!(saved["expectedPassengers"][2]["passengerType"], "INFANT");
-    assert_eq!(
-        saved["bookingContact"]["email"],
-        "booking-contact@example.com"
-    );
-    assert_eq!(saved["bookingContact"]["preferredLocale"], "TH");
+    assert_eq!(saved["bookingContact"]["phoneCountryCode"], "+66");
+    assert_eq!(saved["bookingContact"]["phoneNumber"], "812345678");
+    assert!(!saved.to_string().contains("email"));
 
     let loaded = app
         .oneshot(
@@ -201,11 +196,8 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
     );
     let loaded = json_body(loaded).await;
     assert_eq!(loaded["passengers"].as_array().unwrap().len(), 3);
-    assert_eq!(
-        loaded["bookingContact"]["email"],
-        "booking-contact@example.com"
-    );
-    assert_eq!(loaded["bookingContact"]["preferredLocale"], "TH");
+    assert_eq!(loaded["bookingContact"]["phoneCountryCode"], "+66");
+    assert_eq!(loaded["bookingContact"]["phoneNumber"], "812345678");
 }
 
 #[tokio::test]
@@ -216,7 +208,7 @@ async fn rejects_count_and_type_tampering_with_safe_error_payloads() {
         &app,
         departure,
         json!({ "adults": 1, "children": 1, "infants": 0 }),
-        json!(["20A", "20B"]),
+        json!(["3A", "3D"]),
     )
     .await;
 
@@ -241,10 +233,8 @@ async fn rejects_count_and_type_tampering_with_safe_error_payloads() {
         "PASSENGER_COUNT_MISMATCH"
     );
 
-    let private_email = "private-person@example.com";
     let private_passport = "SECRET999";
     let mut wrong_type = passenger(1, "CHILD", departure);
-    wrong_type["email"] = private_email.into();
     wrong_type["passportNumber"] = private_passport.into();
     let response = app
         .oneshot(
@@ -275,8 +265,47 @@ async fn rejects_count_and_type_tampering_with_safe_error_payloads() {
     )
     .unwrap();
     assert!(text.contains("PASSENGER_TYPE_MISMATCH"));
-    assert!(!text.contains(private_email));
     assert!(!text.contains(private_passport));
+}
+
+#[tokio::test]
+async fn rejects_unspecified_gender_for_new_passenger_input() {
+    let (app, _) = app().await;
+    let departure = departure_date();
+    let (hold_id, cookie) = create_hold(
+        &app,
+        departure,
+        json!({ "adults": 1, "children": 0, "infants": 0 }),
+        json!(["3A"]),
+    )
+    .await;
+    let mut input = passenger(1, "ADULT", departure);
+    input["gender"] = "UNSPECIFIED".into();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/seat-holds/{hold_id}/passengers"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::COOKIE, cookie)
+                .body(Body::from(
+                    json!({
+                        "passengers": [input],
+                        "bookingContact": {
+                            "phoneCountryCode": "+66",
+                            "phoneNumber": "812345678"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let error = json_body(response).await;
+    assert_eq!(error["error"]["fieldErrors"][0]["field"], "gender");
+    assert_eq!(error["error"]["fieldErrors"][0]["code"], "INVALID_GENDER");
 }
 
 #[tokio::test]
@@ -287,14 +316,14 @@ async fn expired_released_and_other_hold_cookies_cannot_read_passenger_data() {
         &app,
         departure,
         json!({ "adults": 1, "children": 0, "infants": 0 }),
-        json!(["20C"]),
+        json!(["3G"]),
     )
     .await;
     let (second_id, second_cookie) = create_hold(
         &app,
         departure + ChronoDuration::days(1),
         json!({ "adults": 1, "children": 0, "infants": 0 }),
-        json!(["20C"]),
+        json!(["3G"]),
     )
     .await;
 

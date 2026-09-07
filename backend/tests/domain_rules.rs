@@ -27,3 +27,21 @@ fn cabin_values_match_the_existing_query_contract() {
         CabinClass::Business
     );
 }
+
+#[test]
+fn customer_booking_cabins_are_business_and_first_only() {
+    assert!(CabinClass::Business.is_customer_bookable());
+    assert!(CabinClass::First.is_customer_bookable());
+    assert!(!CabinClass::Economy.is_customer_bookable());
+    assert!(!CabinClass::PremiumEconomy.is_customer_bookable());
+    assert_eq!(
+        CabinClass::parse_customer_booking("business").unwrap(),
+        CabinClass::Business
+    );
+    assert_eq!(
+        CabinClass::parse_customer_booking("first").unwrap(),
+        CabinClass::First
+    );
+    assert!(CabinClass::parse_customer_booking("economy").is_err());
+    assert!(CabinClass::parse_customer_booking("premium-economy").is_err());
+}

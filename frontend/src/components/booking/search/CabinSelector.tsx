@@ -2,7 +2,7 @@
 
 import { Armchair } from "lucide-react";
 
-import type { CabinClass } from "@/components/booking/search/searchTypes";
+import type { CustomerCabinClass } from "@/components/booking/search/searchTypes";
 import {
   Select,
   SelectContent,
@@ -14,16 +14,14 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 import type { TranslationKey } from "@/i18n/types";
 
 type CabinSelectorProps = {
-  onChange: (cabin: CabinClass) => void;
-  value: CabinClass;
+  onChange: (cabin: CustomerCabinClass) => void;
+  value: CustomerCabinClass;
 };
 
 const cabins = [
-  { labelKey: "common.cabins.economy", value: "economy" },
-  { labelKey: "common.cabins.premiumEconomy", value: "premium-economy" },
   { labelKey: "common.cabins.business", value: "business" },
   { labelKey: "common.cabins.first", value: "first" },
-] as const satisfies readonly { labelKey: TranslationKey; value: CabinClass }[];
+] as const satisfies readonly { labelKey: TranslationKey; value: CustomerCabinClass }[];
 
 const CabinSelector = ({ onChange, value }: CabinSelectorProps) => {
   const { t } = useLanguage();

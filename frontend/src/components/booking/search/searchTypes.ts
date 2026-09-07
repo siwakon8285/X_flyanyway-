@@ -1,6 +1,7 @@
 type TripType = "round-trip" | "one-way";
 
 type CabinClass = "economy" | "premium-economy" | "business" | "first";
+type CustomerCabinClass = Extract<CabinClass, "business" | "first">;
 
 type PassengerCounts = {
   adults: number;
@@ -16,7 +17,7 @@ type AirportOption = {
 };
 
 type FlightSearchFormValues = {
-  cabin: CabinClass;
+  cabin: CustomerCabinClass;
   departure: string;
   from: AirportOption | null;
   passengers: PassengerCounts;
@@ -36,6 +37,7 @@ type FlightSearchErrors = {
 export type {
   AirportOption,
   CabinClass,
+  CustomerCabinClass,
   FlightSearchErrors,
   FlightSearchFormValues,
   PassengerCounts,

@@ -14,13 +14,13 @@ jest.mock("next/navigation", () => ({
 }));
 
 const hold = {
-  cabin: "economy" as const,
+  cabin: "business" as const,
   departureDate: "2027-05-10",
   expiresAt: "2099-05-01T10:10:00Z",
   flightId: "xf-201",
   id: "hold-123",
   passengers: { adults: 1, children: 1, infants: 1 },
-  seats: ["20A", "20B"],
+  seats: ["3A", "3D"],
   serverTime: "2099-05-01T10:00:00Z",
 };
 
@@ -34,7 +34,6 @@ const savedPassenger = (
       : passengerType === "CHILD"
         ? "2022-01-01"
         : "2026-01-01",
-  email: `traveller${ordinal}@example.com`,
   emergencyContact: null,
   familyName: "Suri",
   gender: "FEMALE",
@@ -45,8 +44,6 @@ const savedPassenger = (
   passengerType,
   passportIssuingCountryCode: "TH",
   passportNumber: `TH${ordinal}234567`,
-  phoneCountryCode: "+66",
-  phoneNumber: `81234567${ordinal}`,
   title: "MS",
 });
 
@@ -64,8 +61,8 @@ const emptyContext: PassengerContext = {
 const savedContext: PassengerContext = {
   ...emptyContext,
   bookingContact: {
-    email: "booking@example.com",
-    preferredLocale: "EN",
+    phoneCountryCode: "+66",
+    phoneNumber: "812345678",
   },
   passengers: [
     savedPassenger(1, "ADULT"),
@@ -108,7 +105,7 @@ describe("PassengerInformationPage", () => {
     setFetch({ body: emptyContext, ok: true, status: 200 });
     render(
       <PassengerInformationPage
-        backQuery="from=BKK&to=LHR&departure=2027-05-10&adults=99&children=0&infants=0&cabin=economy&trip=one-way&flightId=xf-201"
+        backQuery="from=BKK&to=LHR&departure=2027-05-10&adults=99&children=0&infants=0&cabin=business&trip=one-way&flightId=xf-201"
         holdId="hold-123"
       />,
     );
@@ -120,21 +117,21 @@ describe("PassengerInformationPage", () => {
     expect(within(navigation).getByRole("button", { name: "Passenger 3 — Infant" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Passenger 1 — Adult" })).toBeInTheDocument();
     expect(screen.getByText("Name must match passport exactly.")).toBeInTheDocument();
-    expect(screen.getByText("20A")).toBeInTheDocument();
-    expect(screen.getByText("20B")).toBeInTheDocument();
+    expect(screen.getByText("3A")).toBeInTheDocument();
+    expect(screen.getByText("3D")).toBeInTheDocument();
     expect(screen.getByText("Infant · No seat assigned")).toBeInTheDocument();
     expect(screen.queryByText("99 passengers")).not.toBeInTheDocument();
   });
 
-  it("collects one booking-level Contact Details email and maps it explicitly to bookingContact", async () => {
+  it("collects one phone-only booking contact without generating an email", async () => {
     const fetchMock = setFetch(
       { body: savedContext, ok: true, status: 200 },
       {
         body: {
           ...savedContext,
           bookingContact: {
-            email: "customer@example.com",
-            preferredLocale: "EN",
+            phoneCountryCode: "+44",
+            phoneNumber: "2071234567",
           },
         },
         ok: true,
@@ -147,50 +144,45 @@ describe("PassengerInformationPage", () => {
 
     const passengerGroup = await screen.findByRole("group", { name: "Passenger 1 — Adult" });
     expect(within(passengerGroup).queryByLabelText("Email")).not.toBeInTheDocument();
-    expect(screen.getAllByLabelText("Email")).toHaveLength(1);
-    expect(screen.queryByRole("heading", { name: "Booking contact" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Confirmation email address")).not.toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Enter an email address you can access. X-Fly will send your booking confirmation and ticket details to this address.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    expect(within(passengerGroup).getByRole("heading", { name: "Phone contact" })).toBeInTheDocument();
+    expect(within(passengerGroup).getByRole("button", { name: "Phone country code" })).toBeInTheDocument();
+    expect(within(passengerGroup).getByLabelText("Phone number")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Email"), {
-      target: { value: "customer@example.com" },
+    fireEvent.change(screen.getByLabelText("Phone number"), {
+      target: { value: "2071234567" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save passenger information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save & Continue to Review" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const request = fetchMock.mock.calls[1]?.[1] as RequestInit;
     const payload = JSON.parse(String(request.body));
     expect(payload.bookingContact).toEqual({
-      email: "customer@example.com",
-      preferredLocale: "EN",
+      phoneCountryCode: "+66",
+      phoneNumber: "2071234567",
     });
     expect(payload.passengers).toHaveLength(3);
-    expect(payload.passengers.every((passenger: Passenger) => passenger.email === "customer@example.com")).toBe(true);
-    expect(new Set(payload.passengers.map((passenger: Passenger) => passenger.phoneNumber))).toEqual(new Set(["812345671"]));
+    expect(JSON.stringify(payload)).not.toContain("email");
   });
 
-  it("navigates to the real Extras route only after Passenger save succeeds", async () => {
+  it("navigates directly to Review only after Passenger save succeeds", async () => {
     const fetchMock = setFetch(
       { body: savedContext, ok: true, status: 200 },
       { body: savedContext, ok: true, status: 200 },
     );
     render(
       <PassengerInformationPage
-        backQuery="from=BKK&to=LHR&departure=2027-05-10&adults=1&children=1&infants=1&cabin=economy&trip=one-way&flightId=xf-201"
+        backQuery="from=BKK&to=LHR&departure=2027-05-10&adults=1&children=1&infants=1&cabin=business&trip=one-way&flightId=xf-201"
         holdId="hold-123"
       />,
     );
 
     expect(await screen.findByLabelText("Given name")).toHaveValue("Nara");
-    fireEvent.click(screen.getByRole("button", { name: "Save passenger information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save & Continue to Review" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(mockPush).toHaveBeenCalledWith(
-      "/booking/extras?from=BKK&to=LHR&departure=2027-05-10&adults=1&children=1&infants=1&cabin=economy&trip=one-way&flightId=xf-201&holdId=hold-123",
+      "/booking/review?from=BKK&to=LHR&departure=2027-05-10&adults=1&children=1&infants=1&cabin=business&trip=one-way&flightId=xf-201&holdId=hold-123",
     );
   });
 
@@ -202,7 +194,7 @@ describe("PassengerInformationPage", () => {
           error: {
             code: "PASSENGER_VALIDATION_FAILED",
             message: "Passenger information is invalid.",
-            fieldErrors: [{ passenger: 1, field: "email", code: "INVALID_EMAIL" }],
+            fieldErrors: [{ passenger: 1, field: "gender", code: "INVALID_GENDER" }],
           },
         },
         ok: false,
@@ -213,10 +205,10 @@ describe("PassengerInformationPage", () => {
       <PassengerInformationPage backQuery="flightId=xf-201" holdId="hold-123" />,
     );
     await screen.findByLabelText("Given name");
-    fireEvent.click(screen.getByRole("button", { name: "Save passenger information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save & Continue to Review" }));
 
-    expect(await screen.findByText("Enter a valid email address.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(await screen.findByText("Choose Male or Female.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Gender")).toHaveAttribute("aria-invalid", "true");
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -228,7 +220,7 @@ describe("PassengerInformationPage", () => {
     });
     render(
       <PassengerInformationPage
-        backQuery="from=BKK&to=LHR&departure=2027-05-10&adults=1&children=1&infants=1&cabin=economy&trip=one-way&flightId=xf-201"
+        backQuery="from=BKK&to=LHR&departure=2027-05-10&adults=1&children=1&infants=1&cabin=business&trip=one-way&flightId=xf-201"
         holdId="hold-123"
       />,
     );
@@ -236,7 +228,7 @@ describe("PassengerInformationPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Your seat hold expired. Return to seat selection to choose seats again.",
     );
-    expect(screen.queryByRole("button", { name: "Save passenger information" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save & Continue to Review" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Return to seat selection" })).toHaveAttribute(
       "href",
       expect.stringContaining("/flights/xf-201/seats?"),
@@ -249,7 +241,7 @@ describe("PassengerInformationPage", () => {
       {
         body: {
           ...savedContext,
-          bookingContact: { email: "booking@example.com", preferredLocale: "TH" },
+          bookingContact: { phoneCountryCode: "+66", phoneNumber: "812345678" },
         },
         ok: true,
         status: 200,
@@ -262,19 +254,15 @@ describe("PassengerInformationPage", () => {
 
     expect(await screen.findByText("ชื่อต้องตรงกับหนังสือเดินทางทุกตัวอักษร")).toBeInTheDocument();
     expect(screen.getByDisplayValue("TH1234567")).toBeInTheDocument();
-    expect(screen.getByText("20A")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "กรุณากรอกอีเมลที่สามารถใช้งานได้ X-Fly จะส่งข้อมูลยืนยันการจองและรายละเอียดตั๋วไปยังอีเมลนี้",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("3A")).toBeInTheDocument();
+    expect(screen.getByText("ข้อมูลติดต่อทางโทรศัพท์")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "บันทึกข้อมูลผู้โดยสาร" }));
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกและไปยังหน้าตรวจสอบ" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const request = fetchMock.mock.calls[1]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body)).bookingContact).toEqual({
-      email: "booking@example.com",
-      preferredLocale: "TH",
+      phoneCountryCode: "+66",
+      phoneNumber: "812345678",
     });
   });
 
@@ -284,7 +272,7 @@ describe("PassengerInformationPage", () => {
       <PassengerInformationPage backQuery="flightId=xf-201" holdId="hold-123" />,
     );
     await screen.findByRole("form", { name: "Passenger information form" });
-    fireEvent.click(screen.getByRole("button", { name: "Save passenger information" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save & Continue to Review" }));
 
     await waitFor(() => expect(screen.getByLabelText("Given name")).toHaveFocus());
     expect(screen.getByLabelText("Given name")).toHaveAttribute("aria-invalid", "true");

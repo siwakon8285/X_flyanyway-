@@ -57,14 +57,14 @@ describe("language changes preserve mounted page state", () => {
       </LanguageProvider>,
     );
 
-    const economyCabin = screen.getByRole("tab", { name: "Economy" });
-    fireEvent.mouseDown(economyCabin, { button: 0, ctrlKey: false });
-    fireEvent.click(economyCabin);
-    expect(economyCabin).toHaveAttribute("aria-selected", "true");
+    const firstCabin = screen.getByRole("tab", { name: "First" });
+    fireEvent.mouseDown(firstCabin, { button: 0, ctrlKey: false });
+    fireEvent.click(firstCabin);
+    expect(firstCabin).toHaveAttribute("aria-selected", "true");
 
     fireEvent.click(screen.getByRole("button", { name: /Current language/ }));
 
-    expect(screen.getByRole("tab", { name: "ชั้นประหยัด" })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "ชั้นหนึ่ง" })).toHaveAttribute(
       "aria-selected",
       "true",
     );

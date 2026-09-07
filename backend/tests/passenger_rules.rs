@@ -2,8 +2,8 @@ use chrono::NaiveDate;
 
 use x_fly_api::domain::{
     passengers::{
-        EmergencyContactInput, Gender, PassengerDraft, PassengerDraftError, PassengerInput,
-        PassengerType, Title,
+        validate_booking_contact, BookingContactInput, EmergencyContactInput, Gender,
+        PassengerDraft, PassengerDraftError, PassengerInput, PassengerType, Title,
     },
     value_objects::PassengerCounts,
 };
@@ -21,13 +21,10 @@ fn passenger(ordinal: u8, passenger_type: PassengerType, date_of_birth: &str) ->
         middle_name: Some("  Morgan  ".to_owned()),
         family_name: "  O’Connor  ".to_owned(),
         date_of_birth: date(date_of_birth),
-        gender: Gender::Unspecified,
+        gender: Gender::Female,
         nationality_code: "th".to_owned(),
         passport_number: " ab-123 456 ".to_owned(),
         passport_issuing_country_code: "th".to_owned(),
-        email: "  alex@example.com  ".to_owned(),
-        phone_country_code: " 66 ".to_owned(),
-        phone_number: " 81-234-5678 ".to_owned(),
         emergency_contact: None,
     }
 }
@@ -48,8 +45,7 @@ fn validates_and_normalizes_a_complete_passenger_draft() {
     assert_eq!(saved.family_name, "O’Connor");
     assert_eq!(saved.nationality_code, "TH");
     assert_eq!(saved.passport_number, "AB123456");
-    assert_eq!(saved.phone_country_code, "+66");
-    assert_eq!(saved.phone_number, "812345678");
+    assert_eq!(saved.gender, Gender::Female);
 }
 
 #[test]
@@ -139,12 +135,11 @@ fn rejects_future_birth_without_requiring_passport_dates() {
 }
 
 #[test]
-fn rejects_invalid_contact_fields_duplicate_passports_and_partial_emergency_contact() {
+fn rejects_unspecified_gender_duplicate_passports_and_partial_emergency_contact() {
     let departure = date("2030-05-10");
     let today = date("2026-08-31");
     let mut invalid = passenger(1, PassengerType::Adult, "1990-01-01");
-    invalid.email = "not-an-email".to_owned();
-    invalid.phone_number = "12".to_owned();
+    invalid.gender = Gender::Unspecified;
     invalid.emergency_contact = Some(EmergencyContactInput {
         name: "Sam Lee".to_owned(),
         relationship: "".to_owned(),
@@ -164,8 +159,7 @@ fn rejects_invalid_contact_fields_duplicate_passports_and_partial_emergency_cont
         .iter()
         .map(|error| error.code.as_str())
         .collect();
-    assert!(codes.contains(&"INVALID_EMAIL"));
-    assert!(codes.contains(&"INVALID_PHONE"));
+    assert!(codes.contains(&"INVALID_GENDER"));
     assert!(codes.contains(&"EMERGENCY_CONTACT_INCOMPLETE"));
 
     let duplicate = PassengerDraft::validate(
@@ -187,52 +181,45 @@ fn rejects_invalid_contact_fields_duplicate_passports_and_partial_emergency_cont
 
 #[test]
 fn reports_missing_phone_parts_without_echoing_their_values() {
-    let mut missing_country_code = passenger(1, PassengerType::Adult, "1990-01-01");
-    missing_country_code.phone_country_code = " ".to_owned();
-    let error = PassengerDraft::validate(
-        vec![missing_country_code],
-        PassengerCounts::new(1, 0, 0).unwrap(),
-        date("2030-05-10"),
-        date("2026-08-31"),
-    )
+    let error = validate_booking_contact(BookingContactInput {
+        phone_country_code: " ".to_owned(),
+        phone_number: "812345678".to_owned(),
+    })
     .err()
     .expect("phone country code is required");
-    assert!(error
-        .field_errors()
-        .iter()
-        .any(|field| { field.field == "phoneCountryCode" && field.code.as_str() == "REQUIRED" }));
+    assert_eq!(error.as_str(), "INVALID_PHONE");
 
-    let mut missing_number = passenger(1, PassengerType::Adult, "1990-01-01");
-    missing_number.phone_number = " ".to_owned();
-    let error = PassengerDraft::validate(
-        vec![missing_number],
-        PassengerCounts::new(1, 0, 0).unwrap(),
-        date("2030-05-10"),
-        date("2026-08-31"),
-    )
+    let error = validate_booking_contact(BookingContactInput {
+        phone_country_code: "+66".to_owned(),
+        phone_number: " ".to_owned(),
+    })
     .err()
     .expect("phone number is required");
-    assert!(error
-        .field_errors()
-        .iter()
-        .any(|field| { field.field == "phoneNumber" && field.code.as_str() == "REQUIRED" }));
+    assert_eq!(error.as_str(), "INVALID_PHONE");
 }
 
 #[test]
 fn rejects_letters_in_phone_fields_instead_of_normalizing_them_away() {
-    let mut invalid = passenger(1, PassengerType::Adult, "1990-01-01");
-    invalid.phone_country_code = "+6x6".to_owned();
-    invalid.phone_number = "0812CALL345678".to_owned();
-    let error = PassengerDraft::validate(
-        vec![invalid],
-        PassengerCounts::new(1, 0, 0).unwrap(),
-        date("2030-05-10"),
-        date("2026-08-31"),
-    )
+    let error = validate_booking_contact(BookingContactInput {
+        phone_country_code: "+6x6".to_owned(),
+        phone_number: "0812CALL345678".to_owned(),
+    })
     .err()
     .expect("letters in phone fields must be rejected");
-    assert!(error
-        .field_errors()
-        .iter()
-        .any(|field| { field.field == "phoneNumber" && field.code.as_str() == "INVALID_PHONE" }));
+    assert_eq!(error.as_str(), "INVALID_PHONE");
+}
+
+#[test]
+fn accepts_male_and_female_for_new_passengers() {
+    for gender in [Gender::Male, Gender::Female] {
+        let mut input = passenger(1, PassengerType::Adult, "1990-01-01");
+        input.gender = gender;
+        assert!(PassengerDraft::validate(
+            vec![input],
+            PassengerCounts::new(1, 0, 0).unwrap(),
+            date("2030-05-10"),
+            date("2026-08-31"),
+        )
+        .is_ok());
+    }
 }

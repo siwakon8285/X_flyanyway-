@@ -1,6 +1,8 @@
 import {
   createEmptyPassenger,
   normalizePassengerDraft,
+  normalizeBookingContact,
+  validateBookingContact,
   validatePassengerDraft,
 } from "@/components/booking/passengers/passengerValidation";
 import type { PassengerFormValue } from "@/components/booking/passengers/passengerTypes";
@@ -15,9 +17,6 @@ const validPassenger = (overrides: Partial<PassengerFormValue> = {}): PassengerF
   nationalityCode: "th",
   passportNumber: " th-123 456 ",
   passportIssuingCountryCode: "th",
-  email: " nara@example.com ",
-  phoneCountryCode: "66",
-  phoneNumber: "081-234-5678",
   ...overrides,
 });
 
@@ -31,18 +30,14 @@ describe("passenger validation", () => {
       nationalityCode: "TH",
       passportNumber: "TH123456",
       passportIssuingCountryCode: "TH",
-      phoneCountryCode: "+66",
-      phoneNumber: "0812345678",
     });
   });
 
-  it("reports required fields and malformed email, phone, passport, and country values", () => {
+  it("reports required passenger, passport, and country values", () => {
     const errors = validatePassengerDraft(
       [
         validPassenger({
           givenName: " ",
-          email: "invalid",
-          phoneNumber: "12",
           passportNumber: "@@",
           nationalityCode: "ZZ",
         }),
@@ -54,31 +49,21 @@ describe("passenger validation", () => {
     expect(errors).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ field: "givenName", code: "REQUIRED" }),
-        expect.objectContaining({ field: "email", code: "INVALID_EMAIL" }),
-        expect.objectContaining({ field: "phoneNumber", code: "INVALID_PHONE" }),
         expect.objectContaining({ field: "passportNumber", code: "INVALID_PASSPORT" }),
         expect.objectContaining({ field: "nationalityCode", code: "INVALID_COUNTRY" }),
       ]),
     );
   });
 
-  it("rejects letters in phone fields instead of normalizing them away", () => {
-    const errors = validatePassengerDraft(
-      [
-        validPassenger({
-          phoneCountryCode: "+6x6",
-          phoneNumber: "0812CALL345678",
-        }),
-      ],
-      "2030-05-10",
-      "2026-08-31",
-    );
-
-    expect(errors).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ field: "phoneNumber", code: "INVALID_PHONE" }),
-      ]),
-    );
+  it("validates and normalizes the phone-only booking contact", () => {
+    expect(normalizeBookingContact("66", "081-234-5678")).toEqual({
+      phoneCountryCode: "+66",
+      phoneNumber: "0812345678",
+    });
+    expect(validateBookingContact("+66", "0812345678")).toBe(true);
+    expect(validateBookingContact("+6x6", "0812CALL345678")).toBe(false);
+    expect(validateBookingContact("", "0812345678")).toBe(false);
+    expect(validateBookingContact("+66", "")).toBe(false);
   });
 
   it("uses exact adult, child, and infant boundaries on outbound departure", () => {
@@ -88,14 +73,12 @@ describe("passenger validation", () => {
         ordinal: 2,
         passengerType: "CHILD",
         dateOfBirth: "2018-06-16",
-        email: "child@example.com",
         passportNumber: "CH123456",
       }),
       validPassenger({
         ordinal: 3,
         passengerType: "INFANT",
         dateOfBirth: "2028-06-16",
-        email: "infant@example.com",
         passportNumber: "IN123456",
       }),
     ];
@@ -127,7 +110,6 @@ describe("passenger validation", () => {
     const second = validPassenger({
       ordinal: 2,
       passengerType: "ADULT",
-      email: "second@example.com",
     });
     const errors = validatePassengerDraft([first, second], "2030-05-10", "2026-08-31");
     const codes = errors.map((error) => error.code);
@@ -143,5 +125,14 @@ describe("passenger validation", () => {
       "PASSPORT_EXPIRES_BEFORE_DEPARTURE",
       "PASSPORT_ISSUE_AFTER_EXPIRY",
     ]));
+  });
+
+  it("accepts Male and Female but rejects a forged Unspecified value", () => {
+    expect(validatePassengerDraft([validPassenger({ gender: "MALE" })], "2030-05-10", "2026-08-31")).toEqual([]);
+    expect(validatePassengerDraft([validPassenger({ gender: "FEMALE" })], "2030-05-10", "2026-08-31")).toEqual([]);
+    const forged = validPassenger({ gender: "UNSPECIFIED" as PassengerFormValue["gender"] });
+    expect(validatePassengerDraft([forged], "2030-05-10", "2026-08-31")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "gender", code: "INVALID_GENDER" })]),
+    );
   });
 });

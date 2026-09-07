@@ -1,8 +1,4 @@
-import type {
-  ExtraSelection,
-  MealService,
-  Money,
-} from "@/components/booking/extras/extrasTypes";
+import type { MealService, Money } from "@/components/booking/extras/extrasTypes";
 import type {
   PassengerTitle,
   PassengerType,
@@ -23,7 +19,6 @@ type ReviewJourney = {
 
 type ReviewPassenger = {
   displayName: string;
-  extras: ExtraSelection[];
   nationalityCode: string;
   ordinal: number;
   passengerType: PassengerType;
@@ -49,7 +44,6 @@ type ReviewPricing = {
     }>;
   };
   currencyCode: string;
-  extras: Money;
   fees: ReviewPricingLine[];
   grandTotal: Money;
   pricedAt: string;

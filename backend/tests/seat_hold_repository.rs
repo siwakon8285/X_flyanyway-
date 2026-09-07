@@ -39,7 +39,7 @@ fn selection(flight_id: &str, departure_date: NaiveDate) -> FlightSelection {
     FlightSelection {
         flight_id: flight_id.to_owned(),
         departure_date,
-        cabin: CabinClass::Economy,
+        cabin: CabinClass::Business,
     }
 }
 
@@ -72,25 +72,66 @@ async fn holds_one_or_multiple_available_seats_and_owner_can_revalidate() {
 
     let single = repository
         .create_hold(
-            command("xf-201", single_date, &["20A"], 1),
+            command("xf-201", single_date, &["3A"], 1),
             Duration::from_secs(600),
         )
         .await
         .unwrap();
-    assert_eq!(single.seats, seats(&["20A"]));
+    assert_eq!(single.seats, seats(&["3A"]));
 
     let multiple = repository
         .create_hold(
-            command("xf-201", multiple_date, &["20A", "20B"], 2),
+            command("xf-201", multiple_date, &["3A", "3D"], 2),
             Duration::from_secs(600),
         )
         .await
         .unwrap();
-    assert_eq!(multiple.seats, seats(&["20A", "20B"]));
+    assert_eq!(multiple.seats, seats(&["3A", "3D"]));
 
     let revalidated = repository.get_hold(multiple.id, [2; 32]).await.unwrap();
     assert_eq!(revalidated.seats, multiple.seats);
     assert!(revalidated.expires_at > revalidated.server_time);
+}
+
+#[tokio::test]
+async fn new_holds_accept_only_business_and_first_while_legacy_values_still_parse() {
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+    let date = test_date();
+
+    repository
+        .create_hold(
+            command("xf-201", date, &["3A"], 31),
+            Duration::from_secs(600),
+        )
+        .await
+        .unwrap();
+
+    let mut first = command("xf-201", test_date(), &["1A"], 32);
+    first.selection.cabin = CabinClass::First;
+    repository
+        .create_hold(first, Duration::from_secs(600))
+        .await
+        .unwrap();
+
+    for (cabin, token) in [(CabinClass::Economy, 33), (CabinClass::PremiumEconomy, 34)] {
+        let mut legacy = command("xf-201", test_date(), &["3A"], token);
+        legacy.selection.cabin = cabin;
+        assert!(matches!(
+            repository
+                .create_hold(legacy, Duration::from_secs(600))
+                .await,
+            Err(SeatHoldRepositoryError::CabinUnavailable)
+        ));
+    }
+
+    assert_eq!(
+        "economy".parse::<CabinClass>().unwrap(),
+        CabinClass::Economy
+    );
+    assert_eq!(
+        "premium-economy".parse::<CabinClass>().unwrap(),
+        CabinClass::PremiumEconomy
+    );
 }
 
 #[tokio::test]
@@ -114,14 +155,14 @@ async fn rejects_nonexistent_wrong_flight_and_mismatched_seat_counts() {
 
     repository
         .create_hold(
-            command("xf-201", wrong_flight_date, &["26A"], 4),
+            command("xf-201", wrong_flight_date, &["7A"], 4),
             Duration::from_secs(600),
         )
         .await
         .unwrap();
     let wrong_flight = repository
         .create_hold(
-            command("xf-315", wrong_flight_date, &["26A"], 5),
+            command("xf-315", wrong_flight_date, &["7A"], 5),
             Duration::from_secs(600),
         )
         .await
@@ -131,7 +172,7 @@ async fn rejects_nonexistent_wrong_flight_and_mismatched_seat_counts() {
         SeatHoldRepositoryError::SeatNotFound(_)
     ));
 
-    let mut mismatch = command("xf-201", mismatch_date, &["20A", "20B", "20C"], 6);
+    let mut mismatch = command("xf-201", mismatch_date, &["3A", "3D", "3G"], 6);
     mismatch.passengers = PassengerCounts::new(2, 0, 0).unwrap();
     assert!(matches!(
         repository
@@ -149,14 +190,14 @@ async fn active_hold_conflicts_but_expired_hold_does_not_block_inventory() {
 
     repository
         .create_hold(
-            command("xf-201", conflict_date, &["20A"], 7),
+            command("xf-201", conflict_date, &["3A"], 7),
             Duration::from_secs(600),
         )
         .await
         .unwrap();
     let conflict = repository
         .create_hold(
-            command("xf-201", conflict_date, &["20A"], 8),
+            command("xf-201", conflict_date, &["3A"], 8),
             Duration::from_secs(600),
         )
         .await
@@ -166,16 +207,16 @@ async fn active_hold_conflicts_but_expired_hold_does_not_block_inventory() {
             SeatHoldRepositoryError::SeatConflict(values) => values,
             other => panic!("expected seat conflict, got {other:?}"),
         },
-        vec!["20A"]
+        vec!["3A"]
     );
 
     let expired = repository
-        .create_hold(command("xf-201", expiry_date, &["20A"], 9), Duration::ZERO)
+        .create_hold(command("xf-201", expiry_date, &["3A"], 9), Duration::ZERO)
         .await
         .unwrap();
     repository
         .create_hold(
-            command("xf-201", expiry_date, &["20A"], 10),
+            command("xf-201", expiry_date, &["3A"], 10),
             Duration::from_secs(600),
         )
         .await
@@ -199,7 +240,7 @@ async fn exactly_one_concurrent_request_wins_the_same_seat() {
             barrier.wait().await;
             repository
                 .create_hold(
-                    command("xf-201", departure_date, &["20A"], token_byte),
+                    command("xf-201", departure_date, &["3A"], token_byte),
                     Duration::from_secs(600),
                 )
                 .await
@@ -228,7 +269,7 @@ async fn release_returns_inventory_to_available() {
     let departure_date = test_date();
     let hold = repository
         .create_hold(
-            command("xf-201", departure_date, &["20A"], 13),
+            command("xf-201", departure_date, &["3A"], 13),
             Duration::from_secs(600),
         )
         .await
@@ -237,7 +278,7 @@ async fn release_returns_inventory_to_available() {
     repository.release_hold(hold.id, [13; 32]).await.unwrap();
     repository
         .create_hold(
-            command("xf-201", departure_date, &["20A"], 14),
+            command("xf-201", departure_date, &["3A"], 14),
             Duration::from_secs(600),
         )
         .await
@@ -270,7 +311,7 @@ async fn booked_seat_cannot_be_held() {
     )
     .bind("xf-201")
     .bind(departure_date)
-    .bind("20A")
+    .bind("3A")
     .execute(&pool)
     .await
     .unwrap();
@@ -278,7 +319,7 @@ async fn booked_seat_cannot_be_held() {
     assert!(matches!(
         repository
             .create_hold(
-                command("xf-201", departure_date, &["20A"], 15),
+                command("xf-201", departure_date, &["3A"], 15),
                 Duration::from_secs(600),
             )
             .await,
@@ -292,17 +333,17 @@ async fn replacing_seats_is_atomic_and_keeps_the_original_expiry() {
     let departure_date = test_date();
     let original = repository
         .create_hold(
-            command("xf-201", departure_date, &["20A"], 16),
+            command("xf-201", departure_date, &["3A"], 16),
             Duration::from_secs(600),
         )
         .await
         .unwrap();
 
     let replaced = repository
-        .replace_seats(original.id, [16; 32], seats(&["20B"]))
+        .replace_seats(original.id, [16; 32], seats(&["3D"]))
         .await
         .unwrap();
-    assert_eq!(replaced.seats, seats(&["20B"]));
+    assert_eq!(replaced.seats, seats(&["3D"]));
     assert_eq!(replaced.expires_at, original.expires_at);
 
     let count: i64 = sqlx::query("SELECT COUNT(*) AS count FROM flight_seats WHERE hold_id = $1")

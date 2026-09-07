@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Armchair,
   ArrowLeft,
@@ -11,6 +12,7 @@ import {
   Clock,
   Copy,
   CreditCard,
+  Info,
   Plane,
   Printer,
   User,
@@ -25,6 +27,14 @@ import {
 import type { TicketResponse } from "@/components/booking/ticket/ticketTypes";
 import { Container } from "@/components/layout/Container";
 import { Button, buttonVariants } from "@/components/ui/Button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/Dialog";
 import { formatDate, formatPrice } from "@/i18n/formatters";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import type { TranslationKey } from "@/i18n/types";
@@ -49,6 +59,7 @@ const TicketPage = ({
   attemptId,
 }: TicketPageProps) => {
   const { locale, t } = useLanguage();
+  const router = useRouter();
   const [data, setData] = useState<TicketResponse | null>(null);
   const canLoad = Boolean(holdId && attemptId);
   const [loading, setLoading] = useState(canLoad);
@@ -61,9 +72,12 @@ const TicketPage = ({
       : null,
   );
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [pendingDestination, setPendingDestination] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const hasRevealed = useRef(false);
+  const leaveTriggerRef = useRef<HTMLAnchorElement | null>(null);
+  const confirmingLeaveRef = useRef(false);
 
   useEffect(() => {
     if (!canLoad) return;
@@ -113,6 +127,60 @@ const TicketPage = ({
       active = false;
     };
   }, [attemptId, canLoad, holdId]);
+
+  useEffect(() => {
+    if (!data) return;
+
+    const interceptInternalNavigation = (event: MouseEvent) => {
+      if (
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) return;
+
+      const target = event.target;
+      const anchor = target instanceof Element
+        ? target.closest<HTMLAnchorElement>("a[href]")
+        : null;
+      if (!anchor || anchor.hasAttribute("download") || anchor.target === "_blank") return;
+
+      const destination = new URL(anchor.href, window.location.href);
+      if (destination.origin !== window.location.origin) return;
+      if (destination.pathname.startsWith("/manage-booking")) return;
+
+      event.preventDefault();
+      leaveTriggerRef.current = anchor;
+      setPendingDestination(
+        `${destination.pathname}${destination.search}${destination.hash}`,
+      );
+    };
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    document.addEventListener("click", interceptInternalNavigation, true);
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => {
+      document.removeEventListener("click", interceptInternalNavigation, true);
+      window.removeEventListener("beforeunload", warnBeforeUnload);
+    };
+  }, [data]);
+
+  const cancelLeave = () => {
+    confirmingLeaveRef.current = false;
+    setPendingDestination(null);
+  };
+
+  const confirmLeave = () => {
+    if (!pendingDestination) return;
+    confirmingLeaveRef.current = true;
+    const destination = pendingDestination;
+    setPendingDestination(null);
+    router.push(destination);
+  };
 
   const copyToClipboard = async (text: string, key: string) => {
     try {
@@ -506,6 +574,25 @@ const TicketPage = ({
                       </span>
                     </div>
                   </div>
+
+                  <aside
+                    aria-labelledby="ticket-retention-title"
+                    className="rounded-control border border-brand/40 bg-brand/[0.07] p-5 print:border-neutral-500 print:bg-neutral-50"
+                    data-ticket-retention-notice
+                    role="note"
+                  >
+                    <div className="flex items-start gap-3">
+                      <Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-brand print:text-black" />
+                      <div>
+                        <h2 className="font-semibold text-foreground print:text-black" id="ticket-retention-title">
+                          {t("ticket.retention.title")}
+                        </h2>
+                        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground print:text-neutral-700">
+                          {t("ticket.retention.body")}
+                        </p>
+                      </div>
+                    </div>
+                  </aside>
                 </div>
 
               </div>
@@ -513,7 +600,7 @@ const TicketPage = ({
 
             {/* Final summary actions */}
             <div
-              className="mt-8 flex items-center print:hidden"
+              className="mt-8 flex flex-wrap items-center gap-4 print:hidden"
               data-ticket-reveal="actions"
             >
               <Button
@@ -525,11 +612,53 @@ const TicketPage = ({
                 <Printer aria-hidden="true" className="size-4" />
                 {t("ticket.actions.print")}
               </Button>
-
+              <Link
+                className={buttonVariants({ variant: "primary" })}
+                href="/manage-booking"
+              >
+                {t("ticket.actions.manageBooking")}
+              </Link>
             </div>
           </article>
         ) : null}
       </Container>
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open) cancelLeave();
+        }}
+        open={pendingDestination !== null}
+      >
+        <DialogContent
+          className="border-brand/30 bg-[#111217]"
+          onCloseAutoFocus={(event) => {
+            if (confirmingLeaveRef.current) {
+              event.preventDefault();
+              return;
+            }
+            event.preventDefault();
+            leaveTriggerRef.current?.focus();
+          }}
+          showCloseButton={false}
+        >
+          <DialogHeader>
+            <DialogTitle>{t("ticket.leave.title")}</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 text-body-sm text-muted-foreground">
+                <p>{t("ticket.leave.prompt")}</p>
+                <p>{t("ticket.leave.body")}</p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={cancelLeave} variant="outline">
+              {t("ticket.leave.cancel")}
+            </Button>
+            <Button onClick={confirmLeave} variant="primary">
+              {t("ticket.leave.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 };

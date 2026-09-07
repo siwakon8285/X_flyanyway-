@@ -9,7 +9,7 @@ import {
 } from "@/components/booking/results/flightResultUtils";
 
 const criteria: FlightSearchFormValues = {
-  cabin: "premium-economy",
+  cabin: "business",
   departure: "2099-05-10",
   from: AIRPORT_FIXTURES[0],
   passengers: { adults: 1, children: 1, infants: 0 },
@@ -26,12 +26,7 @@ const demoRoutes = [
   ["LHR", "BKK"],
   ["JFK", "LHR"],
 ] as const;
-const cabinClasses = [
-  "economy",
-  "premium-economy",
-  "business",
-  "first",
-] as const;
+const cabinClasses = ["business", "first"] as const;
 
 const createCriteria = (
   originCode: string,
@@ -81,7 +76,7 @@ describe("flight result utilities", () => {
   });
 
   it.each(demoRoutes)(
-    "provides 2–4 demo flights from %s to %s with every cabin represented",
+    "provides 2–4 demo flights from %s to %s with every bookable cabin represented",
     (originCode, destinationCode) => {
       const routeFixtures = FLIGHT_RESULT_FIXTURES.filter(
         (flight) =>
