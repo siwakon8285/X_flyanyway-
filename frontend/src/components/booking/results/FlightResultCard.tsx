@@ -1,6 +1,5 @@
 import { ArrowRight, Clock3, Plane } from "lucide-react";
 
-import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import type { FlightSearchFormValues } from "@/components/booking/search/searchTypes";
 import type { FlightResult } from "@/components/booking/results/flightResultTypes";
 import { getCabinPrice } from "@/components/booking/results/flightResultUtils";
@@ -13,17 +12,17 @@ const FlightResultCard = ({
   cabin,
   flight,
   query,
+  originCity,
+  destinationCity,
 }: {
   cabin: FlightSearchFormValues["cabin"];
   flight: FlightResult;
   query: string;
+  originCity?: string;
+  destinationCity?: string;
 }) => {
   const price = getCabinPrice(flight, cabin);
   const titleId = `${flight.id}-title`;
-  const origin = AIRPORT_FIXTURES.find((airport) => airport.code === flight.originCode);
-  const destination = AIRPORT_FIXTURES.find(
-    (airport) => airport.code === flight.destinationCode,
-  );
   const { locale, t } = useLanguage();
 
   if (price === null) return null;
@@ -54,7 +53,7 @@ const FlightResultCard = ({
                 {flight.departureTime}
               </p>
               <p className="mt-2 text-h3 uppercase">{flight.originCode}</p>
-              <p className="mt-1 text-body-sm text-muted-foreground">{origin?.city}</p>
+              <p className="mt-1 text-body-sm text-muted-foreground">{originCity}</p>
             </div>
 
             <div className="flex min-w-20 flex-col items-center sm:min-w-36">
@@ -80,7 +79,7 @@ const FlightResultCard = ({
               </p>
               <p className="mt-2 text-h3 uppercase">{flight.destinationCode}</p>
               <p className="mt-1 text-body-sm text-muted-foreground">
-                {destination?.city}
+                {destinationCity}
               </p>
             </div>
           </div>

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { formatDate, formatPrice } from "@/i18n/formatters";
-import type { DashboardData, DashboardFilters as Filters } from "@/lib/admin/dashboardTypes";
+import { dashboardDataReconciles, type DashboardData, type DashboardFilters as Filters } from "@/lib/admin/dashboardTypes";
 import { DailyFigures, DemandChart, RevenueChart } from "./DashboardCharts";
 import { DashboardDetail } from "./DashboardDetail";
 import { DashboardFilters, presetFilters } from "./DashboardFilters";
@@ -39,6 +39,13 @@ export function ExecutiveDashboard() {
           return;
         }
         const next: DashboardData = await response.json();
+        if (!dashboardDataReconciles(next)) {
+          if (!controller.signal.aborted) {
+            setData(undefined);
+            setError(502);
+          }
+          return;
+        }
         if (!controller.signal.aborted) {
           setData(next);
           setDataRevision((value) => value + 1);

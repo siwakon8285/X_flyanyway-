@@ -21,7 +21,7 @@ describe("Executive Dashboard", () => {
     expect(screen.getByRole("img", { name: "Gross booking revenue trend" })).toHaveAttribute("data-values", "8000,22000");
     expect(screen.getByRole("img", { name: "Booking demand trend" })).toHaveAttribute("data-values", "1,2");
     expect(container.querySelector(".exec-revenue-chart [data-chart-line]")?.getAttribute("d")).toContain("C");
-    expect(screen.getByRole("img", { name: "Instrumented cabin mix by bookings" })).toHaveAttribute("data-values", "2,0,1,0");
+    expect(screen.getByRole("img", { name: "Active cabin mix by bookings" })).toHaveAttribute("data-values", "2,1");
     expect(screen.getByRole("img", { name: "Recorded occupancy 20%: 4 booked seats from 20 sellable seats" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Stripe · test mode", { selector: "p" })).toBeInTheDocument();
@@ -71,6 +71,63 @@ describe("Executive Dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith("/admin/api/dashboard?from=2026-09-01&to=2026-09-02&route=BKK-NRT&cabin=business&provider=MOCK_BITCOIN", expect.objectContaining({ cache: "no-store" })));
   });
+  it("offers only active cabins and makes the unfiltered cohort explicit", async () => {
+    render(<ExecutiveDashboard />);
+    await screen.findByRole("region", { name:"Executive summary" });
+    const cabin = screen.getByLabelText("Cabin");
+    for (const label of ["From", "To", "Route", "Cabin", "Payment records"]) {
+      expect(screen.getByLabelText(label)).toHaveClass("exec-filter-control");
+    }
+    expect(within(cabin).getByRole("option", { name:"All active cabins" })).toHaveValue("");
+    expect(within(cabin).getByRole("option", { name:"Business" })).toHaveValue("business");
+    expect(within(cabin).getByRole("option", { name:"First" })).toHaveValue("first");
+    expect(within(cabin).queryByRole("option", { name:"Economy" })).not.toBeInTheDocument();
+    expect(within(cabin).queryByRole("option", { name:"Premium Economy" })).not.toBeInTheDocument();
+    cabin.focus();
+    expect(cabin).toHaveFocus();
+  });
+  it("renders an intentional two-cabin intelligence view without legacy labels", async () => {
+    render(<ExecutiveDashboard />);
+    const chart = await screen.findByRole("img", { name:"Active cabin mix by bookings" });
+    expect(chart).toHaveAttribute("data-values", "2,1");
+    const business = screen.getByText("Business", { selector:"li span" }).closest("li")!;
+    const first = screen.getByText("First", { selector:"li span" }).closest("li")!;
+    expect(within(business).getByText("66.7%")).toBeInTheDocument();
+    expect(within(first).getByText("33.3%")).toBeInTheDocument();
+    expect(screen.queryByText("Economy")).not.toBeInTheDocument();
+    expect(screen.queryByText("Premium Economy")).not.toBeInTheDocument();
+  });
+  it("fails closed when an old backend response mixes hidden legacy cabins into active totals", async () => {
+    jest.mocked(fetch).mockResolvedValue(response({
+      ...dashboardFixture,
+      summary: { ...dashboardFixture.summary, grossRevenue: 1_405_400, totalBookings: 29, ticketsIssued: 29, averageBookingValue: 1_405_400 / 29 },
+      trends: [{ date: "2026-09-08", bookings: 29, revenue: 1_405_400 }],
+      cabins: [
+        { cabin: "business", bookings: 10, revenue: 464_500 },
+        { cabin: "first", bookings: 7, revenue: 640_900 },
+        { cabin: "economy", bookings: 3, revenue: 50_400 },
+        { cabin: "premium-economy", bookings: 9, revenue: 249_600 },
+      ],
+    } as unknown as typeof dashboardFixture));
+    render(<ExecutiveDashboard />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Commercial performance is temporarily unavailable");
+    expect(screen.queryByRole("region", { name: "Executive summary" })).not.toBeInTheDocument();
+    expect(screen.queryByText("THB 1,405,400")).not.toBeInTheDocument();
+  });
+  it("accepts dynamically returned managed routes without a frontend route fixture", async () => {
+    jest.mocked(fetch).mockResolvedValue(response({
+      ...dashboardFixture,
+      availableRoutes:[...dashboardFixture.availableRoutes, "SYD-CDG"],
+      routes:[{ route:"SYD-CDG", bookings:1, revenue:99500 }],
+      flights:[{ flightNumber:"XF 880", route:"SYD-CDG", departureDate:"2026-09-08", bookings:1, revenue:99500 }],
+      revenueFlights:[{ flightNumber:"XF 880", route:"SYD-CDG", departureDate:"2026-09-08", bookings:1, revenue:99500 }],
+    }));
+    render(<ExecutiveDashboard />);
+    await screen.findByRole("region", { name:"Executive summary" });
+    expect(within(screen.getByLabelText("Route")).getByRole("option", { name:"SYD-CDG" })).toBeInTheDocument();
+    expect(screen.getAllByText("SYD → CDG").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("XF 880").length).toBeGreaterThan(0);
+  });
   it("shows loading without invented metrics", () => {
     jest.mocked(fetch).mockReturnValue(new Promise(() => {}));
     render(<ExecutiveDashboard />);
@@ -103,7 +160,13 @@ describe("Executive Dashboard", () => {
     await act(async () => resolveRefresh(response()));
   });
   it("replaces both chart signals with the newly filtered authoritative series", async () => {
-    const refreshed = { ...dashboardFixture, generatedAt: "2026-09-02T12:01:00Z", trends: [{ date: "2026-09-02", bookings: 5, revenue: 41000 }] };
+    const refreshed = {
+      ...dashboardFixture,
+      generatedAt: "2026-09-02T12:01:00Z",
+      summary: { ...dashboardFixture.summary, grossRevenue: 41000, totalBookings: 5, averageBookingValue: 8200 },
+      trends: [{ date: "2026-09-02", bookings: 5, revenue: 41000 }],
+      cabins: [{ cabin: "business" as const, bookings: 3, revenue: 25000 }, { cabin: "first" as const, bookings: 2, revenue: 16000 }],
+    };
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockResolvedValueOnce(response(refreshed));
     render(<ExecutiveDashboard />);
     await screen.findByRole("region", { name: "Executive summary" });
@@ -112,7 +175,13 @@ describe("Executive Dashboard", () => {
     expect(screen.getByRole("img", { name: "Booking demand trend" })).toHaveAttribute("data-values", "5");
   });
   it("clears inspected data on filter refresh and only inspects the replacement dataset", async () => {
-    const refreshed = { ...dashboardFixture, generatedAt: "2026-09-03T12:01:00Z", trends: [{ date: "2026-09-03", bookings: 5, revenue: 41000 }] };
+    const refreshed = {
+      ...dashboardFixture,
+      generatedAt: "2026-09-03T12:01:00Z",
+      summary: { ...dashboardFixture.summary, grossRevenue: 41000, totalBookings: 5, averageBookingValue: 8200 },
+      trends: [{ date: "2026-09-03", bookings: 5, revenue: 41000 }],
+      cabins: [{ cabin: "business" as const, bookings: 3, revenue: 25000 }, { cabin: "first" as const, bookings: 2, revenue: 16000 }],
+    };
     let resolveRefresh!: (value: Response) => void;
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve; }));
     render(<ExecutiveDashboard />);
@@ -158,6 +227,9 @@ describe("Executive Dashboard", () => {
     expect(await screen.findByRole("region", { name: "สรุปสำหรับผู้บริหาร" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "ผลการดำเนินงานเชิงพาณิชย์" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ใช้ตัวกรอง" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นโดยสารที่เปิดขายทั้งหมด" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นธุรกิจ" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นหนึ่ง" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "แนวโน้มรายได้รวมจากการจอง" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /อัตราการจองที่นั่งที่บันทึก 20%/ })).toBeInTheDocument();
     const chart = screen.getByRole("img", { name: "แนวโน้มจำนวนการจอง" });

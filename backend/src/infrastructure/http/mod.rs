@@ -18,6 +18,7 @@ use tower_http::{
 use uuid::Uuid;
 
 use crate::{
+    application::flight::PublicFlightFilter,
     domain::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
         manage_booking::ManageBookingLookup,
@@ -53,6 +54,9 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/health", get(health))
+        .route("/api/v1/airports", get(list_airports))
+        .route("/api/v1/flights", get(search_flights))
+        .route("/api/v1/flights/{flight_id}", get(flight_detail))
         .route("/api/v1/flights/{flight_id}/seats", get(seat_map))
         .route("/api/v1/seat-holds", post(create_hold))
         .route(
@@ -101,6 +105,95 @@ pub fn build_router(state: AppState) -> Router {
 
 async fn health() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
+}
+
+async fn list_airports(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    let flights = state
+        .flights
+        .as_ref()
+        .ok_or_else(ApiError::public_flight_unavailable)?;
+    let references = flights
+        .reference_data()
+        .await
+        .map_err(|_| ApiError::public_flight_unavailable())?;
+    Ok(Json(references.airports))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicFlightQuery {
+    origin: String,
+    destination: String,
+    departure: NaiveDate,
+    cabin: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicFlightDetailQuery {
+    departure: NaiveDate,
+    cabin: String,
+}
+
+fn public_flight_filter(query: PublicFlightQuery) -> Result<PublicFlightFilter, ApiError> {
+    let origin = query.origin.trim().to_uppercase();
+    let destination = query.destination.trim().to_uppercase();
+    if origin.len() != 3
+        || destination.len() != 3
+        || origin == destination
+        || !origin.bytes().all(|value| value.is_ascii_uppercase())
+        || !destination.bytes().all(|value| value.is_ascii_uppercase())
+    {
+        return Err(ApiError::public_flight_validation());
+    }
+    let cabin = CabinClass::parse_customer_booking(&query.cabin)
+        .map_err(|_| ApiError::public_flight_validation())?;
+    Ok(PublicFlightFilter {
+        origin,
+        destination,
+        departure: query.departure,
+        cabin,
+    })
+}
+
+async fn search_flights(
+    State(state): State<AppState>,
+    query: Result<Query<PublicFlightQuery>, axum::extract::rejection::QueryRejection>,
+) -> Result<impl IntoResponse, ApiError> {
+    let query = query.map_err(|_| ApiError::public_flight_validation())?.0;
+    let flights = state
+        .flights
+        .as_ref()
+        .ok_or_else(ApiError::public_flight_unavailable)?;
+    let results = flights
+        .search_public(public_flight_filter(query)?)
+        .await
+        .map_err(|_| ApiError::public_flight_unavailable())?;
+    Ok(Json(results))
+}
+
+async fn flight_detail(
+    State(state): State<AppState>,
+    Path(flight_id): Path<String>,
+    query: Result<Query<PublicFlightDetailQuery>, axum::extract::rejection::QueryRejection>,
+) -> Result<impl IntoResponse, ApiError> {
+    let query = query.map_err(|_| ApiError::public_flight_validation())?.0;
+    let cabin = CabinClass::parse_customer_booking(&query.cabin)
+        .map_err(|_| ApiError::public_flight_validation())?;
+    let flights = state
+        .flights
+        .as_ref()
+        .ok_or_else(ApiError::public_flight_unavailable)?;
+    let detail = flights
+        .public_detail(&flight_id, query.departure, cabin)
+        .await
+        .map_err(|error| match error {
+            crate::domain::flight::FlightManagementError::NotFound => {
+                ApiError::public_flight_not_found()
+            }
+            _ => ApiError::public_flight_unavailable(),
+        })?;
+    Ok(Json(detail))
 }
 
 #[derive(Deserialize)]
@@ -841,6 +934,33 @@ struct ApiError {
 }
 
 impl ApiError {
+    fn public_flight_validation() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "FLIGHT_SEARCH_INVALID",
+            message: "The flight search is invalid.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+    fn public_flight_not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "FLIGHT_NOT_FOUND",
+            message: "The flight is not available.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+    fn public_flight_unavailable() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "FLIGHT_SEARCH_UNAVAILABLE",
+            message: "Flight search is temporarily unavailable.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
     fn conflict(code: &'static str, message: &'static str) -> Self {
         Self {
             status: StatusCode::CONFLICT,
@@ -986,6 +1106,10 @@ impl From<PaymentRepositoryError> for ApiError {
             PaymentRepositoryError::HoldConsumed => {
                 conflict("HOLD_CONSUMED", "The seat hold has already been finalized.")
             }
+            PaymentRepositoryError::FlightUnavailable => conflict(
+                "FLIGHT_UNAVAILABLE",
+                "The flight is no longer available for booking.",
+            ),
             PaymentRepositoryError::PaymentFinalizationInProgress => {
                 Self::payment_finalization_conflict()
             }

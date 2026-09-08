@@ -24,10 +24,14 @@ const FlightResultsList = ({
   cabin,
   flights,
   query,
+  originCity,
+  destinationCity,
 }: {
   cabin: FlightSearchFormValues["cabin"];
   flights: readonly FlightResult[];
   query: string;
+  originCity?: string;
+  destinationCity?: string;
 }) => {
   const [sort, setSort] = useState<FlightSortOption>("recommended");
   const { t } = useLanguage();
@@ -74,7 +78,13 @@ const FlightResultsList = ({
       >
         {sortedFlights.map((flight) => (
           <li key={flight.id}>
-            <FlightResultCard cabin={cabin} flight={flight} query={query} />
+            <FlightResultCard
+              cabin={cabin}
+              destinationCity={destinationCity}
+              flight={flight}
+              originCity={originCity}
+              query={query}
+            />
           </li>
         ))}
       </Reveal>

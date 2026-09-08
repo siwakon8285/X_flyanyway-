@@ -217,13 +217,19 @@ async fn upstream_saves_invalidate_and_rematerialize_review_pricing() {
 #[tokio::test]
 async fn seeds_complete_authoritative_fares_for_every_available_cabin() {
     let pool = test_pool().await;
-    let available_cabins: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM flight_service_cabins")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let available_cabins: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM flight_service_cabins cabin
+         JOIN flight_services service ON service.id=cabin.flight_service_id
+         WHERE service.operating_date IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let priced_cabins: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM flight_service_cabins
-         WHERE base_fare_amount IS NOT NULL AND currency_code = 'THB'",
+        "SELECT COUNT(*) FROM flight_service_cabins cabin
+         JOIN flight_services service ON service.id=cabin.flight_service_id
+         WHERE service.operating_date IS NULL
+           AND cabin.base_fare_amount IS NOT NULL AND cabin.currency_code = 'THB'",
     )
     .fetch_one(&pool)
     .await
@@ -233,7 +239,8 @@ async fn seeds_complete_authoritative_fares_for_every_available_cabin() {
 
     let scheduled_services: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM flight_services
-         WHERE departure_time IS NOT NULL AND arrival_time IS NOT NULL
+         WHERE operating_date IS NULL
+           AND departure_time IS NOT NULL AND arrival_time IS NOT NULL
            AND arrival_day_offset IS NOT NULL AND duration_minutes IS NOT NULL
            AND stops IS NOT NULL",
     )

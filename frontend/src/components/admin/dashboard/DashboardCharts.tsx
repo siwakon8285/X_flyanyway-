@@ -6,8 +6,8 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 import { formatDate, formatPrice } from "@/i18n/formatters";
 import { dashboardCabins, type DashboardCabin, type DashboardData } from "@/lib/admin/dashboardTypes";
 
-export const cabinKeys = { economy: "economy", "premium-economy": "premiumEconomy", business: "business", first: "first" } as const;
-const cabinColors = ["#FFD400", "#b4ae94", "#7f9b99", "#f0e3bd"];
+export const cabinKeys = { business: "business", first: "first" } as const;
+const cabinColors = ["#FFD400", "#8fa5a3"];
 const chartWidth = 680;
 const plotStart = 58;
 const plotEnd = 650;
@@ -142,8 +142,8 @@ export function DemandChart({ points, title }: { points: DashboardData["trends"]
 
 export function CabinMix({ cabins }: { cabins: DashboardData["cabins"] }) {
   const { t, locale } = useLanguage();
-  const total = cabins.reduce((sum, item) => sum + item.bookings, 0);
   const values = dashboardCabins.map((cabin) => cabins.find((item) => item.cabin === cabin)?.bookings ?? 0);
+  const total = values.reduce((sum, value) => sum + value, 0);
   const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
 
   return <div className="exec-cabin-mix">

@@ -14,9 +14,11 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 const FlightResultsPage = ({
   criteria,
   query,
+  flights: authoritativeFlights,
 }: {
   criteria: FlightSearchFormValues | null;
   query: string;
+  flights?: readonly import("@/components/booking/results/flightResultTypes").FlightResult[] | null;
 }) => {
   const { t } = useLanguage();
 
@@ -37,7 +39,17 @@ const FlightResultsPage = ({
     );
   }
 
-  const flights = filterFlightResults(FLIGHT_RESULT_FIXTURES, criteria);
+  if (authoritativeFlights === null) {
+    return (
+      <Container>
+        <FlightResultsState
+          description={t("flightResults.errorDescription")}
+          title={t("flightResults.errorTitle")}
+        />
+      </Container>
+    );
+  }
+  const flights = filterFlightResults(authoritativeFlights ?? FLIGHT_RESULT_FIXTURES, criteria);
 
   return (
     <section className="relative min-h-screen overflow-hidden py-section-sm pt-[calc(var(--header-height)+clamp(3rem,7vw,6rem))]">
@@ -49,7 +61,13 @@ const FlightResultsPage = ({
         <SearchSummary criteria={criteria} query={query} />
         <div className="pt-9 lg:pt-12">
           {flights.length > 0 ? (
-            <FlightResultsList cabin={criteria.cabin} flights={flights} query={query} />
+            <FlightResultsList
+              cabin={criteria.cabin}
+              destinationCity={criteria.to?.city}
+              flights={flights}
+              originCity={criteria.from?.city}
+              query={query}
+            />
           ) : (
             <FlightResultsState
               description={t("flightResults.emptyDescription")}

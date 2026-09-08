@@ -4,6 +4,7 @@ import { ArrowRight, ArrowUpDown } from "lucide-react";
 import { useRef, useState, type FormEvent } from "react";
 
 import { AirportSelector } from "@/components/booking/search/AirportSelector";
+import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import { CabinSelector } from "@/components/booking/search/CabinSelector";
 import { DateSelector } from "@/components/booking/search/DateSelector";
 import { PassengerSelector } from "@/components/booking/search/PassengerSelector";
@@ -27,6 +28,7 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 import type { TranslationKey } from "@/i18n/types";
 
 type FlightSearchFormProps = {
+  airports?: readonly AirportOption[];
   initialValues: FlightSearchFormValues;
   onValidSubmit: (values: FlightSearchFormValues) => void;
 };
@@ -36,7 +38,7 @@ const tripTypes = [
   { labelKey: "flightSearch.trip.oneWay", value: "one-way" },
 ] as const satisfies readonly { labelKey: TranslationKey; value: TripType }[];
 
-const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProps) => {
+const FlightSearchForm = ({ airports = AIRPORT_FIXTURES, initialValues, onValidSubmit }: FlightSearchFormProps) => {
   const form = useRef<HTMLFormElement>(null);
   const [errors, setErrors] = useState<FlightSearchErrors>({});
   const [submitted, setSubmitted] = useState(false);
@@ -126,6 +128,7 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
 
         <div className="mt-7 grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_3rem_minmax(0,1fr)] md:gap-5">
         <AirportSelector
+          airports={airports}
           error={errors.from ? t(errors.from) : undefined}
           kind="from"
           onSelect={(airport) => setAirport("from", airport)}
@@ -146,6 +149,7 @@ const FlightSearchForm = ({ initialValues, onValidSubmit }: FlightSearchFormProp
           </IconButton>
         </div>
         <AirportSelector
+          airports={airports}
           error={errors.to ? t(errors.to) : undefined}
           kind="to"
           onSelect={(airport) => setAirport("to", airport)}

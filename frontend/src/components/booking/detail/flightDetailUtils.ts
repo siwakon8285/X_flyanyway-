@@ -1,4 +1,5 @@
 import { FLIGHT_RESULT_FIXTURES } from "@/components/booking/results/flightResultFixtures";
+import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import { getCabinPrice } from "@/components/booking/results/flightResultUtils";
 import {
   isCompleteFlightSearchQuery,
@@ -6,6 +7,7 @@ import {
   serializeFlightSearch,
 } from "@/components/booking/search/searchState";
 import type {
+  AirportOption,
   CustomerCabinClass,
   FlightSearchFormValues,
 } from "@/components/booking/search/searchTypes";
@@ -42,12 +44,14 @@ const isCabinClass = (value: string | null): value is CustomerCabinClass =>
 const resolveFlightDetailRequest = (
   flightId: string,
   routeQuery: RouteQuery,
+  airports: readonly AirportOption[] = AIRPORT_FIXTURES,
+  authoritativeFlight?: FlightResult,
 ): FlightDetailRequest | null => {
   const params = toUrlSearchParams(routeQuery);
-  if (!isCompleteFlightSearchQuery(params)) return null;
+  if (!isCompleteFlightSearchQuery(params, airports)) return null;
 
-  const criteria = parseFlightSearch(params);
-  const flight = FLIGHT_RESULT_FIXTURES.find((item) => item.id === flightId);
+  const criteria = parseFlightSearch(params, airports);
+  const flight = authoritativeFlight?.id === flightId ? authoritativeFlight : FLIGHT_RESULT_FIXTURES.find((item) => item.id === flightId);
 
   if (
     !flight ||
@@ -106,8 +110,15 @@ const buildSeatSelectionHref = ({
 const resolveSeatSelectionRequest = (
   flightId: string,
   routeQuery: RouteQuery,
+  airports: readonly AirportOption[] = AIRPORT_FIXTURES,
+  authoritativeFlight?: FlightResult,
 ): SeatSelectionRequest | null => {
-  const request = resolveFlightDetailRequest(flightId, routeQuery);
+  const request = resolveFlightDetailRequest(
+    flightId,
+    routeQuery,
+    airports,
+    authoritativeFlight,
+  );
   const selectedCabinValue = toUrlSearchParams(routeQuery).get("selectedCabin");
 
   if (

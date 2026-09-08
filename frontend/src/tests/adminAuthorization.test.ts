@@ -26,6 +26,13 @@ describe("admin authorization presentation helpers", () => {
     expect(can(principal, "flights:write")).toBe(false);
   });
 
+  it("shows flight management only from the effective read permission", () => {
+    expect(getVisibleAdminNavigation({ ...principal, roles: ["BAGGAGE_STAFF"], permissions: ["flights:read"] }))
+      .toEqual([{ href: "/admin", id: "workspace", labelKey: "admin.navigation.workspace" }, { href: "/admin/flights", id: "flights", labelKey: "admin.navigation.flights" }]);
+    expect(getVisibleAdminNavigation({ ...principal, roles: ["FLIGHT_MANAGER"], permissions: ["flights:read", "flights:write"] }))
+      .toEqual([{ href: "/admin", id: "workspace", labelKey: "admin.navigation.workspace" }, { href: "/admin/flights", id: "flights", labelKey: "admin.navigation.flights" }]);
+  });
+
   it("omits every unavailable future module instead of exposing dead links", () => {
     expect(getVisibleAdminNavigation(principal)).toEqual([
       { href: "/admin", id: "workspace", labelKey: "admin.navigation.workspace" },

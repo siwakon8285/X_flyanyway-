@@ -1,8 +1,10 @@
 import type { TranslationDictionary } from "@/i18n/types";
 import { dashboardTh } from "./dashboard";
+import { flightManagementTh } from "./flightManagement";
 
 const th = {
   dashboard: dashboardTh,
+  flightManagement: flightManagementTh,
   admin: {
     login: { email: "อีเมลพนักงาน", password: "รหัสผ่าน", signIn: "เข้าสู่ระบบ", signingIn: "กำลังเข้าสู่ระบบ…", invalid: "อีเมลหรือรหัสผ่านไม่ถูกต้อง", tryLater: "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้งภายหลัง", unavailable: "ระบบเข้าสู่ระบบสำหรับพนักงานไม่พร้อมใช้งานชั่วคราว", eyebrow: "การเข้าถึงภายใน X-Fly", heading: "เข้าสู่ระบบสำหรับพนักงาน", intro: "ใช้บัญชีพนักงาน X-Fly ที่จัดเตรียมไว้สำหรับคุณโดยเฉพาะ" },
     navigation: { label: "การนำทางสำหรับพนักงาน", workspace: "พื้นที่ทำงาน", overview: "แดชบอร์ดผู้บริหาร", flights: "เที่ยวบิน", bookings: "การจอง", tickets: "ตั๋ว / ผู้โดยสาร", reports: "รายงาน", apiClients: "ไคลเอนต์ API", staff: "พนักงาน / สิทธิ์เข้าถึง" },
@@ -18,7 +20,7 @@ const th = {
     aircraft: "เครื่องบิน",
     aircraftFeatures: { airframe: "โครงสร้างเครื่องบินประสิทธิภาพสูง", filtration: "ระบบกรองอากาศสมัยใหม่", quiet: "ห้องโดยสารเงียบสงบ", widebody: "เครื่องบินลำตัวกว้างสำหรับเที่ยวบินระยะไกล" },
     back: "กลับไปยังเที่ยวบิน",
-    cabin: { chooseSeat: "เลือกที่นั่ง", description: "สำรวจประสบการณ์ห้องโดยสารทั้งสี่แบบก่อนเลือกที่นั่ง", experienceLabel: "ประสบการณ์ห้องโดยสาร", heading: "เลือกประสบการณ์การบินของคุณ", label: "ห้องโดยสาร", notAvailable: "ไม่มีให้บริการในเที่ยวบินนี้", previewAnother: "ดูห้องโดยสารอื่นเพื่อดำเนินการต่อ", searched: "ห้องโดยสารที่คุณค้นหา", unavailable: "ไม่มีให้บริการ", unavailableLower: "ไม่มีให้บริการ", yourSearch: "ที่คุณค้นหา" },
+    cabin: { chooseSeat: "เลือกที่นั่ง", description: "สำรวจประสบการณ์ชั้นธุรกิจและชั้นหนึ่งก่อนเลือกที่นั่ง", experienceLabel: "ประสบการณ์ห้องโดยสาร", heading: "เลือกประสบการณ์การบินของคุณ", label: "ห้องโดยสาร", notAvailable: "ไม่มีให้บริการในเที่ยวบินนี้", previewAnother: "ดูห้องโดยสารอื่นเพื่อดำเนินการต่อ", searched: "ห้องโดยสารที่คุณค้นหา", unavailable: "ไม่มีให้บริการ", unavailableLower: "ไม่มีให้บริการ", yourSearch: "ที่คุณค้นหา" },
     cabinContent: {
       business: { alt: "ที่นั่งปรับนอนราบและพื้นที่ส่วนตัวในชั้นธุรกิจของ X-Fly", description: "พื้นที่สำหรับจดจ่อ รับประทานอาหาร และพร้อมทันทีเมื่อถึงจุดหมาย", feature1: "ที่นั่งปรับนอนราบ", feature2: "เข้าถึงทางเดินได้โดยตรง", feature3: "อาหารระดับพรีเมียม" },
       economy: { alt: "ที่นั่งชั้นประหยัดของ X-Fly พร้อมพื้นที่โปร่งสบายและหน้าต่างเครื่องบิน", description: "ความสบายที่พอดี เพื่อการเดินทางอย่างราบรื่น", feature1: "ความสบายที่ลงตัว", feature2: "เบาะปรับเอนมาตรฐาน", feature3: "ความบันเทิงส่วนตัว" },
@@ -28,10 +30,10 @@ const th = {
     chooseSeatAria: "เลือกที่นั่งใน{cabin}สำหรับเที่ยวบิน {flight}", chooseSeatUnavailableAria: "เลือกที่นั่งใน{cabin}สำหรับเที่ยวบิน {flight} ไม่มีให้บริการ", localTimes: "เวลาทั้งหมดเป็นเวลาท้องถิ่นของสนามบิน", onSchedule: "ตรงตามกำหนด",
   },
   flightResults: {
-    availableFlightsLabel: "เที่ยวบินขาออกที่พร้อมให้เลือก", departureTime: "เวลาออกเดินทาง", duration: "ระยะเวลา", emptyDescription: "ลองปรับวันที่ เส้นทาง หรือชั้นโดยสาร", emptyTitle: "ไม่พบเที่ยวบิน", flightCount: "มีเที่ยวบิน {count} เที่ยว", flightCountOne: "มีเที่ยวบิน 1 เที่ยว", label: "ผลการค้นหาเที่ยวบิน", localTimes: "เวลาทั้งหมดเป็นเวลาท้องถิ่นของสนามบิน", modifySearch: "แก้ไขการค้นหา", outbound: "ขาออก", price: "ราคา", recommended: "แนะนำ", requiredDescription: "กลับไปยังการค้นหาเที่ยวบินเพื่อเลือกแผนการเดินทาง", requiredTitle: "กรุณาระบุรายละเอียดการค้นหา", routeCities: "{from} ไปยัง {to}", selectFlight: "เลือกเที่ยวบิน", selectFlightAria: "เลือกเที่ยวบิน {flight}", selectOutbound: "เลือกเที่ยวบินขาออก", sortFlights: "เรียงเที่ยวบิน",
+    availableFlightsLabel: "เที่ยวบินขาออกที่พร้อมให้เลือก", departureTime: "เวลาออกเดินทาง", duration: "ระยะเวลา", emptyDescription: "ลองปรับวันที่ เส้นทาง หรือชั้นโดยสาร", emptyTitle: "ไม่พบเที่ยวบิน", errorDescription: "ไม่สามารถโหลดเที่ยวบินที่พร้อมให้บริการได้ โปรดลองอีกครั้ง", errorTitle: "ระบบค้นหาเที่ยวบินไม่พร้อมใช้งานชั่วคราว", flightCount: "มีเที่ยวบิน {count} เที่ยว", flightCountOne: "มีเที่ยวบิน 1 เที่ยว", label: "ผลการค้นหาเที่ยวบิน", localTimes: "เวลาทั้งหมดเป็นเวลาท้องถิ่นของสนามบิน", modifySearch: "แก้ไขการค้นหา", outbound: "ขาออก", price: "ราคา", recommended: "แนะนำ", requiredDescription: "กลับไปยังการค้นหาเที่ยวบินเพื่อเลือกแผนการเดินทาง", requiredTitle: "กรุณาระบุรายละเอียดการค้นหา", routeCities: "{from} ไปยัง {to}", selectFlight: "เลือกเที่ยวบิน", selectFlightAria: "เลือกเที่ยวบิน {flight}", selectOutbound: "เลือกเที่ยวบินขาออก", sortFlights: "เรียงเที่ยวบิน",
   },
   flightSearch: {
-    airport: { chooseDestination: "เลือกจุดหมาย", chooseOrigin: "เลือกต้นทาง", description: "เลือกจากจุดหมายบนโลกที่แนะนำ ข้อมูลนี้ไม่ใช่เที่ยวบินแบบเรียลไทม์", featured: "สนามบินแนะนำ", from: "จาก", matching: "สนามบินที่ตรงกับการค้นหา", noMatch: "ไม่พบสนามบินแนะนำที่ตรงกับการค้นหา", placeholder: "รหัส เมือง สนามบิน หรือประเทศ", search: "ค้นหาสนามบินหรือเมือง", selectDestination: "เลือกจุดหมาย", selectOrigin: "เลือกต้นทาง", to: "ไปยัง" },
+    airport: { chooseDestination: "เลือกจุดหมาย", chooseOrigin: "เลือกต้นทาง", description: "เลือกจากสนามบินที่ X-Fly รองรับ", featured: "สนามบินแนะนำ", from: "จาก", matching: "สนามบินที่ตรงกับการค้นหา", noMatch: "ไม่พบสนามบินแนะนำที่ตรงกับการค้นหา", placeholder: "รหัส เมือง สนามบิน หรือประเทศ", search: "ค้นหาสนามบินหรือเมือง", selectDestination: "เลือกจุดหมาย", selectOrigin: "เลือกต้นทาง", to: "ไปยัง" },
     cabin: "ชั้นโดยสาร", cabinClass: "ชั้นโดยสาร", departureDate: "วันออกเดินทาง", eyebrow: "ค้นหาเที่ยวบิน · เส้นทางบนโลก", formLabel: "ค้นหาเที่ยวบินบนโลก", heading: "จุดหมายต่อไปของคุณคือที่ไหน", intro: "เลือกเส้นทางและกำหนดการเดินทางได้อย่างง่ายดายในไม่กี่ขั้นตอน",
     passenger: { adultDescription: "อายุ 12 ปีขึ้นไป", adults: "ผู้ใหญ่", childDescription: "อายุ 2–11 ปี", children: "เด็ก", count: "ผู้โดยสาร {count} คน", countOne: "ผู้โดยสาร 1 คน", decrease: "ลดจำนวน{label}", description: "เลือกผู้ร่วมเดินทาง โดยต้องมีผู้ใหญ่อย่างน้อยหนึ่งคน", increase: "เพิ่มจำนวน{label}", infants: "ทารก", label: "ผู้โดยสาร", safety: "จำกัด 99 คนต่อประเภทเพื่อความปลอดภัยของหน้าจอ ไม่ใช่นโยบายสายการบิน", totalAria: "ผู้โดยสารทั้งหมด {count} คน", underTwo: "อายุต่ำกว่า 2 ปี" },
     returnDate: "วันเดินทางกลับ", reviewErrors: "โปรดตรวจสอบช่องที่ไฮไลต์ก่อนค้นหา", search: "ค้นหาเที่ยวบิน", searchReady: "ข้อมูลการค้นหาพร้อมแล้ว ผลเที่ยวบินจะแสดงในขั้นตอนถัดไป", swap: "สลับต้นทางและจุดหมาย",

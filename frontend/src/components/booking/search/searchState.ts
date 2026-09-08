@@ -45,8 +45,11 @@ const getTodayDateInputValue = (date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
-const findAirport = (code: string | null): AirportOption | null =>
-  AIRPORT_FIXTURES.find((airport) => airport.code === code?.toUpperCase()) ?? null;
+const findAirport = (
+  airports: readonly AirportOption[],
+  code: string | null,
+): AirportOption | null =>
+  airports.find((airport) => airport.code === code?.toUpperCase()) ?? null;
 
 const parseCount = (value: string | null, fallback: number) => {
   if (value === null || !/^\d+$/.test(value)) return fallback;
@@ -57,7 +60,10 @@ const parseCount = (value: string | null, fallback: number) => {
     : fallback;
 };
 
-const parseFlightSearch = (params: URLSearchParams): FlightSearchFormValues => {
+const parseFlightSearch = (
+  params: URLSearchParams,
+  airports: readonly AirportOption[] = AIRPORT_FIXTURES,
+): FlightSearchFormValues => {
   const defaults = createDefaultFlightSearchValues();
   const tripValue = params.get("trip");
   const cabinValue = params.get("cabin");
@@ -71,7 +77,7 @@ const parseFlightSearch = (params: URLSearchParams): FlightSearchFormValues => {
   return {
     cabin,
     departure: isDateInputValue(departureValue) ? departureValue : "",
-    from: findAirport(params.get("from")),
+    from: findAirport(airports, params.get("from")),
     passengers: {
       adults: Math.max(1, parseCount(params.get("adults"), defaults.passengers.adults)),
       children: parseCount(params.get("children"), defaults.passengers.children),
@@ -79,13 +85,16 @@ const parseFlightSearch = (params: URLSearchParams): FlightSearchFormValues => {
     },
     returnDate:
       trip === "round-trip" && isDateInputValue(returnValue) ? returnValue : "",
-    to: findAirport(params.get("to")),
+    to: findAirport(airports, params.get("to")),
     trip,
   };
 };
 
-const isCompleteFlightSearchQuery = (params: URLSearchParams) => {
-  const values = parseFlightSearch(params);
+const isCompleteFlightSearchQuery = (
+  params: URLSearchParams,
+  airports: readonly AirportOption[] = AIRPORT_FIXTURES,
+) => {
+  const values = parseFlightSearch(params, airports);
   const hasCanonicalPassengers = (
     ["adults", "children", "infants"] as const
   ).every(

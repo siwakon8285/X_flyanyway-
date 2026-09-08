@@ -18,6 +18,7 @@ mod analytics;
 mod booking_confirmation;
 mod cancellation;
 mod extras;
+mod flight;
 mod manage_booking;
 mod passengers;
 mod payment;
@@ -26,6 +27,7 @@ mod staff_auth;
 mod ticket;
 
 pub use analytics::SqlxAnalyticsRepository;
+pub use flight::SqlxFlightRepository;
 pub use staff_auth::SqlxStaffAuthRepository;
 
 #[derive(Debug, Error)]
@@ -63,9 +65,13 @@ impl SqlxSeatHoldRepository {
         selection: &FlightSelection,
     ) -> Result<Uuid, SeatHoldRepositoryError> {
         let service = sqlx::query_as::<_, ServiceRow>(
-            "SELECT id, aircraft_code FROM flight_services WHERE public_id = $1",
+            "SELECT id, aircraft_code FROM flight_services
+             WHERE public_id = $1 AND status = 'SCHEDULED'
+               AND (operating_date IS NULL OR operating_date = $2)
+             FOR KEY SHARE",
         )
         .bind(&selection.flight_id)
+        .bind(selection.departure_date)
         .fetch_optional(&mut **transaction)
         .await
         .map_err(SeatHoldRepositoryError::Infrastructure)?
@@ -103,13 +109,19 @@ impl SqlxSeatHoldRepository {
             "INSERT INTO flight_seats (
                 flight_instance_id, seat_number, row_number, column_code, cabin, position, sellable
              )
-             SELECT $1, seat_number, row_number, column_code, cabin, position, sellable
-             FROM aircraft_seat_templates
-             WHERE aircraft_code = $2
+             SELECT $1, seat_number, row_number, column_code, cabin, position, sellable FROM (
+                SELECT seat_number,row_number,column_code,cabin,position,sellable
+                FROM flight_service_seat_templates WHERE flight_service_id=$3
+                UNION ALL
+                SELECT seat_number,row_number,column_code,cabin,position,sellable
+                FROM aircraft_seat_templates WHERE aircraft_code=$2
+                  AND NOT EXISTS (SELECT 1 FROM flight_service_seat_templates WHERE flight_service_id=$3)
+             ) template
              ON CONFLICT (flight_instance_id, cabin, seat_number) DO NOTHING",
         )
         .bind(instance_id)
         .bind(service.aircraft_code)
+        .bind(service.id)
         .execute(&mut **transaction)
         .await
         .map_err(SeatHoldRepositoryError::Infrastructure)?;

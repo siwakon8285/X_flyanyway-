@@ -2,6 +2,7 @@ pub mod booking_confirmation;
 pub mod cancellation;
 pub mod entities;
 pub mod extras;
+pub mod flight;
 pub mod manage_booking;
 pub mod passengers;
 pub mod payment;

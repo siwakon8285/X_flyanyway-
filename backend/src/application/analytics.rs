@@ -9,6 +9,7 @@ use crate::domain::value_objects::CabinClass;
 
 pub const DASHBOARD_TIME_ZONE: &str = "Asia/Bangkok";
 pub const DASHBOARD_CURRENCY: &str = "THB";
+pub const DASHBOARD_ACTIVE_CABINS: [&str; 2] = ["business", "first"];
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub enum DashboardProvider {
@@ -83,6 +84,9 @@ impl AnalyticsFilter {
             .map(CabinClass::from_str)
             .transpose()
             .map_err(|_| DashboardFilterError)?;
+        if cabin.is_some_and(|value| !value.is_customer_bookable()) {
+            return Err(DashboardFilterError);
+        }
         let provider = provider
             .map(DashboardProvider::from_str)
             .transpose()?
@@ -130,6 +134,7 @@ pub struct DashboardReport {
     pub currency: &'static str,
     pub provider: DashboardProvider,
     pub generated_at: DateTime<Utc>,
+    pub active_cabins: [&'static str; 2],
     pub summary: DashboardSummary,
     pub trends: Vec<DashboardTrend>,
     pub routes: Vec<DashboardRoute>,
@@ -214,6 +219,8 @@ pub struct DashboardInventoryFlight {
 pub enum AnalyticsRepositoryError {
     #[error("dashboard storage is unavailable")]
     Infrastructure(#[source] sqlx::Error),
+    #[error("dashboard active-cabin cohort does not reconcile")]
+    InconsistentActiveCabinCohort,
 }
 
 #[async_trait]

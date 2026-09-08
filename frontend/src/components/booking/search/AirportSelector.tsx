@@ -3,7 +3,6 @@
 import { ChevronDown, MapPin, Search } from "lucide-react";
 import { useState } from "react";
 
-import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import type { AirportOption } from "@/components/booking/search/searchTypes";
 import {
   Dialog,
@@ -18,19 +17,20 @@ import { cn } from "@/lib/utils/cn";
 import { useLanguage } from "@/i18n/LanguageProvider";
 
 type AirportSelectorProps = {
+  airports: readonly AirportOption[];
   error?: string;
   kind: "from" | "to";
   onSelect: (airport: AirportOption) => void;
   value: AirportOption | null;
 };
 
-const AirportSelector = ({ error, kind, onSelect, value }: AirportSelectorProps) => {
+const AirportSelector = ({ airports: airportOptions, error, kind, onSelect, value }: AirportSelectorProps) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const { t } = useLanguage();
   const label = t(kind === "from" ? "flightSearch.airport.from" : "flightSearch.airport.to");
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const airports = AIRPORT_FIXTURES.filter((airport) =>
+  const airports = airportOptions.filter((airport) =>
     [airport.code, airport.city, airport.airport, airport.country].some((text) =>
       text.toLocaleLowerCase().includes(normalizedQuery),
     ),

@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 
 import { FlightSearchForm } from "@/components/booking/search/FlightSearchForm";
+import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
 import {
   parseFlightSearch,
   serializeFlightSearch,
@@ -11,6 +12,7 @@ import {
 import { Container } from "@/components/layout/Container";
 import { Reveal } from "@/components/motion/Reveal";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import type { AirportOption } from "@/components/booking/search/searchTypes";
 
 const subscribeToLocation = (onStoreChange: () => void) => {
   window.addEventListener("popstate", onStoreChange);
@@ -19,7 +21,13 @@ const subscribeToLocation = (onStoreChange: () => void) => {
 const getLocationSearch = () => window.location.search;
 const getServerLocationSearch = () => "";
 
-const FlightSearchSection = ({ embedded = false }: { embedded?: boolean }) => {
+const FlightSearchSection = ({
+  airports,
+  embedded = false,
+}: {
+  airports?: readonly AirportOption[];
+  embedded?: boolean;
+}) => {
   const router = useRouter();
   const { t } = useLanguage();
   const locationSearch = useSyncExternalStore(
@@ -27,10 +35,12 @@ const FlightSearchSection = ({ embedded = false }: { embedded?: boolean }) => {
     getLocationSearch,
     getServerLocationSearch,
   );
-  const initialValues = parseFlightSearch(new URLSearchParams(locationSearch));
+  const airportOptions = airports ?? AIRPORT_FIXTURES;
+  const initialValues = parseFlightSearch(new URLSearchParams(locationSearch), airportOptions);
 
   const form = (
     <FlightSearchForm
+      airports={airportOptions}
       initialValues={initialValues}
       key={locationSearch}
       onValidSubmit={(values) => {

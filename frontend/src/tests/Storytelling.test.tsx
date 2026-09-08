@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { render } from "@/tests/renderWithLanguage";
 
-import Home from "@/app/(customer)/page";
+import { HomePage as Home } from "@/components/home/HomePage";
 import { interiorImage, serviceImage } from "@/components/home/story/EditorialServiceStory";
 import { Storytelling } from "@/components/home/story/Storytelling";
 import { REDUCED_MOTION_QUERY } from "@/lib/motion/reducedMotion";
