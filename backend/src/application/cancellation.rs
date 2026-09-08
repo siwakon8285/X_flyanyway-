@@ -1,5 +1,8 @@
 use crate::domain::{
-    cancellation::{Cancellation, Clock, RefundFailure, StripeRefundEvent, MAX_REFUND_ATTEMPTS},
+    cancellation::{
+        Cancellation, Clock, RefundFailure, StaffCancellationActor, StripeRefundEvent,
+        MAX_REFUND_ATTEMPTS,
+    },
     payment::PaymentProvider,
     repositories::{CancellationRepository, CancellationRepositoryError, RefundGateway},
 };
@@ -21,7 +24,16 @@ impl CancellationService {
         ticket_id: Uuid,
     ) -> Result<Cancellation, CancellationRepositoryError> {
         self.repository
-            .cancel_booking(ticket_id, self.clock.as_ref())
+            .cancel_booking(ticket_id, self.clock.as_ref(), None)
+            .await
+    }
+    pub async fn cancel_for_staff(
+        &self,
+        ticket_id: Uuid,
+        actor: &StaffCancellationActor,
+    ) -> Result<Cancellation, CancellationRepositoryError> {
+        self.repository
+            .cancel_booking(ticket_id, self.clock.as_ref(), Some(actor))
             .await
     }
     pub async fn process_stripe_refund_event(

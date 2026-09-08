@@ -33,6 +33,15 @@ describe("admin authorization presentation helpers", () => {
       .toEqual([{ href: "/admin", id: "workspace", labelKey: "admin.navigation.workspace" }, { href: "/admin/flights", id: "flights", labelKey: "admin.navigation.flights" }]);
   });
 
+  it("shows Booking Operations only from the effective booking read permission", () => {
+    const bookingOperations: StaffPrincipal = { ...principal, roles: ["BOOKING_OPERATIONS"], permissions: ["bookings:read", "bookings:manage"] };
+    expect(getVisibleAdminNavigation(bookingOperations)).toEqual([
+      { href: "/admin", id: "workspace", labelKey: "admin.navigation.workspace" },
+      { href: "/admin/bookings", id: "bookings", labelKey: "admin.navigation.bookings" },
+    ]);
+    expect(getVisibleAdminNavigation(principal).some((item) => item.id === "bookings")).toBe(false);
+  });
+
   it("omits every unavailable future module instead of exposing dead links", () => {
     expect(getVisibleAdminNavigation(principal)).toEqual([
       { href: "/admin", id: "workspace", labelKey: "admin.navigation.workspace" },

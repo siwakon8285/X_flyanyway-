@@ -1,16 +1,18 @@
 import type { TranslationDictionary } from "@/i18n/types";
 import { dashboardTh } from "./dashboard";
 import { flightManagementTh } from "./flightManagement";
+import { bookingManagementTh } from "./bookingManagement";
 
 const th = {
   dashboard: dashboardTh,
   flightManagement: flightManagementTh,
+  bookingManagement: bookingManagementTh,
   admin: {
     login: { email: "อีเมลพนักงาน", password: "รหัสผ่าน", signIn: "เข้าสู่ระบบ", signingIn: "กำลังเข้าสู่ระบบ…", invalid: "อีเมลหรือรหัสผ่านไม่ถูกต้อง", tryLater: "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้งภายหลัง", unavailable: "ระบบเข้าสู่ระบบสำหรับพนักงานไม่พร้อมใช้งานชั่วคราว", eyebrow: "การเข้าถึงภายใน X-Fly", heading: "เข้าสู่ระบบสำหรับพนักงาน", intro: "ใช้บัญชีพนักงาน X-Fly ที่จัดเตรียมไว้สำหรับคุณโดยเฉพาะ" },
     navigation: { label: "การนำทางสำหรับพนักงาน", workspace: "พื้นที่ทำงาน", overview: "แดชบอร์ดผู้บริหาร", flights: "เที่ยวบิน", bookings: "การจอง", tickets: "ตั๋ว / ผู้โดยสาร", reports: "รายงาน", apiClients: "ไคลเอนต์ API", staff: "พนักงาน / สิทธิ์เข้าถึง" },
     roles: { executive: "ผู้บริหาร / เจ้าของ", flightManager: "ผู้จัดการเที่ยวบิน", bookingOperations: "ฝ่ายปฏิบัติการการจอง", ticketPassengerOperations: "ฝ่ายตั๋ว / ผู้โดยสาร", baggageStaff: "เจ้าหน้าที่สัมภาระ", apiAdmin: "ผู้ดูแล API", systemAdmin: "ผู้ดูแลระบบ" },
     shell: { skip: "ข้ามไปยังพื้นที่ทำงาน", internal: "การเข้าถึงภายใน", terminal: "ระบบงานพนักงาน X-Fly", openNavigation: "เปิดเมนูพนักงาน", closeNavigation: "ปิดเมนูพนักงาน", navigationTitle: "การนำทางสำหรับพนักงาน", navigationDescription: "นำทางในพื้นที่ทำงานภายในของ X-Fly", signOut: "ออกจากระบบ", signingOut: "กำลังออกจากระบบ…" },
-    workspace: { eyebrow: "ฝ่ายปฏิบัติการ X-Fly", heading: "พื้นที่ทำงานสำหรับพนักงาน", intro: "สิทธิ์เข้าถึงของคุณพร้อมแล้ว โมดูลปฏิบัติการจะแสดงเมื่อพร้อมใช้งานและตรงกับหน้าที่ที่ได้รับมอบหมายเท่านั้น", active: "ระบบสิทธิ์เข้าถึงพร้อมใช้งาน", boundary: "พื้นที่ทำงาน Branch 19 นี้ไม่มีข้อมูลตัวชี้วัดผู้บริหารหรือเครื่องมือปฏิบัติการทางธุรกิจโดยเจตนา", unavailable: "ระบบเข้าถึงสำหรับพนักงานไม่พร้อมใช้งานชั่วคราว", unavailableDetail: "ระบบไม่ได้แสดงเนื้อหาที่มีสิทธิ์จำกัด โปรดลองเชื่อมต่อบริการพนักงานที่ปลอดภัยอีกครั้ง", retry: "ลองอีกครั้ง" },
+    workspace: { eyebrow: "ฝ่ายปฏิบัติการ X-Fly", heading: "พื้นที่ทำงานสำหรับพนักงาน", intro: "ใช้เมนูนำทางเพื่อเข้าสู่โมดูล X-Fly ที่ได้รับอนุญาตตามหน้าที่ของคุณ", active: "พร้อมใช้งานระบบปฏิบัติการที่ได้รับอนุญาต", boundary: "โมดูลปฏิบัติการ X-Fly ที่คุณได้รับอนุญาตพร้อมใช้งานจากเมนูนำทางตามหน้าที่ที่ได้รับมอบหมาย", unavailable: "ระบบเข้าถึงสำหรับพนักงานไม่พร้อมใช้งานชั่วคราว", unavailableDetail: "ระบบไม่ได้แสดงเนื้อหาที่มีสิทธิ์จำกัด โปรดลองเชื่อมต่อบริการพนักงานที่ปลอดภัยอีกครั้ง", retry: "ลองอีกครั้ง" },
   },
   common: {
     cabins: { business: "ชั้นธุรกิจ", economy: "ชั้นประหยัด", first: "ชั้นหนึ่ง", premiumEconomy: "ชั้นประหยัดพรีเมียม", premiumEconomyShort: "ประหยัดพรีเมียม" },

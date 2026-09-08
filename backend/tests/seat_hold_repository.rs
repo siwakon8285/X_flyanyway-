@@ -1,4 +1,6 @@
-use std::{env, sync::Arc, time::Duration};
+mod common;
+
+use std::{sync::Arc, time::Duration};
 
 use chrono::{Duration as ChronoDuration, NaiveDate};
 use sqlx::{PgPool, Row};
@@ -12,14 +14,7 @@ use x_fly_api::domain::{
 use x_fly_api::infrastructure::database::{prepare_database, SqlxSeatHoldRepository};
 
 async fn test_pool() -> PgPool {
-    dotenvy::dotenv().ok();
-    let database_url = env::var("TEST_DATABASE_URL")
-        .expect("TEST_DATABASE_URL must point to an isolated PostgreSQL test database");
-    let database_name = database_url.rsplit('/').next().unwrap_or_default();
-    assert!(
-        database_name.ends_with("_test"),
-        "refusing to run repository tests outside a *_test database"
-    );
+    let database_url = common::test_database_url();
 
     let pool = PgPool::connect(&database_url)
         .await

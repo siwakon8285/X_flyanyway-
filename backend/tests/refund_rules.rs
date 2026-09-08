@@ -36,6 +36,7 @@ impl CancellationRepository for RecordingRepository {
         &self,
         _: Uuid,
         _: &dyn Clock,
+        _: Option<&x_fly_api::domain::cancellation::StaffCancellationActor>,
     ) -> Result<Cancellation, CancellationRepositoryError> {
         unreachable!()
     }

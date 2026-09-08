@@ -7,8 +7,10 @@ use uuid::Uuid;
 use crate::domain::value_objects::SeatNumber;
 use crate::domain::{
     booking_confirmation::{BookingConfirmationLocale, DeliveryFailure},
+    booking_management::{BookingDetail, BookingListFilter, BookingListPage},
     cancellation::{
-        Cancellation, Clock, ProviderRefund, RefundFailure, RefundJob, StripeRefundEvent,
+        Cancellation, Clock, ProviderRefund, RefundFailure, RefundJob, StaffCancellationActor,
+        StripeRefundEvent,
     },
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput, ExtraValidationError},
@@ -97,6 +99,7 @@ pub trait CancellationRepository: Send + Sync {
         &self,
         ticket_id: Uuid,
         clock: &dyn Clock,
+        staff_actor: Option<&StaffCancellationActor>,
     ) -> Result<Cancellation, CancellationRepositoryError>;
     async fn claim_due_refund(
         &self,
@@ -123,6 +126,31 @@ pub trait CancellationRepository: Send + Sync {
         &self,
         event: StripeRefundEvent,
     ) -> Result<(), CancellationRepositoryError>;
+}
+
+#[derive(Debug, Error)]
+pub enum BookingManagementRepositoryError {
+    #[error("authoritative booking state is inconsistent")]
+    InconsistentState,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+#[async_trait]
+pub trait BookingManagementRepository: Send + Sync {
+    async fn list_bookings(
+        &self,
+        filter: &BookingListFilter,
+    ) -> Result<BookingListPage, BookingManagementRepositoryError>;
+    async fn get_booking_detail(
+        &self,
+        booking_reference: &str,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<BookingDetail>, BookingManagementRepositoryError>;
+    async fn ticket_id_for_booking_reference(
+        &self,
+        booking_reference: &str,
+    ) -> Result<Option<Uuid>, BookingManagementRepositoryError>;
 }
 
 #[async_trait]

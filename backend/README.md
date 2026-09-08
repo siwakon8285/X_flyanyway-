@@ -191,4 +191,6 @@ cd backend
 cargo test
 ```
 
-The default example name is `x_fly_concurrency_test`; callers can supply any dedicated `<project_db>_test` through `TEST_DATABASE_URL`. Never point this variable at development or production data.
+The integration-test harness first honors an explicitly supplied `TEST_DATABASE_URL`; when it is absent, a normal `cargo test` run from `backend/` loads the ignored local `backend/.env`. Before opening a connection, the shared guard rejects the DEV port `5433`, the DEV database `x_fly`, missing database names, and every name that does not end in `_test`. It never reads or substitutes `DATABASE_URL`.
+
+The default example name is `x_fly_concurrency_test`; callers can supply any dedicated `<project_db>_test` through `TEST_DATABASE_URL`. If neither the shell nor `backend/.env` supplies a safe test target, the suite fails closed with configuration guidance. Integration setup and cleanup operate only on that guarded TEST database; they never reset or truncate DEV data.

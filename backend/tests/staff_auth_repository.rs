@@ -1,5 +1,6 @@
+mod common;
+
 use std::{
-    env,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -43,16 +44,7 @@ fn service(pool: PgPool) -> StaffAuthService {
 }
 
 async fn test_pool() -> PgPool {
-    let database_url = env::var("TEST_DATABASE_URL")
-        .expect("TEST_DATABASE_URL must point to an isolated PostgreSQL test database");
-    assert!(
-        database_url
-            .split('?')
-            .next()
-            .unwrap_or_default()
-            .ends_with("_test"),
-        "staff auth tests refuse non-test databases"
-    );
+    let database_url = common::test_database_url();
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)

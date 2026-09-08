@@ -1,4 +1,6 @@
-use std::{env, sync::Arc, time::Duration};
+mod common;
+
+use std::{sync::Arc, time::Duration};
 
 use chrono::{Datelike, Duration as ChronoDuration, NaiveDate, Utc};
 use sqlx::PgPool;
@@ -23,14 +25,16 @@ use x_fly_api::{
     infrastructure::database::{prepare_database, SqlxSeatHoldRepository},
 };
 
+type FinalizedPaymentStateSnapshot = (
+    String,
+    Option<chrono::DateTime<Utc>>,
+    String,
+    Option<Uuid>,
+    Option<chrono::DateTime<Utc>>,
+);
+
 async fn test_pool() -> PgPool {
-    dotenvy::dotenv().ok();
-    let database_url = env::var("TEST_DATABASE_URL").unwrap();
-    assert!(database_url
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .ends_with("_test"));
+    let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
     prepare_database(&pool).await.unwrap();
     pool
@@ -310,13 +314,7 @@ async fn paid_attempt_issues_one_ticket_without_changing_finalized_payment_state
         )
         .await
         .unwrap();
-    let before: (
-        String,
-        Option<chrono::DateTime<Utc>>,
-        String,
-        Option<Uuid>,
-        Option<chrono::DateTime<Utc>>,
-    ) = sqlx::query_as(
+    let before: FinalizedPaymentStateSnapshot = sqlx::query_as(
         "SELECT attempt.status, hold.consumed_at, seat.booking_status, seat.hold_id, seat.booked_at
          FROM payment_attempts AS attempt
          JOIN seat_holds AS hold ON hold.id = attempt.seat_hold_id
@@ -341,13 +339,7 @@ async fn paid_attempt_issues_one_ticket_without_changing_finalized_payment_state
     assert_eq!(first.id, second.id);
     assert_eq!(first.booking_reference, second.booking_reference);
     assert_eq!(first.seats, vec!["4A"]);
-    let after: (
-        String,
-        Option<chrono::DateTime<Utc>>,
-        String,
-        Option<Uuid>,
-        Option<chrono::DateTime<Utc>>,
-    ) = sqlx::query_as(
+    let after: FinalizedPaymentStateSnapshot = sqlx::query_as(
         "SELECT attempt.status, hold.consumed_at, seat.booking_status, seat.hold_id, seat.booked_at
          FROM payment_attempts AS attempt
          JOIN seat_holds AS hold ON hold.id = attempt.seat_hold_id

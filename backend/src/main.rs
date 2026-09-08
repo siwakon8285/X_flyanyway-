@@ -98,7 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = state
         .with_staff_auth(staff_auth)
         .with_analytics(analytics)
-        .with_flights(flights);
+        .with_flights(flights)
+        .with_booking_management(repository.clone());
     let state =
         state.with_manage_bookings(repository.clone(), config.manage_booking_signing_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;

@@ -1,5 +1,6 @@
+mod common;
+
 use std::{
-    env,
     sync::{
         atomic::{AtomicI64, Ordering},
         Arc,
@@ -90,13 +91,7 @@ const TEST_WEBHOOK_SECRET: &str = "whsec_test_secret_for_integration_testing_123
 const TICKET_QR_SECRET: &str = "ticket-signing-secret-for-http-tests-must-be-long-enough";
 
 async fn app_with_secret(secret: Option<String>) -> (axum::Router, PgPool) {
-    dotenvy::dotenv().ok();
-    let database_url = env::var("TEST_DATABASE_URL").unwrap();
-    assert!(database_url
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .ends_with("_test"));
+    let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
     prepare_database(&pool).await.unwrap();
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));
@@ -137,13 +132,7 @@ async fn app_with_provider_statuses(
     retrieved: PaymentReconciliationStatus,
     cancellation: PaymentReconciliationStatus,
 ) -> (axum::Router, PgPool) {
-    dotenvy::dotenv().ok();
-    let database_url = env::var("TEST_DATABASE_URL").unwrap();
-    assert!(database_url
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .ends_with("_test"));
+    let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
     prepare_database(&pool).await.unwrap();
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));
