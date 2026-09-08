@@ -38,11 +38,11 @@ export function DashboardFilters({ initial, loading, routes, onApply }: Dashboar
     <div className="exec-filter-header"><span>{t("dashboard.cohortControls")}</span>{loading && <span className="exec-filter-pulse" aria-live="polite">{t("dashboard.updating")}</span>}</div>
     <div className="exec-presets" aria-label={t("dashboard.range")}>{(["today", "seven", "thirty", "month"] as const).map((key) => <button key={key} type="button" aria-pressed={activePreset === key} onClick={() => { const next = presetFilters(key, draft); setDraft(next); apply(next); }}>{t(`dashboard.${key}`)}</button>)}</div>
     <div className="exec-filter-fields">
-      <label>{t("dashboard.from")}<input required type="date" value={draft.from} onChange={(e) => change("from", e.target.value)} /></label>
-      <label>{t("dashboard.to")}<input required type="date" value={draft.to} onChange={(e) => change("to", e.target.value)} /></label>
-      <label>{t("dashboard.route")}<select value={draft.route} onChange={(e) => change("route", e.target.value)}><option value="">{t("dashboard.allRoutes")}</option>{routes.map((route) => <option key={route}>{route}</option>)}</select></label>
-      <label>{t("dashboard.cabin")}<select value={draft.cabin} onChange={(e) => change("cabin", e.target.value)}><option value="">{t("dashboard.allCabins")}</option>{dashboardCabins.map((cabin) => <option key={cabin} value={cabin}>{t(`dashboard.${cabinKeys[cabin]}`)}</option>)}</select></label>
-      <label>{t("dashboard.provider")}<select value={draft.provider} onChange={(e) => change("provider", e.target.value as DashboardProvider)}><option value="STRIPE">{t("dashboard.stripe")}</option><option value="MOCK_BITCOIN">{t("dashboard.mockBitcoin")}</option></select></label>
+      <label>{t("dashboard.from")}<input className="exec-filter-control" required type="date" value={draft.from} onChange={(e) => change("from", e.target.value)} /></label>
+      <label>{t("dashboard.to")}<input className="exec-filter-control" required type="date" value={draft.to} onChange={(e) => change("to", e.target.value)} /></label>
+      <label>{t("dashboard.route")}<select className="exec-filter-control" value={draft.route} onChange={(e) => change("route", e.target.value)}><option value="">{t("dashboard.allRoutes")}</option>{routes.map((route) => <option key={route}>{route}</option>)}</select></label>
+      <label>{t("dashboard.cabin")}<select className="exec-filter-control" value={draft.cabin} onChange={(e) => change("cabin", e.target.value)}><option value="">{t("dashboard.allCabins")}</option>{dashboardCabins.map((cabin) => <option key={cabin} value={cabin}>{t(`dashboard.${cabinKeys[cabin]}`)}</option>)}</select></label>
+      <label>{t("dashboard.provider")}<select className="exec-filter-control" value={draft.provider} onChange={(e) => change("provider", e.target.value as DashboardProvider)}><option value="STRIPE">{t("dashboard.stripe")}</option><option value="MOCK_BITCOIN">{t("dashboard.mockBitcoin")}</option></select></label>
       <button className="exec-apply" type="submit" disabled={loading}><span>{loading ? t("dashboard.updatingShort") : t("dashboard.apply")}</span><i aria-hidden="true">↗</i></button>
     </div>{invalid && <p role="alert">{t("dashboard.invalid")}</p>}
   </form>;

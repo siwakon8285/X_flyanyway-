@@ -2,6 +2,11 @@ import { screen } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
 import FlightDetailRoute from "@/app/(customer)/flights/[flightId]/page";
+import { FLIGHT_RESULT_FIXTURES } from "@/components/booking/results/flightResultFixtures";
+import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
+import { fetchPublicAirports, fetchPublicFlightDetail } from "@/lib/flights/publicFlightBackend";
+
+jest.mock("@/lib/flights/publicFlightBackend");
 
 const validQuery = {
   adults: "1",
@@ -16,6 +21,10 @@ const validQuery = {
 } as const;
 
 describe("/flights/[flightId] route", () => {
+  beforeEach(() => {
+    jest.mocked(fetchPublicAirports).mockResolvedValue([...AIRPORT_FIXTURES]);
+    jest.mocked(fetchPublicFlightDetail).mockImplementation(async (id) => FLIGHT_RESULT_FIXTURES.find((flight) => flight.id === id) ?? null);
+  });
   it("renders a validated local fixture as the flight detail experience", async () => {
     const route = await FlightDetailRoute({
       params: Promise.resolve({ flightId: "xf-201" }),

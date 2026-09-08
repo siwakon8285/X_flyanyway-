@@ -251,6 +251,8 @@ pub enum PaymentRepositoryError {
     HoldReleased,
     #[error("seat hold has already been consumed")]
     HoldConsumed,
+    #[error("flight is no longer available for booking")]
+    FlightUnavailable,
     #[error("payment finalization is in progress")]
     PaymentFinalizationInProgress,
     #[error("held seats are not ready for payment")]

@@ -1,13 +1,8 @@
-import { Hero } from "@/components/home/Hero";
-import { HomePromoCarousel } from "@/components/home/HomePromoCarousel";
-import { Storytelling } from "@/components/home/story/Storytelling";
+import { HomePage } from "@/components/home/HomePage";
+import { fetchPublicAirports } from "@/lib/flights/publicFlightBackend";
 
-const Home = () => (
-  <>
-    <Hero />
-    <HomePromoCarousel />
-    <Storytelling />
-  </>
+const HomeRoute = async () => (
+  <HomePage airports={(await fetchPublicAirports()) ?? []} />
 );
 
-export default Home;
+export default HomeRoute;

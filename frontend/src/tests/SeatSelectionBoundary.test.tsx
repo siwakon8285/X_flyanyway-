@@ -2,6 +2,11 @@ import { screen } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
 import SeatSelectionBoundary from "@/app/(customer)/flights/[flightId]/seats/page";
+import { FLIGHT_RESULT_FIXTURES } from "@/components/booking/results/flightResultFixtures";
+import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
+import { fetchPublicAirports, fetchPublicFlightDetail } from "@/lib/flights/publicFlightBackend";
+
+jest.mock("@/lib/flights/publicFlightBackend");
 
 const validQuery = {
   adults: "1",
@@ -17,6 +22,10 @@ const validQuery = {
 } as const;
 
 describe("seat selection route boundary", () => {
+  beforeEach(() => {
+    jest.mocked(fetchPublicAirports).mockResolvedValue([...AIRPORT_FIXTURES]);
+    jest.mocked(fetchPublicFlightDetail).mockImplementation(async (id) => FLIGHT_RESULT_FIXTURES.find((flight) => flight.id === id) ?? null);
+  });
   it("renders the local map for the validated flight and selected cabin", async () => {
     const route = await SeatSelectionBoundary({
       params: Promise.resolve({ flightId: "xf-201" }),

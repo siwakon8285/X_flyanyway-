@@ -1,20 +1,23 @@
 use axum::{
     extract::{
         rejection::{JsonRejection, QueryRejection},
-        FromRequestParts, Query, State,
+        FromRequestParts, Path, Query, State,
     },
     http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    application::analytics::AnalyticsFilter,
     application::staff_auth::StaffAuthError,
-    domain::staff::{PermissionCode, StaffPrincipal},
+    application::{analytics::AnalyticsFilter, flight::FlightListFilter},
+    domain::{
+        flight::{FlightCommand, FlightManagementError, FlightStatus},
+        staff::{PermissionCode, StaffPrincipal},
+    },
     state::AppState,
 };
 
@@ -29,6 +32,282 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/admin/auth/session", get(session))
         .route("/api/v1/admin/auth/logout", post(logout))
         .route("/api/v1/admin/dashboard", get(dashboard))
+        .route(
+            "/api/v1/admin/flights",
+            get(list_flights).post(create_flight),
+        )
+        .route(
+            "/api/v1/admin/flights/reference-data",
+            get(flight_reference_data),
+        )
+        .route(
+            "/api/v1/admin/flights/{flight_id}",
+            get(flight_detail).put(update_flight),
+        )
+        .route(
+            "/api/v1/admin/flights/{flight_id}/cancel",
+            post(cancel_flight),
+        )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FlightListQuery {
+    search: Option<String>,
+    origin: Option<String>,
+    destination: Option<String>,
+    date: Option<String>,
+    status: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn list_flights(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    query: Result<Query<FlightListQuery>, QueryRejection>,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::FlightsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let query = query.map_err(|_| AdminApiError::flight_validation())?.0;
+        let limit = query.limit.unwrap_or(50);
+        let offset = query.offset.unwrap_or(0);
+        if !(1..=100).contains(&limit)
+            || offset < 0
+            || query.search.as_ref().is_some_and(|value| value.len() > 40)
+        {
+            return Err(AdminApiError::flight_validation());
+        }
+        let airport = |value: Option<String>| -> Result<Option<String>, AdminApiError> {
+            value
+                .map(|value| {
+                    let normalized = value.trim().to_uppercase();
+                    (normalized.len() == 3
+                        && normalized.bytes().all(|byte| byte.is_ascii_uppercase()))
+                    .then_some(normalized)
+                    .ok_or_else(AdminApiError::flight_validation)
+                })
+                .transpose()
+        };
+        let date = query
+            .date
+            .as_deref()
+            .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+            .transpose()
+            .map_err(|_| AdminApiError::flight_validation())?;
+        let status = query
+            .status
+            .as_deref()
+            .map(|value| match value {
+                "SCHEDULED" => Ok(FlightStatus::Scheduled),
+                "CANCELLED" => Ok(FlightStatus::Cancelled),
+                _ => Err(AdminApiError::flight_validation()),
+            })
+            .transpose()?;
+        let flights = state
+            .flights
+            .as_ref()
+            .ok_or_else(AdminApiError::flight_unavailable)?;
+        let page = flights
+            .list(FlightListFilter {
+                search: query
+                    .search
+                    .map(|value| value.trim().to_owned())
+                    .filter(|value| !value.is_empty()),
+                origin: airport(query.origin)?,
+                destination: airport(query.destination)?,
+                date,
+                status,
+                limit,
+                offset,
+            })
+            .await
+            .map_err(AdminApiError::from_flight)?;
+        Ok::<_, AdminApiError>(Json(page).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn flight_detail(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(flight_id): Path<uuid::Uuid>,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::FlightsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let flights = state
+            .flights
+            .as_ref()
+            .ok_or_else(AdminApiError::flight_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                flights
+                    .detail(flight_id)
+                    .await
+                    .map_err(AdminApiError::from_flight)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn flight_reference_data(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::FlightsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let flights = state
+            .flights
+            .as_ref()
+            .ok_or_else(AdminApiError::flight_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                flights
+                    .reference_data()
+                    .await
+                    .map_err(AdminApiError::from_flight)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn create_flight(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    headers: HeaderMap,
+    payload: Result<Json<FlightCommand>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::FlightsWrite)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_flight_mutation(&state, &headers)?;
+        let command = payload.map_err(|_| AdminApiError::flight_validation())?.0;
+        let flights = state
+            .flights
+            .as_ref()
+            .ok_or_else(AdminApiError::flight_unavailable)?;
+        Ok::<_, AdminApiError>(
+            (
+                StatusCode::CREATED,
+                Json(
+                    flights
+                        .create(actor.staff_user_id(), command)
+                        .await
+                        .map_err(AdminApiError::from_flight)?,
+                ),
+            )
+                .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdateFlightRequest {
+    version: i64,
+    #[serde(flatten)]
+    command: FlightCommand,
+}
+
+async fn update_flight(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(flight_id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+    payload: Result<Json<UpdateFlightRequest>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::FlightsWrite)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_flight_mutation(&state, &headers)?;
+        let request = payload.map_err(|_| AdminApiError::flight_validation())?.0;
+        if request.version < 1 {
+            return Err(AdminApiError::flight_validation());
+        }
+        let flights = state
+            .flights
+            .as_ref()
+            .ok_or_else(AdminApiError::flight_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                flights
+                    .update(
+                        actor.staff_user_id(),
+                        flight_id,
+                        request.version,
+                        request.command,
+                    )
+                    .await
+                    .map_err(AdminApiError::from_flight)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CancelFlightRequest {
+    version: i64,
+}
+
+async fn cancel_flight(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(flight_id): Path<uuid::Uuid>,
+    headers: HeaderMap,
+    payload: Result<Json<CancelFlightRequest>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::FlightsWrite)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_flight_mutation(&state, &headers)?;
+        let request = payload.map_err(|_| AdminApiError::flight_validation())?.0;
+        if request.version < 1 {
+            return Err(AdminApiError::flight_validation());
+        }
+        let flights = state
+            .flights
+            .as_ref()
+            .ok_or_else(AdminApiError::flight_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                flights
+                    .cancel(actor.staff_user_id(), flight_id, request.version)
+                    .await
+                    .map_err(AdminApiError::from_flight)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+fn trusted_flight_mutation(state: &AppState, headers: &HeaderMap) -> Result<(), AdminApiError> {
+    browser_mutation_is_trusted(headers, &state.frontend_origin)
+        .then_some(())
+        .ok_or_else(AdminApiError::forbidden_origin)
 }
 
 #[derive(Deserialize)]
@@ -330,6 +609,51 @@ impl AdminApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "DASHBOARD_UNAVAILABLE",
             message: "Executive analytics are temporarily unavailable.",
+        }
+    }
+    fn flight_validation() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "FLIGHT_VALIDATION_FAILED",
+            message: "Review the flight fields and try again.",
+        }
+    }
+    fn flight_unavailable() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "FLIGHT_MANAGEMENT_UNAVAILABLE",
+            message: "Flight management is temporarily unavailable.",
+        }
+    }
+    fn from_flight(error: FlightManagementError) -> Self {
+        match error {
+            FlightManagementError::NotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "FLIGHT_NOT_FOUND",
+                message: "The flight was not found.",
+            },
+            FlightManagementError::Validation => Self::flight_validation(),
+            FlightManagementError::Duplicate => Self {
+                status: StatusCode::CONFLICT,
+                code: "FLIGHT_DUPLICATE",
+                message: "That flight number is already in use.",
+            },
+            FlightManagementError::Conflict => Self {
+                status: StatusCode::CONFLICT,
+                code: "FLIGHT_STALE_VERSION",
+                message: "The flight changed after this view was loaded.",
+            },
+            FlightManagementError::StructuralConflict => Self {
+                status: StatusCode::CONFLICT,
+                code: "FLIGHT_STRUCTURAL_CONFLICT",
+                message: "Structural fields cannot change after inventory has been materialized.",
+            },
+            FlightManagementError::InvalidStatus => Self {
+                status: StatusCode::CONFLICT,
+                code: "FLIGHT_STATUS_CONFLICT",
+                message: "The flight status does not allow this operation.",
+            },
+            FlightManagementError::Infrastructure => Self::flight_unavailable(),
         }
     }
 }

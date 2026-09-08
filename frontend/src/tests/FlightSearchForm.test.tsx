@@ -103,6 +103,32 @@ describe("FlightSearchForm", () => {
     ).toBeInTheDocument();
   });
 
+  it("searches airports supplied by the authoritative expanded network", () => {
+    const expandedAirports = [
+      ...AIRPORT_FIXTURES,
+      {
+        airport: "Sydney Kingsford Smith International Airport",
+        city: "Sydney",
+        code: "SYD",
+        country: "Australia",
+      },
+    ];
+    render(
+      <FlightSearchForm
+        airports={expandedAirports}
+        initialValues={createDefaultFlightSearchValues()}
+        onValidSubmit={jest.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose destination" }));
+    const dialog = screen.getByRole("dialog", { name: "Search airport or city" });
+    fireEvent.change(within(dialog).getByRole("textbox"), {
+      target: { value: "Australia" },
+    });
+    expect(within(dialog).getByRole("button", { name: /SYD Sydney/ })).toBeInTheDocument();
+  });
+
   it("swaps origin and destination without changing the route layout", () => {
     render(
       <FlightSearchForm initialValues={createValidValues()} onValidSubmit={jest.fn()} />,

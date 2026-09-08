@@ -3,8 +3,9 @@ import { HeroContent } from "@/components/home/HeroContent";
 import { HeroMedia } from "@/components/home/HeroMedia";
 import { HeroMotion } from "@/components/home/HeroMotion";
 import { Container } from "@/components/layout/Container";
+import type { AirportOption } from "@/components/booking/search/searchTypes";
 
-const Hero = () => (
+const Hero = ({ airports }: { airports: readonly AirportOption[] }) => (
   <HeroMotion>
     <div className="relative min-h-svh overflow-hidden" data-hero-visual>
       <HeroMedia />
@@ -16,7 +17,7 @@ const Hero = () => (
       id="flight-search"
     >
       <div className="rounded-surface border border-border/80 bg-background/90 p-4 shadow-[0_22px_60px_rgb(0_0_0/0.36)] sm:p-6">
-        <FlightSearchSection embedded />
+        <FlightSearchSection airports={airports} embedded />
       </div>
     </Container>
   </HeroMotion>

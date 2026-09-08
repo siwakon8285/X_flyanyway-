@@ -2,8 +2,17 @@ import { screen } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
 import FlightsRoute from "@/app/(customer)/flights/page";
+import { FLIGHT_RESULT_FIXTURES } from "@/components/booking/results/flightResultFixtures";
+import { AIRPORT_FIXTURES } from "@/components/booking/search/airportFixtures";
+import { fetchPublicAirports, fetchPublicFlights } from "@/lib/flights/publicFlightBackend";
+
+jest.mock("@/lib/flights/publicFlightBackend");
 
 describe("/flights route", () => {
+  beforeEach(() => {
+    jest.mocked(fetchPublicAirports).mockResolvedValue([...AIRPORT_FIXTURES]);
+    jest.mocked(fetchPublicFlights).mockResolvedValue([...FLIGHT_RESULT_FIXTURES]);
+  });
   it("renders results from supported query parameters", async () => {
     const route = await FlightsRoute({
       searchParams: Promise.resolve({

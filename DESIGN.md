@@ -3011,7 +3011,7 @@ The final chart refinement uses a point-preserving smoothed revenue curve and a 
 
 Filters support inclusive custom dates (maximum 366 days), Today, 7 Days, 30 Days, This Month, route, cabin, and the currently valid stored providers `STRIPE` and `MOCK_BITCOIN`. Queries run in a PostgreSQL read-only repeatable-read transaction. Responses contain aggregates, flight/route identifiers, and dates only; passenger identity, booking references, ticket numbers, provider references, and secrets are excluded.
 
-Because Branch 20 predates the latest Business/First-only stakeholder scope, its read-only analytics may truthfully surface legacy Economy/Premium Economy history already stored in PostgreSQL. Branch 20A must restrict **new bookings**, not falsify or delete historical analytics.
+The active Executive Dashboard cohort is Business/First only. A blank cabin filter means all active cabins, so gross revenue, bookings, tickets, trends, route/flight rankings, refunds, cabin mix, and recorded occupancy reconcile to the same active product scope. Legacy Economy/Premium Economy rows remain unchanged in PostgreSQL for historical compatibility and audit; they are intentionally outside this active reporting surface.
 
 Profit/Loss, passenger nationality, reporting/export workflows, scheduled delivery, and PDF/CSV output are intentionally absent. Profit requires authoritative operating-cost data, nationality is passenger-sensitive and not needed for this first dashboard, and report generation belongs to later approved scope.
 
@@ -3082,7 +3082,7 @@ Align the already-built customer booking lifecycle with the latest stakeholder r
 - preserve payment/ticket lifecycle separation
 - preserve Manage Booking / E-Ticket / signed QR
 - preserve cancellation/refund rules
-- preserve Admin/RBAC/Branch 20 analytics behavior; analytics may truthfully include legacy cabin history until data naturally ages out or a separately approved data migration exists
+- preserve Admin/RBAC and the Executive Dashboard's Business/First-only active reporting cohort without deleting or rewriting legacy cabin history
 
 ## Exit criteria
 
@@ -3104,19 +3104,52 @@ Align the already-built customer booking lifecycle with the latest stakeholder r
 feat/21-flight-management
 ```
 
-## Tasks
+## Implemented Boundary
 
-- FLIGHT_MANAGER-only create/edit/cancel
-- schedules / timezone
-- route
-- aircraft
-- cabin pricing
-- seat capacity/inventory template
-- status
-- cost data boundary for profit/loss where approved
-- validation
-- audit trail
-- destructive confirmation
+- Flight Management is part of the protected AdminShell. Visibility and every
+  backend operation use Branch 19 effective permissions: `flights:read` for
+  list/detail and `flights:write` for create/edit/cancel. Role names do not
+  bypass grants, and browser mutations retain exact-Origin and staff-CSRF checks.
+- Managed flights use canonical airport records with IANA time zones, validated
+  local departure/arrival instants, an optional operating date for legacy
+  recurring services, and the existing aircraft context rather than a separate
+  fleet-management product.
+- The checked-in supported-network master is deterministic across environments:
+  exactly 156 ISO-coded countries, each with one real primary commercial or
+  international airport, real IATA identity, city/location, and IANA timezone.
+  The original valid BKK, DXB, HND, JFK, and LHR records are retained. Both the
+  staff route selectors and customer airport search read this PostgreSQL master.
+  Airport presence means network support only; it never creates flight
+  availability without a matching `SCHEDULED` flight for the requested route/date.
+- New active configuration is Business/First only. Historical Economy and
+  Premium Economy records remain readable and are not rewritten. THB prices use
+  integer whole-baht amounts; existing review, payment, booking, and ticket snapshots
+  remain immutable when future prices change.
+- Per-flight Business/First seat templates feed the existing lazy
+  `flight_instances` / `flight_seats` materialization path. Structural edits are
+  allowed only before any instance has materialized, preventing held/booked seat
+  deletion or passenger reassignment. Price-only edits remain safe afterward.
+- Flight cancellation is a non-destructive `SCHEDULED` to `CANCELLED` transition.
+  It preserves bookings, payments, tickets, and holds, removes the flight from
+  new search/seat inventory, and is revalidated at payment finalization so a
+  pre-cancellation hold cannot create a successful payment or ticket afterward.
+- Mutations lock the authoritative flight row, require the submitted version,
+  and write a safe actor/action/before-after audit record in the same transaction.
+- Public flight search/detail and the admin workspace use the same PostgreSQL
+  source. The staff UI provides bounded filtering, grouped create/edit forms,
+  explicit cancellation confirmation, EN/TH copy, keyboard/focus behavior,
+  responsive layouts, and reduced-motion support.
+- Branch 20 Executive Dashboard queries remain route-data agnostic and scope the
+  active commercial cohort consistently to Business/First: managed
+  routes appear in filter choices, zero-booking flights do not fabricate revenue
+  or rankings, lazy per-flight templates materialize into the existing occupancy
+  model, and flight cancellation does not erase historical booking, ticket,
+  active-cabin revenue, cancellation, or refund facts. Historical Economy and
+  Premium Economy rows remain stored but do not enter active Executive totals,
+  filters, cabin intelligence, or occupancy. Executive responses remain free
+  of passenger PII; its editorial intelligence identity remains intact.
+- Profit/Loss and operating costs are intentionally absent because Branch 21 has
+  no approved authoritative cost source.
 
 ---
 

@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { render } from "@/tests/renderWithLanguage";
 
-import Home from "@/app/(customer)/page";
+import { HomePage as Home } from "@/components/home/HomePage";
 import { LanguageToggle } from "@/components/layout/LanguageToggle";
 
 describe("cinematic hero", () => {

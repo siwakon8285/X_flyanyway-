@@ -1,6 +1,6 @@
 import { fireEvent, screen } from "@testing-library/react";
 
-import Home from "@/app/(customer)/page";
+import { HomePage as Home } from "@/components/home/HomePage";
 import { render } from "@/tests/renderWithLanguage";
 
 describe("homepage promotion carousel", () => {

@@ -157,6 +157,9 @@ impl PaymentRepository for SqlxSeatHoldRepository {
         if hold.expires_at <= server_time {
             return Err(PaymentRepositoryError::HoldExpired);
         }
+        if !flight_is_bookable(&mut transaction, hold.flight_instance_id).await? {
+            return Err(PaymentRepositoryError::FlightUnavailable);
+        }
         ensure_ready(&mut transaction, &hold).await?;
         let open: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM payment_attempts WHERE seat_hold_id = $1 AND status IN ('CREATED', 'PROCESSING', 'AWAITING_PAYMENT'))",
@@ -248,6 +251,14 @@ impl PaymentRepository for SqlxSeatHoldRepository {
         }
 
         if transition.status == PaymentStatus::Succeeded {
+            if !flight_is_bookable(&mut transaction, hold.flight_instance_id).await? {
+                fail_attempt_for_cancelled_flight(&mut transaction, hold_id, attempt_id).await?;
+                transaction
+                    .commit()
+                    .await
+                    .map_err(PaymentRepositoryError::Infrastructure)?;
+                return Err(PaymentRepositoryError::FlightUnavailable);
+            }
             let lifecycle_error = if hold.consumed_at.is_some() {
                 Some((PaymentRepositoryError::HoldConsumed, "HOLD_CONSUMED"))
             } else if hold.released_at.is_some() {
@@ -438,6 +449,16 @@ impl PaymentRepository for SqlxSeatHoldRepository {
                 current_status
                     .transition(PaymentStatus::Succeeded)
                     .map_err(|_| PaymentRepositoryError::InvalidTransition)?;
+
+                if !flight_is_bookable(&mut transaction, hold.flight_instance_id).await? {
+                    fail_attempt_for_cancelled_flight(&mut transaction, hold.id, current.id)
+                        .await?;
+                    transaction
+                        .commit()
+                        .await
+                        .map_err(PaymentRepositoryError::Infrastructure)?;
+                    return Err(PaymentRepositoryError::FlightUnavailable);
+                }
 
                 let lifecycle_error = if hold.consumed_at.is_some() {
                     Some((PaymentRepositoryError::HoldConsumed, "HOLD_CONSUMED"))
@@ -942,6 +963,39 @@ fn map_insert_error(error: sqlx::Error) -> PaymentRepositoryError {
         }
     }
     PaymentRepositoryError::Infrastructure(error)
+}
+
+async fn flight_is_bookable(
+    transaction: &mut Transaction<'_, Postgres>,
+    flight_instance_id: Uuid,
+) -> Result<bool, PaymentRepositoryError> {
+    sqlx::query_scalar(
+        "SELECT service.status='SCHEDULED' FROM flight_instances instance
+         JOIN flight_services service ON service.id=instance.flight_service_id
+         WHERE instance.id=$1 FOR KEY SHARE OF service",
+    )
+    .bind(flight_instance_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(PaymentRepositoryError::Infrastructure)
+}
+
+async fn fail_attempt_for_cancelled_flight(
+    transaction: &mut Transaction<'_, Postgres>,
+    hold_id: Uuid,
+    attempt_id: Uuid,
+) -> Result<(), PaymentRepositoryError> {
+    sqlx::query(
+        "UPDATE payment_attempts SET status='FAILED',failure_code='FLIGHT_CANCELLED',
+            failure_message='The flight is no longer available for booking.',updated_at=NOW()
+         WHERE seat_hold_id=$1 AND id=$2",
+    )
+    .bind(hold_id)
+    .bind(attempt_id)
+    .execute(&mut **transaction)
+    .await
+    .map_err(PaymentRepositoryError::Infrastructure)?;
+    Ok(())
 }
 
 #[derive(FromRow)]

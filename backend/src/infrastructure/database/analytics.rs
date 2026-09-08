@@ -5,7 +5,8 @@ use sqlx::{FromRow, PgPool};
 use crate::application::analytics::{
     AnalyticsFilter, AnalyticsRepository, AnalyticsRepositoryError, DashboardCabin,
     DashboardFlight, DashboardInventory, DashboardInventoryFlight, DashboardReport, DashboardRoute,
-    DashboardSummary, DashboardTrend, DASHBOARD_CURRENCY, DASHBOARD_TIME_ZONE,
+    DashboardSummary, DashboardTrend, DASHBOARD_ACTIVE_CABINS, DASHBOARD_CURRENCY,
+    DASHBOARD_TIME_ZONE,
 };
 
 #[derive(Clone, Debug)]
@@ -48,11 +49,37 @@ const COHORT: &str = r#"
       AND payment.provider = $3
       AND (payment.succeeded_at AT TIME ZONE 'Asia/Bangkok')::date BETWEEN $1 AND $2
       AND ($4::text IS NULL OR service.origin_code || '-' || service.destination_code = $4)
+      AND hold.cabin IN ('business', 'first')
       AND ($5::text IS NULL OR hold.cabin = $5)
 "#;
 
 fn round_percent(numerator: i64, denominator: i64) -> Option<f64> {
     (denominator > 0).then(|| ((numerator as f64 * 10_000.0 / denominator as f64).round()) / 100.0)
+}
+
+fn active_cohort_reconciles(
+    summary: &SummaryRow,
+    trends: &[DashboardTrend],
+    cabins: &[DashboardCabin],
+) -> bool {
+    let cabins_are_active = cabins.iter().all(|row| {
+        DASHBOARD_ACTIVE_CABINS.contains(&row.cabin.as_str())
+            && cabins
+                .iter()
+                .filter(|candidate| candidate.cabin == row.cabin)
+                .count()
+                == 1
+    });
+    let cabin_bookings: i64 = cabins.iter().map(|row| row.bookings).sum();
+    let cabin_revenue: i64 = cabins.iter().map(|row| row.revenue).sum();
+    let trend_bookings: i64 = trends.iter().map(|row| row.bookings).sum();
+    let trend_revenue: i64 = trends.iter().map(|row| row.revenue).sum();
+
+    cabins_are_active
+        && cabin_bookings == summary.total_bookings
+        && cabin_revenue == summary.gross_revenue
+        && trend_bookings == summary.total_bookings
+        && trend_revenue == summary.gross_revenue
 }
 
 #[async_trait]
@@ -165,6 +192,7 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
             JOIN flight_services AS service ON service.id = instance.flight_service_id
             WHERE instance.departure_date BETWEEN $1 AND $2
               AND ($3::text IS NULL OR service.origin_code || '-' || service.destination_code = $3)
+              AND seat.cabin IN ('business', 'first')
               AND ($4::text IS NULL OR seat.cabin = $4)
         "#;
         let inventory_summary: InventorySummaryRow = sqlx::query_as(&format!(
@@ -187,6 +215,10 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
             "SELECT DISTINCT origin_code || '-' || destination_code FROM flight_services ORDER BY 1",
         ).fetch_all(&mut *transaction).await.map_err(AnalyticsRepositoryError::Infrastructure)?;
 
+        if !active_cohort_reconciles(&summary, &trends, &cabins) {
+            return Err(AnalyticsRepositoryError::InconsistentActiveCabinCohort);
+        }
+
         transaction
             .commit()
             .await
@@ -206,6 +238,7 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
             currency: DASHBOARD_CURRENCY,
             provider: filter.provider,
             generated_at: Utc::now(),
+            active_cabins: DASHBOARD_ACTIVE_CABINS,
             summary: DashboardSummary {
                 gross_revenue: summary.gross_revenue,
                 total_bookings: summary.total_bookings,

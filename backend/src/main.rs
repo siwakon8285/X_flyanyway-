@@ -7,6 +7,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use x_fly_api::{
     application::{
         cancellation::{CancellationService, RefundDispatcher},
+        flight::FlightManagement,
         staff_auth::StaffAuthService,
         use_cases::PaymentApplication,
     },
@@ -14,8 +15,8 @@ use x_fly_api::{
     domain::cancellation::SystemClock,
     infrastructure::{
         database::{
-            prepare_database, SqlxAnalyticsRepository, SqlxSeatHoldRepository,
-            SqlxStaffAuthRepository,
+            prepare_database, SqlxAnalyticsRepository, SqlxFlightRepository,
+            SqlxSeatHoldRepository, SqlxStaffAuthRepository,
         },
         http::build_router,
         password::Argon2PasswordService,
@@ -91,7 +92,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_stripe_webhook_secret(config.stripe_webhook_secret)
     .with_tickets(repository.clone(), config.ticket_qr_signing_secret)
     .with_cancellations(cancellation_service);
-    let state = state.with_staff_auth(staff_auth).with_analytics(analytics);
+    let flights = FlightManagement::new(Arc::new(SqlxFlightRepository::new(
+        repository.pool().clone(),
+    )));
+    let state = state
+        .with_staff_auth(staff_auth)
+        .with_analytics(analytics)
+        .with_flights(flights);
     let state =
         state.with_manage_bookings(repository.clone(), config.manage_booking_signing_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;

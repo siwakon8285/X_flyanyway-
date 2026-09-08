@@ -4,6 +4,7 @@ use crate::{
     application::analytics::AnalyticsRepository,
     application::booking_confirmation::BookingConfirmationEmailService,
     application::cancellation::CancellationService,
+    application::flight::FlightManagement,
     application::staff_auth::StaffAuthService,
     application::use_cases::{
         ExtraApplication, ManageBookingApplication, PassengerApplication, PaymentApplication,
@@ -32,6 +33,7 @@ pub struct AppState {
     pub cancellations: Option<CancellationService>,
     pub staff_auth: Option<StaffAuthService>,
     pub analytics: Option<Arc<dyn AnalyticsRepository>>,
+    pub flights: Option<FlightManagement>,
 }
 
 impl AppState {
@@ -60,6 +62,7 @@ impl AppState {
             cancellations: None,
             staff_auth: None,
             analytics: None,
+            flights: None,
         }
     }
 
@@ -109,6 +112,11 @@ impl AppState {
 
     pub fn with_analytics(mut self, repository: Arc<dyn AnalyticsRepository>) -> Self {
         self.analytics = Some(repository);
+        self
+    }
+
+    pub fn with_flights(mut self, flights: FlightManagement) -> Self {
+        self.flights = Some(flights);
         self
     }
 }
