@@ -16,6 +16,7 @@ use crate::domain::{
 
 mod analytics;
 mod booking_confirmation;
+mod booking_management;
 mod cancellation;
 mod extras;
 mod flight;

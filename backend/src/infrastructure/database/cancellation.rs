@@ -2,7 +2,7 @@ use super::SqlxSeatHoldRepository;
 use crate::domain::{
     cancellation::{
         Cancellation, Clock, ProviderRefund, ProviderRefundStatus, RefundFailure, RefundJob,
-        RefundStatus, StripeRefundEvent, MAX_REFUND_ATTEMPTS,
+        RefundStatus, StaffCancellationActor, StripeRefundEvent, MAX_REFUND_ATTEMPTS,
     },
     extras::Money,
     payment::PaymentProvider,
@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 #[derive(FromRow)]
 struct CancelRow {
+    booking_reference: String,
     payment_attempt_id: Uuid,
     ticket_status: String,
     payment_status: String,
@@ -54,13 +55,14 @@ impl CancellationRepository for SqlxSeatHoldRepository {
         &self,
         ticket_id: Uuid,
         clock: &dyn Clock,
+        staff_actor: Option<&StaffCancellationActor>,
     ) -> Result<Cancellation, CancellationRepositoryError> {
         let mut tx = self
             .pool()
             .begin()
             .await
             .map_err(CancellationRepositoryError::Infrastructure)?;
-        let row=sqlx::query_as::<_,CancelRow>("SELECT p.id payment_attempt_id,t.status ticket_status,p.status payment_status,p.provider,p.provider_reference,p.amount,p.currency_code,h.consumed_at,CASE WHEN s.departure_time IS NULL OR s.origin_time_zone IS NULL THEN NULL ELSE (i.departure_date+s.departure_time) AT TIME ZONE s.origin_time_zone END departure_at FROM tickets t JOIN payment_attempts p ON p.id=t.payment_attempt_id JOIN seat_holds h ON h.id=p.seat_hold_id JOIN flight_instances i ON i.id=h.flight_instance_id JOIN flight_services s ON s.id=i.flight_service_id WHERE t.id=$1 FOR UPDATE OF t,p,h,i,s").bind(ticket_id).fetch_optional(&mut *tx).await.map_err(CancellationRepositoryError::Infrastructure)?.ok_or(CancellationRepositoryError::NotFound)?;
+        let row=sqlx::query_as::<_,CancelRow>("SELECT t.booking_reference,p.id payment_attempt_id,t.status ticket_status,p.status payment_status,p.provider,p.provider_reference,p.amount,p.currency_code,h.consumed_at,CASE WHEN s.departure_time IS NULL OR s.origin_time_zone IS NULL THEN NULL ELSE (i.departure_date+s.departure_time) AT TIME ZONE s.origin_time_zone END departure_at FROM tickets t JOIN payment_attempts p ON p.id=t.payment_attempt_id JOIN seat_holds h ON h.id=p.seat_hold_id JOIN flight_instances i ON i.id=h.flight_instance_id JOIN flight_services s ON s.id=i.flight_service_id WHERE t.id=$1 FOR UPDATE OF t,p,h,i,s").bind(ticket_id).fetch_optional(&mut *tx).await.map_err(CancellationRepositoryError::Infrastructure)?.ok_or(CancellationRepositoryError::NotFound)?;
         if let Some(c)=sqlx::query_as::<_,CancellationRow>("SELECT id,refund_status,refund_amount,currency_code,cancelled_at FROM booking_cancellations WHERE ticket_id=$1").bind(ticket_id).fetch_optional(&mut *tx).await.map_err(CancellationRepositoryError::Infrastructure)?{tx.commit().await.map_err(CancellationRepositoryError::Infrastructure)?;return Ok(c.domain())}
         let seat_ids=sqlx::query_scalar::<_,Uuid>("SELECT ps.flight_seat_id FROM payment_attempt_seats ps JOIN flight_seats fs ON fs.id=ps.flight_seat_id WHERE ps.payment_attempt_id=$1 AND ps.released_at IS NULL ORDER BY ps.flight_seat_id FOR UPDATE OF ps,fs").bind(row.payment_attempt_id).fetch_all(&mut *tx).await.map_err(CancellationRepositoryError::Infrastructure)?;
         let now = clock.now();
@@ -89,6 +91,25 @@ impl CancellationRepository for SqlxSeatHoldRepository {
         .map_err(CancellationRepositoryError::Infrastructure)?;
         sqlx::query("UPDATE payment_attempt_seats SET released_at=$2 WHERE payment_attempt_id=$1 AND released_at IS NULL").bind(row.payment_attempt_id).bind(now).execute(&mut *tx).await.map_err(CancellationRepositoryError::Infrastructure)?;
         sqlx::query("UPDATE flight_seats SET booking_status='AVAILABLE',booked_at=NULL WHERE id=ANY($1) AND booking_status='BOOKED'").bind(&seat_ids).execute(&mut *tx).await.map_err(CancellationRepositoryError::Infrastructure)?;
+        if let Some(actor) = staff_actor {
+            sqlx::query(
+                "INSERT INTO booking_operations_audit(
+                    actor_staff_user_id,actor_email,ticket_id,booking_reference,cancellation_id,
+                    action,before_state,after_state,created_at
+                 ) VALUES($1,$2,$3,$4,$5,'STAFF_BOOKING_CANCELLED',
+                    jsonb_build_object('bookingStatus','CONFIRMED','ticketStatus','ISSUED'),
+                    jsonb_build_object('bookingStatus','CANCELLED','ticketStatus','CANCELLED','refundStatus','PENDING'),$6)",
+            )
+            .bind(actor.staff_user_id)
+            .bind(&actor.email)
+            .bind(ticket_id)
+            .bind(&row.booking_reference)
+            .bind(c.id)
+            .bind(now)
+            .execute(&mut *tx)
+            .await
+            .map_err(CancellationRepositoryError::Infrastructure)?;
+        }
         tx.commit()
             .await
             .map_err(CancellationRepositoryError::Infrastructure)?;

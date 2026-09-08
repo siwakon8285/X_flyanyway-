@@ -15,7 +15,11 @@ use crate::{
     application::staff_auth::StaffAuthError,
     application::{analytics::AnalyticsFilter, flight::FlightListFilter},
     domain::{
+        booking_management::BookingListFilter,
+        cancellation::StaffCancellationActor,
         flight::{FlightCommand, FlightManagementError, FlightStatus},
+        manage_booking::BookingStatus,
+        repositories::{BookingManagementRepositoryError, CancellationRepositoryError},
         staff::{PermissionCode, StaffPrincipal},
     },
     state::AppState,
@@ -32,6 +36,16 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/admin/auth/session", get(session))
         .route("/api/v1/admin/auth/logout", post(logout))
         .route("/api/v1/admin/dashboard", get(dashboard))
+        .route("/api/v1/admin/bookings", get(list_bookings))
+        .route("/api/v1/admin/bookings/search", post(search_bookings))
+        .route(
+            "/api/v1/admin/bookings/{booking_reference}",
+            get(booking_detail),
+        )
+        .route(
+            "/api/v1/admin/bookings/{booking_reference}/cancel",
+            post(cancel_booking),
+        )
         .route(
             "/api/v1/admin/flights",
             get(list_flights).post(create_flight),
@@ -48,6 +62,271 @@ pub fn router() -> Router<AppState> {
             "/api/v1/admin/flights/{flight_id}/cancel",
             post(cancel_flight),
         )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct BookingListQuery {
+    booking_reference: Option<String>,
+    passenger_name: Option<String>,
+    flight_number: Option<String>,
+    travel_date: Option<String>,
+    booking_status: Option<String>,
+    cabin: Option<String>,
+    origin: Option<String>,
+    destination: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn list_bookings(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    query: Result<Query<BookingListQuery>, QueryRejection>,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::BookingsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let query = query
+            .map_err(|_| AdminApiError::booking_filter_invalid())?
+            .0;
+        let filter = parse_booking_filter(query)?;
+        let repository = state
+            .booking_management
+            .as_ref()
+            .ok_or_else(AdminApiError::booking_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                repository
+                    .list_bookings(&filter)
+                    .await
+                    .map_err(AdminApiError::from_booking_repository)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn search_bookings(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    headers: HeaderMap,
+    payload: Result<Json<BookingListQuery>, JsonRejection>,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::BookingsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_booking_mutation(&state, &headers)?;
+        let filter = parse_booking_filter(
+            payload
+                .map_err(|_| AdminApiError::booking_filter_invalid())?
+                .0,
+        )?;
+        let repository = state
+            .booking_management
+            .as_ref()
+            .ok_or_else(AdminApiError::booking_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                repository
+                    .list_bookings(&filter)
+                    .await
+                    .map_err(AdminApiError::from_booking_repository)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn booking_detail(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(booking_reference): Path<String>,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::BookingsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let booking_reference = normalize_booking_reference(&booking_reference)?;
+        let repository = state
+            .booking_management
+            .as_ref()
+            .ok_or_else(AdminApiError::booking_unavailable)?;
+        let detail = repository
+            .get_booking_detail(&booking_reference, Utc::now())
+            .await
+            .map_err(AdminApiError::from_booking_repository)?
+            .ok_or_else(AdminApiError::booking_not_found)?;
+        Ok::<_, AdminApiError>(Json(detail).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn cancel_booking(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(booking_reference): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::BookingsManage)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_booking_mutation(&state, &headers)?;
+        let booking_reference = normalize_booking_reference(&booking_reference)?;
+        let repository = state
+            .booking_management
+            .as_ref()
+            .ok_or_else(AdminApiError::booking_unavailable)?;
+        let ticket_id = repository
+            .ticket_id_for_booking_reference(&booking_reference)
+            .await
+            .map_err(AdminApiError::from_booking_repository)?
+            .ok_or_else(AdminApiError::booking_not_found)?;
+        let cancellations = state
+            .cancellations
+            .as_ref()
+            .ok_or_else(AdminApiError::booking_unavailable)?;
+        cancellations
+            .cancel_for_staff(
+                ticket_id,
+                &StaffCancellationActor {
+                    staff_user_id: actor.staff_user_id(),
+                    email: actor.email().to_owned(),
+                },
+            )
+            .await
+            .map_err(AdminApiError::from_cancellation)?;
+        let detail = repository
+            .get_booking_detail(&booking_reference, Utc::now())
+            .await
+            .map_err(AdminApiError::from_booking_repository)?
+            .ok_or_else(AdminApiError::booking_not_found)?;
+        Ok::<_, AdminApiError>(Json(detail).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+fn parse_booking_filter(query: BookingListQuery) -> Result<BookingListFilter, AdminApiError> {
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
+    if !(1..=50).contains(&limit) || offset < 0 {
+        return Err(AdminApiError::booking_filter_invalid());
+    }
+    let optional_reference = query
+        .booking_reference
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| normalize_booking_reference(&value))
+        .transpose()?;
+    let passenger_name = query
+        .passenger_name
+        .map(|value| value.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            if value.chars().count() > 100 || value.chars().any(char::is_control) {
+                return Err(AdminApiError::booking_filter_invalid());
+            }
+            let escaped = value
+                .to_lowercase()
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            Ok(format!("%{escaped}%"))
+        })
+        .transpose()?;
+    let flight_number = query
+        .flight_number
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| {
+            let mut compact = value.split_whitespace().collect::<String>().to_uppercase();
+            let digits = compact
+                .strip_prefix("XF")
+                .filter(|digits| {
+                    digits.len() == 3 && digits.bytes().all(|byte| byte.is_ascii_digit())
+                })
+                .ok_or_else(AdminApiError::booking_filter_invalid)?
+                .to_owned();
+            compact = format!("XF {digits}");
+            Ok::<String, AdminApiError>(compact)
+        })
+        .transpose()?;
+    let airport = |value: Option<String>| -> Result<Option<String>, AdminApiError> {
+        value
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                let value = value.trim().to_uppercase();
+                (value.len() == 3 && value.bytes().all(|byte| byte.is_ascii_uppercase()))
+                    .then_some(value)
+                    .ok_or_else(AdminApiError::booking_filter_invalid)
+            })
+            .transpose()
+    };
+    let travel_date = query
+        .travel_date
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| NaiveDate::parse_from_str(&value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| AdminApiError::booking_filter_invalid())?;
+    let booking_status = query
+        .booking_status
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| match value.as_str() {
+            "CONFIRMED" => Ok(BookingStatus::Confirmed),
+            "CANCELLED" => Ok(BookingStatus::Cancelled),
+            _ => Err(AdminApiError::booking_filter_invalid()),
+        })
+        .transpose()?;
+    let cabin = query
+        .cabin
+        .filter(|value| !value.trim().is_empty())
+        .map(
+            |value| match value.trim().to_ascii_uppercase().replace('_', "-").as_str() {
+                "BUSINESS" => Ok("business".to_owned()),
+                "FIRST" => Ok("first".to_owned()),
+                "ECONOMY" => Ok("economy".to_owned()),
+                "PREMIUM-ECONOMY" => Ok("premium-economy".to_owned()),
+                _ => Err(AdminApiError::booking_filter_invalid()),
+            },
+        )
+        .transpose()?;
+    Ok(BookingListFilter {
+        booking_reference: optional_reference,
+        passenger_name,
+        flight_number,
+        travel_date,
+        booking_status,
+        cabin,
+        origin: airport(query.origin)?,
+        destination: airport(query.destination)?,
+        limit,
+        offset,
+    })
+}
+
+fn normalize_booking_reference(value: &str) -> Result<String, AdminApiError> {
+    let normalized = value.trim().to_ascii_uppercase();
+    let valid = normalized.len() == 10
+        && normalized.starts_with("XF")
+        && normalized[2..]
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || matches!(byte, b'2'..=b'9'));
+    valid
+        .then_some(normalized)
+        .ok_or_else(AdminApiError::booking_filter_invalid)
+}
+
+fn trusted_booking_mutation(state: &AppState, headers: &HeaderMap) -> Result<(), AdminApiError> {
+    browser_mutation_is_trusted(headers, &state.frontend_origin)
+        .then_some(())
+        .ok_or_else(AdminApiError::forbidden_origin)
 }
 
 #[derive(Deserialize)]
@@ -616,6 +895,53 @@ impl AdminApiError {
             status: StatusCode::UNPROCESSABLE_ENTITY,
             code: "FLIGHT_VALIDATION_FAILED",
             message: "Review the flight fields and try again.",
+        }
+    }
+    fn booking_filter_invalid() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "BOOKING_FILTER_INVALID",
+            message: "Review the booking filters and try again.",
+        }
+    }
+    fn booking_not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "BOOKING_NOT_FOUND",
+            message: "The booking was not found.",
+        }
+    }
+    fn booking_unavailable() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "BOOKING_MANAGEMENT_UNAVAILABLE",
+            message: "Booking management is temporarily unavailable.",
+        }
+    }
+    fn from_booking_repository(error: BookingManagementRepositoryError) -> Self {
+        match error {
+            BookingManagementRepositoryError::InconsistentState => Self {
+                status: StatusCode::CONFLICT,
+                code: "BOOKING_STATE_CONFLICT",
+                message: "The authoritative booking state is inconsistent.",
+            },
+            BookingManagementRepositoryError::Infrastructure(_) => Self::booking_unavailable(),
+        }
+    }
+    fn from_cancellation(error: CancellationRepositoryError) -> Self {
+        match error {
+            CancellationRepositoryError::NotFound => Self::booking_not_found(),
+            CancellationRepositoryError::Ineligible => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: "BOOKING_CANCELLATION_INELIGIBLE",
+                message: "This booking is not eligible for cancellation.",
+            },
+            CancellationRepositoryError::InconsistentState => Self {
+                status: StatusCode::CONFLICT,
+                code: "BOOKING_STATE_CONFLICT",
+                message: "The authoritative booking state is inconsistent.",
+            },
+            CancellationRepositoryError::Infrastructure(_) => Self::booking_unavailable(),
         }
     }
     fn flight_unavailable() -> Self {

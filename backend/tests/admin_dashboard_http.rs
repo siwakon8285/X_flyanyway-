@@ -1,5 +1,6 @@
+mod common;
+
 use std::{
-    env,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -45,12 +46,7 @@ async fn fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
 }
 
 async fn test_pool() -> PgPool {
-    let database_url = env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL is required");
-    assert!(database_url
-        .split('?')
-        .next()
-        .unwrap_or_default()
-        .ends_with("_test"));
+    let database_url = common::test_database_url();
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)

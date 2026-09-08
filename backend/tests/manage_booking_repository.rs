@@ -1,5 +1,6 @@
+mod common;
+
 use std::{
-    env,
     sync::{
         atomic::{AtomicI64, Ordering},
         Arc, LazyLock,
@@ -138,13 +139,7 @@ impl Clock for MutableClock {
 }
 
 async fn test_pool() -> PgPool {
-    dotenvy::dotenv().ok();
-    let database_url = env::var("TEST_DATABASE_URL").unwrap();
-    assert!(database_url
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .ends_with("_test"));
+    let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
     prepare_database(&pool).await.unwrap();
     pool
@@ -454,9 +449,12 @@ async fn stripe_and_mock_cancellation_is_atomic_idempotent_and_uses_exact_bounda
         let (ticket_id, _) = issued_booking_for(&repository, method).await;
         let departure: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT (instance.departure_date + service.departure_time) AT TIME ZONE service.origin_time_zone FROM tickets ticket JOIN payment_attempts attempt ON attempt.id=ticket.payment_attempt_id JOIN seat_holds hold ON hold.id=attempt.seat_hold_id JOIN flight_instances instance ON instance.id=hold.flight_instance_id JOIN flight_services service ON service.id=instance.flight_service_id WHERE ticket.id=$1").bind(ticket_id).fetch_one(repository.pool()).await.unwrap();
         let clock = FixedClock(departure - Duration::hours(24));
-        let first = repository.cancel_booking(ticket_id, &clock).await.unwrap();
+        let first = repository
+            .cancel_booking(ticket_id, &clock, None)
+            .await
+            .unwrap();
         let second = repository
-            .cancel_booking(ticket_id, &FixedClock(departure))
+            .cancel_booking(ticket_id, &FixedClock(departure), None)
             .await
             .unwrap();
         assert_eq!(first.id, second.id);
@@ -478,7 +476,8 @@ async fn cancellation_inside_twenty_four_hours_is_denied_without_mutation() {
         repository
             .cancel_booking(
                 ticket_id,
-                &FixedClock(departure - Duration::hours(24) + Duration::seconds(1))
+                &FixedClock(departure - Duration::hours(24) + Duration::seconds(1)),
+                None,
             )
             .await,
         Err(x_fly_api::domain::repositories::CancellationRepositoryError::Ineligible)
@@ -502,7 +501,7 @@ async fn expired_lease_recovers_and_stale_worker_cannot_regress_success() {
     let departure: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT (instance.departure_date + service.departure_time) AT TIME ZONE service.origin_time_zone FROM tickets ticket JOIN payment_attempts attempt ON attempt.id=ticket.payment_attempt_id JOIN seat_holds hold ON hold.id=attempt.seat_hold_id JOIN flight_instances instance ON instance.id=hold.flight_instance_id JOIN flight_services service ON service.id=instance.flight_service_id WHERE ticket.id=$1").bind(ticket_id).fetch_one(repository.pool()).await.unwrap();
     let now = departure - Duration::hours(48);
     repository
-        .cancel_booking(ticket_id, &FixedClock(now))
+        .cancel_booking(ticket_id, &FixedClock(now), None)
         .await
         .unwrap();
     let stale = repository.claim_due_refund(now).await.unwrap().unwrap();
@@ -564,7 +563,7 @@ async fn cancellation_clock_is_read_after_waiting_for_authoritative_locks() {
     let task_clock = clock.clone();
     let task = tokio::spawn(async move {
         task_repository
-            .cancel_booking(ticket_id, task_clock.as_ref())
+            .cancel_booking(ticket_id, task_clock.as_ref(), None)
             .await
     });
     tokio::time::sleep(StdDuration::from_millis(100)).await;
@@ -588,13 +587,21 @@ async fn concurrent_cancel_creates_one_event_and_released_seat_can_be_held_again
     let second_repo = repository.clone();
     let first = tokio::spawn(async move {
         first_repo
-            .cancel_booking(ticket_id, &FixedClock(departure_at - Duration::hours(48)))
+            .cancel_booking(
+                ticket_id,
+                &FixedClock(departure_at - Duration::hours(48)),
+                None,
+            )
             .await
             .unwrap()
     });
     let second = tokio::spawn(async move {
         second_repo
-            .cancel_booking(ticket_id, &FixedClock(departure_at - Duration::hours(48)))
+            .cancel_booking(
+                ticket_id,
+                &FixedClock(departure_at - Duration::hours(48)),
+                None,
+            )
             .await
             .unwrap()
     });
@@ -632,7 +639,11 @@ async fn stripe_refund_events_validate_authoritative_object_and_never_regress_su
     let (ticket_id, _) = issued_booking_for(&repository, PaymentMethod::Card).await;
     let (departure,payment_id,amount):(chrono::DateTime<Utc>,String,i64)=sqlx::query_as("SELECT (instance.departure_date + service.departure_time) AT TIME ZONE service.origin_time_zone,attempt.provider_reference,attempt.amount FROM tickets ticket JOIN payment_attempts attempt ON attempt.id=ticket.payment_attempt_id JOIN seat_holds hold ON hold.id=attempt.seat_hold_id JOIN flight_instances instance ON instance.id=hold.flight_instance_id JOIN flight_services service ON service.id=instance.flight_service_id WHERE ticket.id=$1").bind(ticket_id).fetch_one(repository.pool()).await.unwrap();
     let cancellation = repository
-        .cancel_booking(ticket_id, &FixedClock(departure - Duration::hours(48)))
+        .cancel_booking(
+            ticket_id,
+            &FixedClock(departure - Duration::hours(48)),
+            None,
+        )
         .await
         .unwrap();
     let event = |event_id: &str, status: ProviderRefundStatus| StripeRefundEvent {

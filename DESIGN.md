@@ -2977,7 +2977,7 @@ Branch 19 uses PostgreSQL-backed staff identities, many-to-many roles, role perm
 
 Staff passwords use Argon2id and are provisioned only through the local `staff_admin bootstrap|create` CLI with a hidden confirmed password prompt. There is no public registration endpoint or default credential. Staff authentication uses the separate `x_fly_staff_session` cookie scoped to `/admin`; it does not reuse or alter customer hold or Manage Booking authorization.
 
-The Branch 19 `/admin` workspace is an authentication, authorization, and visual shell only. Future module links stay omitted until their branches provide real functionality; the shell contains no Executive Dashboard metrics or fabricated analytics. English and Thai use the shared typed locale system.
+The `/admin` workspace provides the shared authentication, authorization, navigation, and visual shell for authorized staff modules. Navigation reflects current effective permissions, while each backend module remains independently authoritative for access control. English and Thai use the shared typed locale system.
 
 Company-managed-device access is not proven by application login or browser checks. Real enforcement remains a Branch 27 identity/network control using an auditable mechanism such as managed-device certificates, Zero Trust device posture, MDM identity, or a private/VPN policy.
 
@@ -3161,17 +3161,72 @@ feat/21-flight-management
 feat/22-booking-management
 ```
 
-## Tasks
+## Implemented Boundary
 
-- booking search/filter
-- passenger search
-- flight/date/status/cabin filters
-- authoritative booking detail
-- payment/ticket/cancellation/refund summary
-- role-aware sensitive-field filtering
-- auditable approved operations
+- Booking Operations is a staff-assisted reservation service and exception-
+  handling workspace for cases where customer self-service is insufficient. It
+  does not approve or gate normal customer Manage Booking or eligible customer
+  cancellation.
+- Booking Management is a protected `/admin/bookings` workspace inside the
+  Branch 19 Admin Shell. Backend list/detail reads require the effective
+  `bookings:read` grant and staff cancellation requires `bookings:manage`;
+  role names never authorize requests and `SYSTEM_ADMIN`, `EXECUTIVE`,
+  `FLIGHT_MANAGER`, ticket/passenger, and baggage roles receive no implicit
+  Booking Operations access.
+- Search is PostgreSQL-backed and bounded to at most 50 rows per request, with
+  deterministic pagination. It supports an exact normalized Booking Reference,
+  normalized passenger-name matching, canonical `XF NNN` flight number,
+  unambiguous travel date, booking status, cabin, and origin/destination IATA
+  filters. The staff UI sends passenger search terms in a protected POST body,
+  not a URL, and no read/search event stores passenger PII.
+  Existing unique booking/flight and service-date indexes are reused; a
+  data-preserving newest-booking index and PostgreSQL trigram expression index
+  support the ordered list and normalized passenger substring lookup.
+- Exact booking-reference detail uses explicit admin DTOs and separates booking,
+  current flight, payment, ticket, and refund states. It shows booking-relevant
+  passenger names/gender/type, booking phone, authoritative origin-local journey
+  context, finalized booking-level seats, whole-baht payment facts, read-only
+  ticket facts, cancellation eligibility/state, and safe staff audit history.
+  It exposes no passport, email placeholder, provider reference, card data,
+  payment/QR/session secret, or raw database model.
+- Internal operations retain read visibility for legitimate historical Economy
+  and Premium Economy bookings and label those cabins as historical. The cabin
+  filter UI offers only All, Business, and First; All applies no cabin predicate
+  and therefore includes all operationally readable history, including legacy
+  cabins. This does not add any legacy-cabin customer sale path and remains
+  intentionally distinct from the Branch 20 Business/First-only reporting
+  cohort.
+- Flight status and booking status remain visually and structurally separate. A
+  `CANCELLED` flight—including the XF 880 SYD → CDG regression case—does not
+  rewrite its historical booking, successful THB 99,500 payment, First 1K seat,
+  or issued ticket merely because staff inspect it.
+- The only mutation is explicit staff-initiated cancellation/full refund. It
+  calls the Branch 18 authoritative cancellation transaction and therefore uses
+  the origin-timezone departure instant, permits equality at the 24-hour cutoff,
+  charges zero fee, refunds 100% through the original Stripe Test Mode / Mock
+  Bitcoin abstraction, preserves successful payment/consumed-hold/ticket history,
+  and releases only active seat ownership. Staff receive no policy override.
+  Existing row locks and unique
+  cancellation/payment constraints make staff/staff and staff/customer races
+  idempotent.
+- A newly successful staff cancellation writes one durable
+  `STAFF_BOOKING_CANCELLED` audit row in the same transaction, containing actor
+  staff ID, durable actor email, booking/ticket/cancellation identity, timestamp,
+  and safe before/after lifecycle states without passenger or payment-instrument
+  data. Repeat cancellation returns current authoritative state without a
+  duplicate refund, seat release, or staff audit event.
+- The admin BFF forwards only the HttpOnly staff session and approved headers;
+  mutation/search POSTs retain exact-Origin and CSRF validation. Responses are
+  private/no-store and expose specific 401, 403, 404, 409, 422, and service
+  failure semantics for bilingual operational UX.
+- The interface is a responsive bilingual Luxury Service Operations Terminal:
+  warm ivory canvas, charcoal service instruments, X-Fly yellow, compact filters,
+  semantic tables, visible focus, textual status labels, keyboard-safe dialog,
+  deliberate horizontal table scrolling, and reduced-motion compatibility.
 
-This is internal booking administration, not airport check-in.
+This remains internal booking administration—not Branch 23 ticket/passenger
+editing, check-in, Boarding Pass, QR scanning, baggage operations, direct
+rebooking, payment override, ticket issuance/voiding, or generic CRUD.
 
 ---
 

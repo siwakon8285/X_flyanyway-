@@ -64,6 +64,19 @@ describe("Flight Management date picker", () => {
     expect(() => fireEvent.click(container.querySelector("[data-date-picker-control]") as HTMLElement)).not.toThrow();
     expect(input).toHaveFocus();
   });
+
+  it("keeps the native date input focused when showPicker rejects the request", () => {
+    const { container } = render(
+      <DatePickerField label="Departure date" onChange={jest.fn()} value="" />,
+    );
+    const input = screen.getByLabelText("Departure date") as HTMLInputElement;
+    const showPicker = jest.fn(() => { throw new DOMException("Picker unavailable", "NotAllowedError"); });
+    Object.defineProperty(input, "showPicker", { configurable:true, value:showPicker });
+
+    expect(() => fireEvent.click(container.querySelector("[data-date-picker-control]") as HTMLElement)).not.toThrow();
+    expect(showPicker).toHaveBeenCalledTimes(1);
+    expect(input).toHaveFocus();
+  });
 });
 
 describe("Flight Management time picker", () => {

@@ -38,4 +38,16 @@ describe("AdminShell", () => {
     expect(screen.getByRole("link", { name: "พื้นที่ทำงาน" })).toBeInTheDocument();
     expect(screen.getByText("ผู้ดูแลระบบ")).toBeInTheDocument();
   });
+
+  it("shows Booking Operations navigation only when its effective read grant exists", () => {
+    render(<AdminShell principal={{ ...principal, roles: ["BOOKING_OPERATIONS"], permissions: ["bookings:read", "bookings:manage"] }}><p>Bookings</p></AdminShell>);
+    expect(screen.getByRole("link", { name: "Bookings" })).toHaveAttribute("href", "/admin/bookings");
+    expect(screen.queryByRole("link", { name: "Flights" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Flight Manager navigation limited to flights", () => {
+    render(<AdminShell principal={{ ...principal, roles: ["FLIGHT_MANAGER"], permissions: ["flights:read", "flights:write"] }}><p>Flights</p></AdminShell>);
+    expect(screen.getByRole("link", { name: "Flights" })).toHaveAttribute("href", "/admin/flights");
+    expect(screen.queryByRole("link", { name: "Bookings" })).not.toBeInTheDocument();
+  });
 });

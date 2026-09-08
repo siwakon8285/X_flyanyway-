@@ -53,6 +53,12 @@ pub struct Cancellation {
 }
 
 #[derive(Clone, Debug)]
+pub struct StaffCancellationActor {
+    pub staff_user_id: Uuid,
+    pub email: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct RefundJob {
     pub id: Uuid,
     pub payment_attempt_id: Uuid,

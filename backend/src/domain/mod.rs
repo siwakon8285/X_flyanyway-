@@ -1,4 +1,5 @@
 pub mod booking_confirmation;
+pub mod booking_management;
 pub mod cancellation;
 pub mod entities;
 pub mod extras;

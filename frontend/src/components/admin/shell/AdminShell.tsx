@@ -71,7 +71,7 @@ const AdminShell = ({ children, principal }: AdminShellProps) => {
     </aside>
     <div className="lg:pl-72">
       <header className="sticky top-0 z-30 flex min-h-20 items-center justify-between gap-4 border-b border-black/10 bg-[#f6f3e9]/95 px-4 backdrop-blur md:px-8">
-        <div><p className="text-caption text-black/50">{t("admin.shell.terminal")}</p><p className="font-semibold">{t(pathname.startsWith("/admin/flights") ? "admin.navigation.flights" : pathname === "/admin/dashboard" ? "admin.navigation.overview" : "admin.navigation.workspace")}</p></div>
+        <div><p className="text-caption text-black/50">{t("admin.shell.terminal")}</p><p className="font-semibold">{t(pathname.startsWith("/admin/flights") ? "admin.navigation.flights" : pathname.startsWith("/admin/bookings") ? "admin.navigation.bookings" : pathname === "/admin/dashboard" ? "admin.navigation.overview" : "admin.navigation.workspace")}</p></div>
         <div className="flex items-center gap-2"><LanguageToggle />
           <Dialog onOpenChange={setOpen} open={open}>
             <DialogTrigger asChild><button aria-label={t("admin.shell.openNavigation")} className="inline-flex size-11 items-center justify-center rounded-control border border-black/15 outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden" type="button"><Menu aria-hidden="true" className="size-5" /></button></DialogTrigger>

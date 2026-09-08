@@ -152,6 +152,7 @@ describe("Payment page", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "ชำระ THB 49,300 ในโหมดตัวอย่าง" }));
 
+    expect(await screen.findByLabelText("Stripe Payment Element")).toBeInTheDocument();
     const request = fetchMock.mock.calls[1]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toEqual(expect.objectContaining({
       method: "CARD",

@@ -1,4 +1,6 @@
-use std::{env, sync::Arc, time::Duration};
+mod common;
+
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -19,13 +21,7 @@ use x_fly_api::{
 };
 
 async fn app() -> (axum::Router, PgPool) {
-    dotenvy::dotenv().ok();
-    let database_url = env::var("TEST_DATABASE_URL").unwrap();
-    assert!(database_url
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .ends_with("_test"));
+    let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
     prepare_database(&pool).await.unwrap();
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));

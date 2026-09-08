@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { forwardAdminAuthRequest, forwardAdminFlightRequest, parseStaffPrincipal } from "@/lib/admin/adminBackend";
+import { forwardAdminAuthRequest, forwardAdminBookingRequest, forwardAdminFlightRequest, parseStaffPrincipal } from "@/lib/admin/adminBackend";
 
 describe("admin backend boundary", () => {
   beforeEach(() => { global.fetch = jest.fn(); });
@@ -49,5 +49,19 @@ describe("admin backend boundary", () => {
     expect(headers.get("origin")).toBe("http://localhost:3000");
     expect(headers.get("x-x-fly-csrf")).toBe("1");
     expect(headers.get("x-leak")).toBeNull();
+  });
+
+  it("forwards passenger search in a protected POST body without customer credentials", async () => {
+    jest.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ items: [], nextOffset: null }), { status: 200, headers: { "content-type": "application/json" } }));
+    const request = new Request("http://localhost:3000/admin/api/bookings/search", { method: "POST", headers: {
+      cookie: "x_fly_staff_session=opaque; x_fly_manage_booking=customer-secret", origin: "http://localhost:3000", "x-x-fly-csrf": "1", "content-type": "application/json",
+    }, body: JSON.stringify({ passengerName: "Synthetic Passenger", limit: 50, offset: 0 }) });
+    await forwardAdminBookingRequest(request, "/admin/bookings/search");
+    const [url, init] = jest.mocked(fetch).mock.calls[0];
+    const headers = new Headers(init?.headers);
+    expect(url).toBe("http://localhost:8080/api/v1/admin/bookings/search");
+    expect(headers.get("cookie")).toBe("x_fly_staff_session=opaque");
+    expect(String(url)).not.toContain("Synthetic");
+    expect(new TextDecoder().decode(init?.body as ArrayBuffer)).toContain("Synthetic Passenger");
   });
 });
