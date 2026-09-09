@@ -20,6 +20,7 @@ use crate::domain::{
     review::ReviewContext,
     staff::{RoleCode, StaffCredential, StaffPrincipal},
     ticket::{Ticket, TicketVerification},
+    ticket_operations::{TicketOperationsFilter, TicketOperationsPage, TicketOperationsRecord},
 };
 
 #[derive(Debug, Error)]
@@ -151,6 +152,26 @@ pub trait BookingManagementRepository: Send + Sync {
         &self,
         booking_reference: &str,
     ) -> Result<Option<Uuid>, BookingManagementRepositoryError>;
+}
+
+#[derive(Debug, Error)]
+pub enum TicketOperationsRepositoryError {
+    #[error("authoritative ticket state is inconsistent")]
+    InconsistentState,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+#[async_trait]
+pub trait TicketOperationsRepository: Send + Sync {
+    async fn list_tickets(
+        &self,
+        filter: &TicketOperationsFilter,
+    ) -> Result<TicketOperationsPage, TicketOperationsRepositoryError>;
+    async fn get_ticket_operations(
+        &self,
+        ticket_number: &str,
+    ) -> Result<Option<TicketOperationsRecord>, TicketOperationsRepositoryError>;
 }
 
 #[async_trait]

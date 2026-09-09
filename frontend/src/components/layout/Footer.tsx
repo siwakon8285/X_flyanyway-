@@ -58,7 +58,7 @@ const Footer = () => {
     <Container>
       <div className="grid gap-12 border-b border-border/80 pb-12 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,3fr)]">
         <div className="max-w-sm">
-          <BrandWordmark className="text-sm" />
+          <BrandWordmark className="text-sm" markSize="compact" />
           <p className="mt-6 text-body-sm text-muted-foreground">
             {t("footer.description")}
           </p>

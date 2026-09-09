@@ -12,7 +12,7 @@ use crate::{
     },
     domain::repositories::{
         BookingManagementRepository, ExtraRepository, ManageBookingRepository, PassengerRepository,
-        ReviewRepository, SeatHoldRepository, TicketRepository,
+        ReviewRepository, SeatHoldRepository, TicketOperationsRepository, TicketRepository,
     },
 };
 
@@ -35,6 +35,7 @@ pub struct AppState {
     pub analytics: Option<Arc<dyn AnalyticsRepository>>,
     pub flights: Option<FlightManagement>,
     pub booking_management: Option<Arc<dyn BookingManagementRepository>>,
+    pub ticket_operations: Option<Arc<dyn TicketOperationsRepository>>,
 }
 
 impl AppState {
@@ -65,6 +66,7 @@ impl AppState {
             analytics: None,
             flights: None,
             booking_management: None,
+            ticket_operations: None,
         }
     }
 
@@ -127,6 +129,14 @@ impl AppState {
         repository: Arc<dyn BookingManagementRepository>,
     ) -> Self {
         self.booking_management = Some(repository);
+        self
+    }
+
+    pub fn with_ticket_operations(
+        mut self,
+        repository: Arc<dyn TicketOperationsRepository>,
+    ) -> Self {
+        self.ticket_operations = Some(repository);
         self
     }
 }

@@ -19,8 +19,13 @@ use crate::{
         cancellation::StaffCancellationActor,
         flight::{FlightCommand, FlightManagementError, FlightStatus},
         manage_booking::BookingStatus,
-        repositories::{BookingManagementRepositoryError, CancellationRepositoryError},
+        repositories::{
+            BookingManagementRepositoryError, CancellationRepositoryError,
+            TicketOperationsRepositoryError,
+        },
         staff::{PermissionCode, StaffPrincipal},
+        ticket::TicketStatus,
+        ticket_operations::{PrintableTicketOperationsDetail, TicketOperationsFilter},
     },
     state::AppState,
 };
@@ -46,6 +51,13 @@ pub fn router() -> Router<AppState> {
             "/api/v1/admin/bookings/{booking_reference}/cancel",
             post(cancel_booking),
         )
+        .route("/api/v1/admin/tickets", get(list_tickets))
+        .route("/api/v1/admin/tickets/search", post(search_tickets))
+        .route("/api/v1/admin/tickets/{ticket_number}", get(ticket_detail))
+        .route(
+            "/api/v1/admin/tickets/{ticket_number}/print",
+            get(print_ticket),
+        )
         .route(
             "/api/v1/admin/flights",
             get(list_flights).post(create_flight),
@@ -62,6 +74,273 @@ pub fn router() -> Router<AppState> {
             "/api/v1/admin/flights/{flight_id}/cancel",
             post(cancel_flight),
         )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct TicketListQuery {
+    ticket_number: Option<String>,
+    booking_reference: Option<String>,
+    passenger_name: Option<String>,
+    flight_number: Option<String>,
+    origin: Option<String>,
+    destination: Option<String>,
+    travel_date: Option<String>,
+    ticket_status: Option<String>,
+    cabin: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn list_tickets(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    query: Result<Query<TicketListQuery>, QueryRejection>,
+) -> Response {
+    let result = async {
+        require_ticket_passenger_read(&staff)?;
+        let query = query.map_err(|_| AdminApiError::ticket_filter_invalid())?.0;
+        if query
+            .passenger_name
+            .as_ref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            return Err(AdminApiError::ticket_filter_invalid());
+        }
+        let filter = parse_ticket_filter(query)?;
+        let repository = state
+            .ticket_operations
+            .as_ref()
+            .ok_or_else(AdminApiError::ticket_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                repository
+                    .list_tickets(&filter)
+                    .await
+                    .map_err(AdminApiError::from_ticket_operations)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn search_tickets(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    headers: HeaderMap,
+    payload: Result<Json<TicketListQuery>, JsonRejection>,
+) -> Response {
+    let result = async {
+        require_ticket_passenger_read(&staff)?;
+        trusted_booking_mutation(&state, &headers)?;
+        let filter = parse_ticket_filter(
+            payload
+                .map_err(|_| AdminApiError::ticket_filter_invalid())?
+                .0,
+        )?;
+        let repository = state
+            .ticket_operations
+            .as_ref()
+            .ok_or_else(AdminApiError::ticket_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                repository
+                    .list_tickets(&filter)
+                    .await
+                    .map_err(AdminApiError::from_ticket_operations)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn ticket_detail(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(ticket_number): Path<String>,
+) -> Response {
+    let result = async {
+        require_ticket_passenger_read(&staff)?;
+        let number = normalize_ticket_number(&ticket_number)?;
+        let repository = state
+            .ticket_operations
+            .as_ref()
+            .ok_or_else(AdminApiError::ticket_unavailable)?;
+        let record = repository
+            .get_ticket_operations(&number)
+            .await
+            .map_err(AdminApiError::from_ticket_operations)?
+            .ok_or_else(AdminApiError::ticket_not_found)?;
+        Ok::<_, AdminApiError>(Json(record.detail).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn print_ticket(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(ticket_number): Path<String>,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::TicketsPrint)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let number = normalize_ticket_number(&ticket_number)?;
+        let repository = state
+            .ticket_operations
+            .as_ref()
+            .ok_or_else(AdminApiError::ticket_unavailable)?;
+        let record = repository
+            .get_ticket_operations(&number)
+            .await
+            .map_err(AdminApiError::from_ticket_operations)?
+            .ok_or_else(AdminApiError::ticket_not_found)?;
+        if record.detail.ticket_status == TicketStatus::Cancelled {
+            return Err(AdminApiError::cancelled_ticket_not_printable());
+        }
+        let qr_token = state
+            .tickets
+            .as_ref()
+            .ok_or_else(AdminApiError::ticket_unavailable)?
+            .sign_ticket_id(record.ticket_id)
+            .map_err(|_| AdminApiError::ticket_unavailable())?;
+        Ok::<_, AdminApiError>(
+            Json(PrintableTicketOperationsDetail {
+                ticket: record.detail,
+                qr_token,
+                printable: true,
+            })
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+fn require_ticket_passenger_read(staff: &AuthenticatedStaff) -> Result<(), AdminApiError> {
+    staff
+        .require(PermissionCode::TicketsRead)
+        .map_err(|_| AdminApiError::permission_denied())?;
+    staff
+        .require(PermissionCode::PassengersRead)
+        .map_err(|_| AdminApiError::permission_denied())?;
+    Ok(())
+}
+
+fn normalize_ticket_number(value: &str) -> Result<String, AdminApiError> {
+    let value = value.trim().to_ascii_uppercase();
+    let valid = value.len() == 15
+        && value.starts_with("XFT")
+        && value[3..]
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || matches!(byte, b'2'..=b'9'));
+    valid
+        .then_some(value)
+        .ok_or_else(AdminApiError::ticket_filter_invalid)
+}
+
+fn parse_ticket_filter(query: TicketListQuery) -> Result<TicketOperationsFilter, AdminApiError> {
+    let limit = query.limit.unwrap_or(50);
+    let offset = query.offset.unwrap_or(0);
+    if !(1..=50).contains(&limit) || offset < 0 {
+        return Err(AdminApiError::ticket_filter_invalid());
+    }
+    let name = query
+        .passenger_name
+        .map(|v| v.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|v| !v.is_empty())
+        .map(|v| {
+            if v.chars().count() > 100 || v.chars().any(char::is_control) {
+                return Err(AdminApiError::ticket_filter_invalid());
+            }
+            Ok(format!(
+                "%{}%",
+                v.to_lowercase()
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_")
+            ))
+        })
+        .transpose()?;
+    let flight = query
+        .flight_number
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| {
+            let compact = v
+                .split_whitespace()
+                .collect::<String>()
+                .to_ascii_uppercase();
+            let digits = compact
+                .strip_prefix("XF")
+                .filter(|d| d.len() == 3 && d.bytes().all(|b| b.is_ascii_digit()))
+                .ok_or_else(AdminApiError::ticket_filter_invalid)?;
+            Ok::<String, AdminApiError>(format!("XF {digits}"))
+        })
+        .transpose()?;
+    let airport = |v: Option<String>| {
+        v.filter(|v| !v.trim().is_empty())
+            .map(|v| {
+                let n = v.trim().to_ascii_uppercase();
+                (n.len() == 3 && n.bytes().all(|b| b.is_ascii_uppercase()))
+                    .then_some(n)
+                    .ok_or_else(AdminApiError::ticket_filter_invalid)
+            })
+            .transpose()
+    };
+    let cabin = query
+        .cabin
+        .filter(|v| !v.trim().is_empty())
+        .map(
+            |v| match v.trim().to_ascii_uppercase().replace('_', "-").as_str() {
+                "BUSINESS" => Ok("business".into()),
+                "FIRST" => Ok("first".into()),
+                "ECONOMY" => Ok("economy".into()),
+                "PREMIUM-ECONOMY" => Ok("premium-economy".into()),
+                _ => Err(AdminApiError::ticket_filter_invalid()),
+            },
+        )
+        .transpose()?;
+    Ok(TicketOperationsFilter {
+        ticket_number: query
+            .ticket_number
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| normalize_ticket_number(&v))
+            .transpose()?,
+        booking_reference: query
+            .booking_reference
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| normalize_booking_reference(&v))
+            .transpose()?,
+        passenger_name: name,
+        flight_number: flight,
+        origin: airport(query.origin)?,
+        destination: airport(query.destination)?,
+        travel_date: query
+            .travel_date
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| {
+                NaiveDate::parse_from_str(&v, "%Y-%m-%d")
+                    .map_err(|_| AdminApiError::ticket_filter_invalid())
+            })
+            .transpose()?,
+        ticket_status: query
+            .ticket_status
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| match v.as_str() {
+                "ISSUED" => Ok(TicketStatus::Issued),
+                "CANCELLED" => Ok(TicketStatus::Cancelled),
+                _ => Err(AdminApiError::ticket_filter_invalid()),
+            })
+            .transpose()?,
+        cabin,
+        limit,
+        offset,
+    })
 }
 
 #[derive(Deserialize)]
@@ -916,6 +1195,44 @@ impl AdminApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             code: "BOOKING_MANAGEMENT_UNAVAILABLE",
             message: "Booking management is temporarily unavailable.",
+        }
+    }
+    fn ticket_filter_invalid() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "TICKET_FILTER_INVALID",
+            message: "Review the ticket filters and try again.",
+        }
+    }
+    fn ticket_not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "TICKET_NOT_FOUND",
+            message: "The exact ticket was not found.",
+        }
+    }
+    fn ticket_unavailable() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "TICKET_OPERATIONS_UNAVAILABLE",
+            message: "Ticket operations are temporarily unavailable.",
+        }
+    }
+    fn cancelled_ticket_not_printable() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "CANCELLED_TICKET_NOT_PRINTABLE",
+            message: "A cancelled ticket cannot be printed as a travel document.",
+        }
+    }
+    fn from_ticket_operations(error: TicketOperationsRepositoryError) -> Self {
+        match error {
+            TicketOperationsRepositoryError::InconsistentState => Self {
+                status: StatusCode::CONFLICT,
+                code: "TICKET_STATE_CONFLICT",
+                message: "The authoritative ticket state is inconsistent.",
+            },
+            TicketOperationsRepositoryError::Infrastructure(_) => Self::ticket_unavailable(),
         }
     }
     fn from_booking_repository(error: BookingManagementRepositoryError) -> Self {

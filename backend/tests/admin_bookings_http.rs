@@ -193,7 +193,7 @@ async fn booking_fixture(
     let attempt_id: Uuid = sqlx::query_scalar("INSERT INTO payment_attempts(seat_hold_id,request_id,request_fingerprint,provider,payment_method,status,amount,currency_code,review_priced_at,provider_reference,succeeded_at) VALUES($1,$2,$3,'MOCK_BITCOIN','BITCOIN','SUCCEEDED',$4,'THB',NOW(),$5,NOW()) RETURNING id")
         .bind(hold_id).bind(Uuid::new_v4()).bind([8_u8;32].as_slice()).bind(amount).bind(format!("BK22-{suffix}")).fetch_one(pool).await.unwrap();
     sqlx::query(
-        "INSERT INTO payment_attempt_seats(payment_attempt_id,flight_seat_id) VALUES($1,$2)",
+        "INSERT INTO payment_attempt_seats(payment_attempt_id,flight_seat_id,passenger_ordinal) VALUES($1,$2,1)",
     )
     .bind(attempt_id)
     .bind(seat_id)

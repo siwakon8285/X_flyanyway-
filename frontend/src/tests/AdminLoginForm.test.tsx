@@ -50,6 +50,10 @@ describe("AdminLoginForm", () => {
 
   it("renders deterministic Thai labels from the shared language policy", () => {
     render(<AdminLoginPanel />, { locale: "th" });
+    const lockup = screen.getByRole("img", { name: "X-Fly Anyway" });
+    expect(lockup).toHaveTextContent("-FLY ANYWAY");
+    expect(lockup.querySelector("img")).toHaveAttribute("width", "56");
+    expect(lockup.querySelector("img")).toHaveAttribute("height", "56");
     expect(screen.getByRole("heading", { name: "เข้าสู่ระบบสำหรับพนักงาน" })).toBeInTheDocument();
     expect(screen.getByLabelText("อีเมลพนักงาน")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เข้าสู่ระบบ" })).toBeInTheDocument();

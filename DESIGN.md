@@ -3238,18 +3238,58 @@ rebooking, payment override, ticket issuance/voiding, or generic CRUD.
 feat/23-ticket-passenger-operations
 ```
 
-## Tasks
+## Implemented Boundary
 
-- ticket search
-- Booking Reference / Ticket Number lookup
-- ticket status
-- passenger/flight/seat view according to role
-- print-ready ticket documentation
-- cancellation/refund relation
-- ticket verification
-- TICKETING / BAGGAGE-specific field permissions
+- `/admin/tickets` is a protected, read-only Ticket / Passenger Operations
+  workspace in the shared Admin Shell. Passenger-bearing list, search, and
+  detail responses require both effective `tickets:read` and `passengers:read`;
+  rendering an existing printable E-ticket requires `tickets:print`. Role names
+  never authorize requests, and `SYSTEM_ADMIN` or other staff roles have no
+  implicit bypass.
+- Ticket search is PostgreSQL-backed, bounded to 50 rows, and offset-paginated.
+  It supports exact normalized Ticket Number and Booking Reference plus flight,
+  route, travel date, authoritative ticket status, cabin, and normalized
+  passenger-name filtering. Passenger names are submitted in a same-origin,
+  CSRF-protected POST body with escaped wildcard syntax rather than placed in a
+  URL. Existing unique ticket/reference indexes and the Branch 22 passenger-name
+  trigram index are reused; no speculative search index is added.
+- Exact ticket detail uses the existing `XFT[A-Z2-9]{12}` business identity and
+  explicit staff DTOs. It exposes only operational passenger name/type/gender,
+  assigned seat, cabin, journey, booking reference, and separate flight,
+  booking, payment, ticket, and refund states. It never exposes sequential IDs,
+  passport/contact data, payment provider identifiers, authentication data, or
+  signing secrets.
+- The existing product has one authoritative E-ticket document per successful
+  payment/booking containing the ordered passenger party. Branch 23 does not
+  invent per-passenger tickets or reissue records. A forward-only migration
+  makes the formerly implicit passenger-ordinal to finalized-seat relationship
+  explicit and data-preserving; infants remain correctly seatless. This prevents
+  multi-passenger joins from cross-wiring names and seats.
+- Legitimate historical `ECONOMY`, `PREMIUM_ECONOMY`, and passenger gender
+  `UNSPECIFIED` values remain readable and are labelled as historical in staff
+  presentation. They are not offered by the active customer booking flow and do
+  not create a legacy-cabin sales path.
+- Printing is presentation only. The protected print endpoint reuses the
+  existing backend HMAC signing path for the existing ticket identity; QR data
+  contains no passenger PII and the signing secret never leaves the backend.
+  Printing does not issue, reissue, void, renumber, or mutate ticket, booking, or
+  payment records. Cancelled tickets remain inspectable but the print endpoint
+  refuses to produce an active-looking travel document, while the detail UI
+  displays an unmistakable cancelled/not-valid-for-travel treatment.
+- Search/read/print views are private/no-store. Read and print presentation do
+  not create audit rows because current policy audits privileged mutations and
+  no established print-audit infrastructure exists; passenger search terms are
+  not logged or persisted.
+- The bilingual EN/TH interface follows the Luxury Travel Document Operations
+  Terminal identity with an ivory canvas, charcoal document surfaces, X-Fly
+  yellow, compact filters, semantic scrollable tables, 48px controls, visible
+  focus, textual statuses, responsive document layout, and selected-locale date
+  rendering.
 
-No staff QR scanner or Boarding Pass workflow.
+This workspace does not duplicate Booking Operations cancellation/refund
+controls or Flight Management mutation controls. It implements no ticket
+issuance/reissue/void operation, passenger editing/CRM, check-in, Boarding Pass,
+QR scanner, gate validation, or boarding workflow.
 
 ---
 
