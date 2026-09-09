@@ -26,6 +26,7 @@ mod payment;
 mod review;
 mod staff_auth;
 mod ticket;
+mod ticket_operations;
 
 pub use analytics::SqlxAnalyticsRepository;
 pub use flight::SqlxFlightRepository;

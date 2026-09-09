@@ -161,6 +161,11 @@ impl TicketApplication {
             .map_err(|_| TicketRepositoryError::IdentityGeneration)?;
         Ok((ticket, token))
     }
+
+    pub fn sign_ticket_id(&self, ticket_id: Uuid) -> Result<String, TicketRepositoryError> {
+        crate::infrastructure::ticket::qr::sign(ticket_id, &self.qr_signing_secret)
+            .map_err(|_| TicketRepositoryError::IdentityGeneration)
+    }
 }
 
 impl PaymentApplication {

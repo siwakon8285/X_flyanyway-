@@ -10,6 +10,9 @@ describe("Footer", () => {
     render(<Footer />);
 
     expect(screen.getByRole("contentinfo")).toBeInTheDocument();
+    const lockup = screen.getByRole("img", { name: "X-Fly Anyway" });
+    expect(lockup.querySelector("img")).toHaveAttribute("width", "48");
+    expect(lockup.querySelector("img")).toHaveAttribute("height", "48");
     expect(screen.getByRole("heading", { name: "Explore" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Travel" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Company" })).toBeInTheDocument();

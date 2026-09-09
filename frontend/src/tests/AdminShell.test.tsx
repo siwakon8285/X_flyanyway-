@@ -16,6 +16,10 @@ describe("AdminShell", () => {
     render(<AdminShell principal={principal}><p>Protected workspace</p></AdminShell>);
 
     expect(screen.getByText("Protected workspace")).toBeInTheDocument();
+    const lockup = screen.getByRole("img", { name: "X-Fly Anyway" });
+    expect(lockup).toHaveTextContent("-FLY ANYWAY");
+    expect(lockup.querySelector("img")).toHaveAttribute("width", "56");
+    expect(lockup.querySelector("img")).toHaveAttribute("height", "56");
     expect(screen.getByText("system@x-fly.internal")).toBeInTheDocument();
     expect(screen.getByText("System Admin")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Sign out" })).not.toHaveLength(0);
@@ -49,5 +53,11 @@ describe("AdminShell", () => {
     render(<AdminShell principal={{ ...principal, roles: ["FLIGHT_MANAGER"], permissions: ["flights:read", "flights:write"] }}><p>Flights</p></AdminShell>);
     expect(screen.getByRole("link", { name: "Flights" })).toHaveAttribute("href", "/admin/flights");
     expect(screen.queryByRole("link", { name: "Bookings" })).not.toBeInTheDocument();
+  });
+
+  it("shows Ticket Operations navigation from effective permissions", () => {
+    render(<AdminShell principal={{ ...principal, roles:["TICKET_PASSENGER_OPERATIONS"], permissions:["tickets:read","tickets:print","passengers:read"] }}><p>Tickets</p></AdminShell>);
+    expect(screen.getByRole("link", { name:"Tickets / Passengers" })).toHaveAttribute("href", "/admin/tickets");
+    expect(screen.queryByRole("link", { name:"Bookings" })).not.toBeInTheDocument();
   });
 });

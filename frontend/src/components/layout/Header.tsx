@@ -63,7 +63,7 @@ const Header = () => {
           className="group/brand rounded-control outline-none transition-transform duration-200 focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-4 focus-visible:ring-offset-background motion-safe:active:scale-[0.98] motion-reduce:transform-none"
           href="/#top"
         >
-          <BrandWordmark className="text-xs sm:text-sm" interactive />
+          <BrandWordmark className="text-xs sm:text-sm" interactive markSize="header" />
         </Link>
 
         <DesktopNavigation />

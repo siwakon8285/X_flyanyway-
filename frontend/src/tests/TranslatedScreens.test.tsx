@@ -39,7 +39,8 @@ describe("translated customer screens", () => {
       </>,
     );
 
-    expect(screen.getAllByText("X-FLY ANYWAY").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("img", { name: "X-Fly Anyway" })).toHaveLength(2);
+    expect(screen.getAllByText("-FLY ANYWAY")).toHaveLength(2);
     expect(screen.getByRole("button", { name: /ภาษาปัจจุบัน/ })).toHaveTextContent(
       "TH",
     );

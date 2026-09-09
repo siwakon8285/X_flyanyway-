@@ -15,9 +15,11 @@ describe("Header", () => {
       "motion-safe:active:scale-[0.98]",
       "motion-reduce:transform-none",
     );
-    expect(brand.querySelector("[data-brand-glint]")).toHaveClass(
-      "motion-reduce:hidden",
-    );
+    const lockup = within(brand).getByRole("img", { name: "X-Fly Anyway" });
+    expect(lockup).toHaveTextContent("-FLY ANYWAY");
+    expect(lockup.querySelector("img")).toHaveAttribute("width", "64");
+    expect(lockup.querySelector("img")).toHaveAttribute("height", "64");
+    expect(lockup.querySelector("img")).toHaveClass("size-14", "sm:size-16");
 
     const navigation = screen.getByRole("navigation", {
       name: "Primary navigation",

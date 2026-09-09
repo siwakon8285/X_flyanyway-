@@ -1,0 +1,4 @@
+import { cookies } from "next/headers"; import { redirect } from "next/navigation"; import type { Metadata } from "next";
+import { TicketDetailWorkspace } from "@/components/admin/tickets/TicketDetailWorkspace"; import { can } from "@/lib/admin/adminAuthorization"; import { fetchStaffPrincipal } from "@/lib/admin/adminBackend";
+export const metadata:Metadata={title:"Ticket Detail · X-Fly Anyway"};
+export default async function TicketPage({params}:{params:Promise<{ticketNumber:string}>}){const [principal,{ticketNumber}]=await Promise.all([fetchStaffPrincipal((await cookies()).toString()),params]);if(!principal)redirect("/admin/login");if(!can(principal,"tickets:read")||!can(principal,"passengers:read"))redirect("/admin");return <TicketDetailWorkspace canPrint={can(principal,"tickets:print")} ticketNumber={ticketNumber.toUpperCase()}/>;}

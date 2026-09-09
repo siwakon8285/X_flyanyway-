@@ -42,6 +42,13 @@ describe("admin authorization presentation helpers", () => {
     expect(getVisibleAdminNavigation(principal).some((item) => item.id === "bookings")).toBe(false);
   });
 
+  it("shows Ticket Operations only when both ticket and passenger reads are effective", () => {
+    const operator: StaffPrincipal = { ...principal, roles:["TICKET_PASSENGER_OPERATIONS"], permissions:["tickets:read","tickets:print","passengers:read"] };
+    expect(getVisibleAdminNavigation(operator).some((item) => item.id === "tickets")).toBe(true);
+    expect(getVisibleAdminNavigation({ ...operator, permissions:["tickets:read","tickets:print"] }).some((item) => item.id === "tickets")).toBe(false);
+    expect(getVisibleAdminNavigation({ ...operator, permissions:["passengers:read"] }).some((item) => item.id === "tickets")).toBe(false);
+  });
+
   it("omits every unavailable future module instead of exposing dead links", () => {
     expect(getVisibleAdminNavigation(principal)).toEqual([
       { href: "/admin", id: "workspace", labelKey: "admin.navigation.workspace" },

@@ -63,15 +63,15 @@ const AdminShell = ({ children, principal }: AdminShellProps) => {
   const [open, setOpen] = useState(false);
   return <div className="min-h-dvh bg-[#f6f3e9] text-[#171717]">
     <a className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-control focus:bg-brand focus:px-4 focus:py-3 focus:text-brand-foreground" href="#admin-content">{t("admin.shell.skip")}</a>
-    <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-white/10 bg-[#101010] p-6 text-foreground lg:flex lg:flex-col">
-      <BrandWordmark />
+    <aside className="fixed inset-y-0 left-0 hidden w-72 border-r border-white/10 bg-[#101010] p-6 text-foreground print:hidden lg:flex lg:flex-col">
+      <BrandWordmark markSize="sidebar" />
       <div className="mt-4 flex items-center gap-2 text-caption text-brand"><ShieldCheck aria-hidden="true" className="size-4" />{t("admin.shell.internal")}</div>
       <div className="mt-12"><AdminNavigation principal={principal} /></div>
       <div className="mt-auto border-t border-white/10 pt-6"><Identity principal={principal} /><AdminLogoutButton /></div>
     </aside>
-    <div className="lg:pl-72">
-      <header className="sticky top-0 z-30 flex min-h-20 items-center justify-between gap-4 border-b border-black/10 bg-[#f6f3e9]/95 px-4 backdrop-blur md:px-8">
-        <div><p className="text-caption text-black/50">{t("admin.shell.terminal")}</p><p className="font-semibold">{t(pathname.startsWith("/admin/flights") ? "admin.navigation.flights" : pathname.startsWith("/admin/bookings") ? "admin.navigation.bookings" : pathname === "/admin/dashboard" ? "admin.navigation.overview" : "admin.navigation.workspace")}</p></div>
+    <div className="print:pl-0 lg:pl-72">
+      <header className="sticky top-0 z-30 flex min-h-20 items-center justify-between gap-4 border-b border-black/10 bg-[#f6f3e9]/95 px-4 backdrop-blur print:hidden md:px-8">
+        <div><p className="text-caption text-black/50">{t("admin.shell.terminal")}</p><p className="font-semibold">{t(pathname.startsWith("/admin/flights") ? "admin.navigation.flights" : pathname.startsWith("/admin/bookings") ? "admin.navigation.bookings" : pathname.startsWith("/admin/tickets") ? "admin.navigation.tickets" : pathname === "/admin/dashboard" ? "admin.navigation.overview" : "admin.navigation.workspace")}</p></div>
         <div className="flex items-center gap-2"><LanguageToggle />
           <Dialog onOpenChange={setOpen} open={open}>
             <DialogTrigger asChild><button aria-label={t("admin.shell.openNavigation")} className="inline-flex size-11 items-center justify-center rounded-control border border-black/15 outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden" type="button"><Menu aria-hidden="true" className="size-5" /></button></DialogTrigger>
@@ -85,7 +85,7 @@ const AdminShell = ({ children, principal }: AdminShellProps) => {
           </Dialog>
         </div>
       </header>
-      <main className="mx-auto max-w-[100rem] p-4 md:p-8 lg:p-12" id="admin-content">{children}</main>
+      <main className="mx-auto max-w-[100rem] p-4 print:max-w-none print:p-0 md:p-8 lg:p-12" id="admin-content">{children}</main>
     </div>
   </div>;
 };

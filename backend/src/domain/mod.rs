@@ -12,6 +12,7 @@ pub mod repositories;
 pub mod review;
 pub mod staff;
 pub mod ticket;
+pub mod ticket_operations;
 pub mod value_objects;
 
 use thiserror::Error;

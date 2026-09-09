@@ -784,9 +784,18 @@ async fn finalize_seats_and_hold(
 
     let required = required_seats(hold);
     let linked = sqlx::query(
-        "INSERT INTO payment_attempt_seats (payment_attempt_id, flight_seat_id)
-         SELECT $2, id FROM flight_seats
-         WHERE hold_id = $1 AND sellable = TRUE AND booking_status = 'AVAILABLE'",
+        "INSERT INTO payment_attempt_seats (payment_attempt_id, flight_seat_id, passenger_ordinal)
+         SELECT $2, seats.id, passengers.ordinal
+         FROM (
+             SELECT id, row_number() OVER (ORDER BY row_number,column_code,id) rank
+             FROM flight_seats
+             WHERE hold_id=$1 AND sellable=TRUE AND booking_status='AVAILABLE'
+         ) seats
+         JOIN (
+             SELECT ordinal, row_number() OVER (ORDER BY ordinal) rank
+             FROM hold_passengers
+             WHERE seat_hold_id=$1 AND passenger_type<>'INFANT'
+         ) passengers USING (rank)",
     )
     .bind(hold.id)
     .bind(current_attempt_id)
