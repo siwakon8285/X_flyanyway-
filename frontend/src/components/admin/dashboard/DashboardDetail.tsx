@@ -3,7 +3,7 @@
 import { type KeyboardEvent, useState } from "react";
 
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { formatDate, formatPrice } from "@/i18n/formatters";
+import { formatPrice, formatStaffDate } from "@/i18n/formatters";
 import type { DashboardData } from "@/lib/admin/dashboardTypes";
 import { CabinMix, cabinKeys } from "./DashboardCharts";
 
@@ -73,7 +73,7 @@ export function DashboardDetail({ data }: { data: DashboardData }) {
       </div>
       <div className="exec-table-scroll exec-ranking-board" id="flight-ranking" tabIndex={0} role="tabpanel" aria-labelledby={`flight-tab-${ranking}`} data-exec-follow>
         <table><thead><tr><th scope="col"><span className="sr-only">{t("dashboard.rank")}</span></th><th scope="col">{t("dashboard.flight")}</th><th scope="col">{t("dashboard.route")}</th><th scope="col">{t("dashboard.bookingsShort")}</th><th scope="col">{t("dashboard.revenueShort")}</th></tr></thead>
-          <tbody className="exec-board-body" key={ranking}>{rankedFlights.map((flight, index) => <tr key={`${flight.flightNumber}-${flight.departureDate}`}><td className="exec-board-rank">{String(index + 1).padStart(2, "0")}</td><th scope="row">{flight.flightNumber}<small>{formatDate(flight.departureDate, locale)}</small></th><td className="exec-board-route">{flight.route.replace("-", " → ")}</td><td>{number(flight.bookings)}</td><td>{money(flight.revenue)}</td></tr>)}</tbody>
+          <tbody className="exec-board-body" key={ranking}>{rankedFlights.map((flight, index) => <tr key={`${flight.flightNumber}-${flight.departureDate}`}><td className="exec-board-rank">{String(index + 1).padStart(2, "0")}</td><th scope="row">{flight.flightNumber}<small>{formatStaffDate(flight.departureDate, locale)}</small></th><td className="exec-board-route">{flight.route.replace("-", " → ")}</td><td>{number(flight.bookings)}</td><td>{money(flight.revenue)}</td></tr>)}</tbody>
         </table>
       </div>{!rankedFlights.length && <p className="exec-muted">{t("dashboard.noRows")}</p>}
     </section>
@@ -88,7 +88,7 @@ export function DashboardDetail({ data }: { data: DashboardData }) {
         </div>
         <p>{t("dashboard.inventoryNote")}</p>
       </div>
-      <h3>{t("dashboard.lowDemand")}</h3><div className="exec-table-scroll exec-occupancy-board" tabIndex={0} role="region" aria-label={t("dashboard.lowDemand")} data-exec-follow><table><thead><tr><th scope="col">{t("dashboard.flight")}</th><th scope="col">{t("dashboard.route")}</th><th scope="col">{t("dashboard.seats")}</th><th scope="col">{t("dashboard.occupancy")}</th></tr></thead><tbody>{data.inventory.flights.map((flight) => <tr key={`${flight.flightNumber}-${flight.departureDate}`}><th scope="row">{flight.flightNumber}<small>{formatDate(flight.departureDate, locale)}</small></th><td>{flight.route.replace("-", " → ")}</td><td>{number(flight.bookedSeats)} / {number(flight.sellableSeats)}</td><td><span className="exec-row-occupancy"><i style={{ width: `${Math.max(0, Math.min(flight.occupancyPercent ?? 0, 100))}%` }} />{percent(flight.occupancyPercent)}</span></td></tr>)}</tbody></table></div>{!data.inventory.flights.length && <p className="exec-muted">{t("dashboard.noRows")}</p>}
+      <h3>{t("dashboard.lowDemand")}</h3><div className="exec-table-scroll exec-occupancy-board" tabIndex={0} role="region" aria-label={t("dashboard.lowDemand")} data-exec-follow><table><thead><tr><th scope="col">{t("dashboard.flight")}</th><th scope="col">{t("dashboard.route")}</th><th scope="col">{t("dashboard.seats")}</th><th scope="col">{t("dashboard.occupancy")}</th></tr></thead><tbody>{data.inventory.flights.map((flight) => <tr key={`${flight.flightNumber}-${flight.departureDate}`}><th scope="row">{flight.flightNumber}<small>{formatStaffDate(flight.departureDate, locale)}</small></th><td>{flight.route.replace("-", " → ")}</td><td>{number(flight.bookedSeats)} / {number(flight.sellableSeats)}</td><td><span className="exec-row-occupancy"><i style={{ width: `${Math.max(0, Math.min(flight.occupancyPercent ?? 0, 100))}%` }} />{percent(flight.occupancyPercent)}</span></td></tr>)}</tbody></table></div>{!data.inventory.flights.length && <p className="exec-muted">{t("dashboard.noRows")}</p>}
     </section>
 
     <aside className="exec-insights" data-exec-reveal><div><p className="exec-eyebrow">X-FLY / {t("dashboard.briefCode")}</p><h2>{t("dashboard.insights")}</h2><p className="exec-muted">{t("dashboard.insightsNote")}</p></div><ol>{insights.map((insight, index) => <li key={insight} data-exec-follow><span>{String(index + 1).padStart(2, "0")}</span><p>{insight}</p></li>)}</ol></aside>

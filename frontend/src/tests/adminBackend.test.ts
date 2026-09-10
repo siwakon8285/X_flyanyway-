@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { forwardAdminAuthRequest, forwardAdminBookingRequest, forwardAdminFlightRequest, parseStaffPrincipal } from "@/lib/admin/adminBackend";
+import { forwardAdminApiClientRequest, forwardAdminAuthRequest, forwardAdminBookingRequest, forwardAdminFlightRequest, parseStaffPrincipal } from "@/lib/admin/adminBackend";
 
 describe("admin backend boundary", () => {
   beforeEach(() => { global.fetch = jest.fn(); });
@@ -63,5 +63,41 @@ describe("admin backend boundary", () => {
     expect(headers.get("cookie")).toBe("x_fly_staff_session=opaque");
     expect(String(url)).not.toContain("Synthetic");
     expect(new TextDecoder().decode(init?.body as ArrayBuffer)).toContain("Synthetic Passenger");
+  });
+
+  it("forwards only canonical public API-client paths and approved staff headers", async () => {
+    jest.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ clientId:"XFCABCDEFGHJKLMNPQR" }), { status:200, headers:{ "content-type":"application/json" } }));
+    const request = new Request("http://localhost:3000/admin/api/api-clients/XFCABCDEFGHJKLMNPQR/revoke", {
+      method:"POST",
+      headers:{ cookie:"x_fly_staff_session=opaque; customer=private", origin:"http://localhost:3000", "x-x-fly-csrf":"1", "content-type":"application/json", "x-private":"never" },
+      body:JSON.stringify({ version:4 }),
+    });
+    await forwardAdminApiClientRequest(request, "/admin/api-clients/XFCABCDEFGHJKLMNPQR/revoke");
+    const [url, init] = jest.mocked(fetch).mock.calls[0];
+    const headers = new Headers(init?.headers);
+    expect(url).toBe("http://localhost:8080/api/v1/admin/api-clients/XFCABCDEFGHJKLMNPQR/revoke");
+    expect(headers.get("cookie")).toBe("x_fly_staff_session=opaque");
+    expect(headers.get("x-private")).toBeNull();
+    await expect(forwardAdminApiClientRequest(request, "/admin/api-clients/not-a-client/revoke")).rejects.toThrow("Unsupported API client management path");
+  });
+
+  it("forwards literal API-client scope codes without transforming their identity or order", async () => {
+    jest.mocked(fetch).mockResolvedValue(new Response("{}", { status:201, headers:{ "content-type":"application/json" } }));
+    const payload = JSON.stringify({
+      name:"Scope fidelity",
+      description:null,
+      status:"ACTIVE",
+      allowedScopes:["flights:read", "analytics:read"],
+    });
+    const request = new Request("http://localhost:3000/admin/api/api-clients", {
+      method:"POST",
+      headers:{ "content-type":"application/json" },
+      body:payload,
+    });
+    await forwardAdminApiClientRequest(request, "/admin/api-clients");
+    const [, init] = jest.mocked(fetch).mock.calls[0];
+    const forwarded = new TextDecoder().decode(init?.body as ArrayBuffer);
+    expect(forwarded).toBe(payload);
+    expect(JSON.parse(forwarded).allowedScopes).toEqual(["flights:read", "analytics:read"]);
   });
 });

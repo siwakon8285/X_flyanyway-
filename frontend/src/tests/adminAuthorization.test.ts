@@ -49,6 +49,15 @@ describe("admin authorization presentation helpers", () => {
     expect(getVisibleAdminNavigation({ ...operator, permissions:["passengers:read"] }).some((item) => item.id === "tickets")).toBe(false);
   });
 
+  it("shows API Client Management only from the effective read grant", () => {
+    const apiAdmin: StaffPrincipal = { ...principal, roles:["API_ADMIN"], permissions:["api_clients:read","api_clients:manage"] };
+    expect(getVisibleAdminNavigation(apiAdmin)).toEqual([
+      { href:"/admin", id:"workspace", labelKey:"admin.navigation.workspace" },
+      { href:"/admin/api-clients", id:"api-clients", labelKey:"admin.navigation.apiClients" },
+    ]);
+    expect(getVisibleAdminNavigation(principal).some((item) => item.id === "api-clients")).toBe(false);
+  });
+
   it("omits every unavailable future module instead of exposing dead links", () => {
     expect(getVisibleAdminNavigation(principal)).toEqual([
       { href: "/admin", id: "workspace", labelKey: "admin.navigation.workspace" },

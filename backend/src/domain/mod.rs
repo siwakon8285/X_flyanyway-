@@ -1,3 +1,4 @@
+pub mod api_client;
 pub mod booking_confirmation;
 pub mod booking_management;
 pub mod cancellation;

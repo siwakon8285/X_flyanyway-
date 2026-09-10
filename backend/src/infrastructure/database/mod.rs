@@ -15,6 +15,7 @@ use crate::domain::{
 };
 
 mod analytics;
+mod api_client;
 mod booking_confirmation;
 mod booking_management;
 mod cancellation;
@@ -29,6 +30,7 @@ mod ticket;
 mod ticket_operations;
 
 pub use analytics::SqlxAnalyticsRepository;
+pub use api_client::SqlxApiClientRepository;
 pub use flight::SqlxFlightRepository;
 pub use staff_auth::SqlxStaffAuthRepository;
 

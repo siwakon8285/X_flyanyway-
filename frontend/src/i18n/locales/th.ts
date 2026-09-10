@@ -3,12 +3,14 @@ import { dashboardTh } from "./dashboard";
 import { flightManagementTh } from "./flightManagement";
 import { bookingManagementTh } from "./bookingManagement";
 import { ticketOperationsTh } from "./ticketOperations";
+import { apiClientManagementTh } from "./apiClientManagement";
 
 const th = {
   dashboard: dashboardTh,
   flightManagement: flightManagementTh,
   bookingManagement: bookingManagementTh,
   ticketOperations: ticketOperationsTh,
+  apiClientManagement: apiClientManagementTh,
   admin: {
     login: { email: "อีเมลพนักงาน", password: "รหัสผ่าน", signIn: "เข้าสู่ระบบ", signingIn: "กำลังเข้าสู่ระบบ…", invalid: "อีเมลหรือรหัสผ่านไม่ถูกต้อง", tryLater: "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้งภายหลัง", unavailable: "ระบบเข้าสู่ระบบสำหรับพนักงานไม่พร้อมใช้งานชั่วคราว", eyebrow: "การเข้าถึงภายใน X-Fly", heading: "เข้าสู่ระบบสำหรับพนักงาน", intro: "ใช้บัญชีพนักงาน X-Fly ที่จัดเตรียมไว้สำหรับคุณโดยเฉพาะ" },
     navigation: { label: "การนำทางสำหรับพนักงาน", workspace: "พื้นที่ทำงาน", overview: "แดชบอร์ดผู้บริหาร", flights: "เที่ยวบิน", bookings: "การจอง", tickets: "ตั๋ว / ผู้โดยสาร", reports: "รายงาน", apiClients: "ไคลเอนต์ API", staff: "พนักงาน / สิทธิ์เข้าถึง" },

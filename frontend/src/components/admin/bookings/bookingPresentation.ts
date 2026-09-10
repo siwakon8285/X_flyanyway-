@@ -1,5 +1,6 @@
 import type { TranslationKey } from "@/i18n/types";
 import type { Locale } from "@/i18n/config";
+import { formatStaffDateTime } from "@/i18n/formatters";
 import type { BookingStatus, Cabin, FlightStatus, PaymentStatus, RefundStatus, TicketStatus } from "@/lib/admin/bookingTypes";
 
 const statusKeys: Record<BookingStatus | FlightStatus | PaymentStatus | RefundStatus | TicketStatus, TranslationKey> = {
@@ -18,10 +19,7 @@ const cabinKeys: Record<Cabin, TranslationKey> = {
 
 const isLegacyCabin = (cabin: Cabin) => cabin === "economy" || cabin === "premium-economy";
 
-const formatBookingDateTime = (value: string, locale: Locale) => new Intl.DateTimeFormat(
-  locale === "th" ? "th-TH" : "en-GB-u-ca-gregory",
-  { dateStyle: "medium", timeStyle: "short" },
-).format(new Date(value));
+const formatBookingDateTime = (value: string, locale: Locale) => formatStaffDateTime(value, locale);
 
 const passengerCountKey = (count: number): TranslationKey => count === 1
   ? "bookingManagement.passengersCountOne"

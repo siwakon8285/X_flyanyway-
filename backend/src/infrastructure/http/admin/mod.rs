@@ -13,8 +13,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     application::staff_auth::StaffAuthError,
-    application::{analytics::AnalyticsFilter, flight::FlightListFilter},
+    application::{
+        analytics::AnalyticsFilter,
+        api_client::{ApiClientListFilter, ApiClientManagementError},
+        flight::FlightListFilter,
+    },
     domain::{
+        api_client::{
+            ApiClientScope, ApiClientStatus, CreateApiClientCommand, UpdateApiClientCommand,
+        },
         booking_management::BookingListFilter,
         cancellation::StaffCancellationActor,
         flight::{FlightCommand, FlightManagementError, FlightStatus},
@@ -74,6 +81,306 @@ pub fn router() -> Router<AppState> {
             "/api/v1/admin/flights/{flight_id}/cancel",
             post(cancel_flight),
         )
+        .route(
+            "/api/v1/admin/api-clients",
+            get(list_api_clients).post(create_api_client),
+        )
+        .route(
+            "/api/v1/admin/api-clients/scopes",
+            get(api_client_scope_catalog),
+        )
+        .route(
+            "/api/v1/admin/api-clients/{client_id}",
+            get(api_client_detail).put(update_api_client),
+        )
+        .route(
+            "/api/v1/admin/api-clients/{client_id}/activate",
+            post(activate_api_client),
+        )
+        .route(
+            "/api/v1/admin/api-clients/{client_id}/suspend",
+            post(suspend_api_client),
+        )
+        .route(
+            "/api/v1/admin/api-clients/{client_id}/revoke",
+            post(revoke_api_client),
+        )
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApiClientListQuery {
+    search: Option<String>,
+    status: Option<String>,
+    scope: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+async fn list_api_clients(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    query: Result<Query<ApiClientListQuery>, QueryRejection>,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::ApiClientsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let query = query.map_err(|_| AdminApiError::api_client_validation())?.0;
+        let status = query
+            .status
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                ApiClientStatus::parse(value.trim())
+                    .ok_or_else(AdminApiError::api_client_validation)
+            })
+            .transpose()?;
+        let scope = query
+            .scope
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                ApiClientScope::parse(value.trim()).ok_or_else(AdminApiError::api_client_validation)
+            })
+            .transpose()?;
+        let service = state
+            .api_clients
+            .as_ref()
+            .ok_or_else(AdminApiError::api_client_unavailable)?;
+        let page = service
+            .list(ApiClientListFilter {
+                search: query.search,
+                status,
+                scope,
+                limit: query.limit.unwrap_or(50),
+                offset: query.offset.unwrap_or(0),
+            })
+            .await
+            .map_err(AdminApiError::from_api_client)?;
+        Ok::<_, AdminApiError>(Json(page).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn api_client_scope_catalog(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::ApiClientsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let service = state
+            .api_clients
+            .as_ref()
+            .ok_or_else(AdminApiError::api_client_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                service
+                    .scope_catalog()
+                    .await
+                    .map_err(AdminApiError::from_api_client)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn api_client_detail(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(client_id): Path<String>,
+) -> Response {
+    let result = async {
+        staff
+            .require(PermissionCode::ApiClientsRead)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        let service = state
+            .api_clients
+            .as_ref()
+            .ok_or_else(AdminApiError::api_client_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                service
+                    .detail(&client_id)
+                    .await
+                    .map_err(AdminApiError::from_api_client)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn create_api_client(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    headers: HeaderMap,
+    payload: Result<Json<CreateApiClientCommand>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::ApiClientsManage)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_api_client_mutation(&state, &headers)?;
+        let command = payload
+            .map_err(|_| AdminApiError::api_client_validation())?
+            .0;
+        let service = state
+            .api_clients
+            .as_ref()
+            .ok_or_else(AdminApiError::api_client_unavailable)?;
+        Ok::<_, AdminApiError>(
+            (
+                StatusCode::CREATED,
+                Json(
+                    service
+                        .create(actor.staff_user_id(), command)
+                        .await
+                        .map_err(AdminApiError::from_api_client)?,
+                ),
+            )
+                .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn update_api_client(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(client_id): Path<String>,
+    headers: HeaderMap,
+    payload: Result<Json<UpdateApiClientCommand>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::ApiClientsManage)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_api_client_mutation(&state, &headers)?;
+        let command = payload
+            .map_err(|_| AdminApiError::api_client_validation())?
+            .0;
+        let service = state
+            .api_clients
+            .as_ref()
+            .ok_or_else(AdminApiError::api_client_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                service
+                    .update(actor.staff_user_id(), &client_id, command)
+                    .await
+                    .map_err(AdminApiError::from_api_client)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApiClientLifecycleRequest {
+    version: i64,
+}
+
+async fn activate_api_client(
+    state: State<AppState>,
+    staff: AuthenticatedStaff,
+    client_id: Path<String>,
+    headers: HeaderMap,
+    payload: Result<Json<ApiClientLifecycleRequest>, JsonRejection>,
+) -> Response {
+    transition_api_client(
+        state,
+        staff,
+        client_id,
+        headers,
+        payload,
+        ApiClientStatus::Active,
+    )
+    .await
+}
+
+async fn suspend_api_client(
+    state: State<AppState>,
+    staff: AuthenticatedStaff,
+    client_id: Path<String>,
+    headers: HeaderMap,
+    payload: Result<Json<ApiClientLifecycleRequest>, JsonRejection>,
+) -> Response {
+    transition_api_client(
+        state,
+        staff,
+        client_id,
+        headers,
+        payload,
+        ApiClientStatus::Suspended,
+    )
+    .await
+}
+
+async fn revoke_api_client(
+    state: State<AppState>,
+    staff: AuthenticatedStaff,
+    client_id: Path<String>,
+    headers: HeaderMap,
+    payload: Result<Json<ApiClientLifecycleRequest>, JsonRejection>,
+) -> Response {
+    transition_api_client(
+        state,
+        staff,
+        client_id,
+        headers,
+        payload,
+        ApiClientStatus::Revoked,
+    )
+    .await
+}
+
+async fn transition_api_client(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(client_id): Path<String>,
+    headers: HeaderMap,
+    payload: Result<Json<ApiClientLifecycleRequest>, JsonRejection>,
+    status: ApiClientStatus,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::ApiClientsManage)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_api_client_mutation(&state, &headers)?;
+        let request = payload
+            .map_err(|_| AdminApiError::api_client_validation())?
+            .0;
+        let service = state
+            .api_clients
+            .as_ref()
+            .ok_or_else(AdminApiError::api_client_unavailable)?;
+        Ok::<_, AdminApiError>(
+            Json(
+                service
+                    .transition(actor.staff_user_id(), &client_id, request.version, status)
+                    .await
+                    .map_err(AdminApiError::from_api_client)?,
+            )
+            .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+fn trusted_api_client_mutation(state: &AppState, headers: &HeaderMap) -> Result<(), AdminApiError> {
+    browser_mutation_is_trusted(headers, &state.frontend_origin)
+        .then_some(())
+        .ok_or_else(AdminApiError::forbidden_origin)
 }
 
 #[derive(Deserialize)]
@@ -1266,6 +1573,42 @@ impl AdminApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             code: "FLIGHT_MANAGEMENT_UNAVAILABLE",
             message: "Flight management is temporarily unavailable.",
+        }
+    }
+    fn api_client_validation() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "API_CLIENT_VALIDATION_FAILED",
+            message: "Review the API client fields and try again.",
+        }
+    }
+    fn api_client_unavailable() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "API_CLIENT_MANAGEMENT_UNAVAILABLE",
+            message: "API client management is temporarily unavailable.",
+        }
+    }
+    fn from_api_client(error: ApiClientManagementError) -> Self {
+        match error {
+            ApiClientManagementError::Validation => Self::api_client_validation(),
+            ApiClientManagementError::NotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "API_CLIENT_NOT_FOUND",
+                message: "The API client was not found.",
+            },
+            ApiClientManagementError::Conflict => Self {
+                status: StatusCode::CONFLICT,
+                code: "API_CLIENT_STALE_VERSION",
+                message: "The API client changed after this view was loaded.",
+            },
+            ApiClientManagementError::InvalidStatus => Self {
+                status: StatusCode::CONFLICT,
+                code: "API_CLIENT_STATUS_CONFLICT",
+                message: "The API client status does not allow this operation.",
+            },
+            ApiClientManagementError::IdentityGeneration
+            | ApiClientManagementError::Infrastructure => Self::api_client_unavailable(),
         }
     }
     fn from_flight(error: FlightManagementError) -> Self {

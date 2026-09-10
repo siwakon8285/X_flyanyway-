@@ -52,8 +52,9 @@
 .xfo-flight-number { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.08rem; font-weight: 780; letter-spacing: .045em; }
 .xfo-route { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; font-weight: 720; letter-spacing: .08em; white-space: nowrap; }
 .xfo-route b { color: #917900; font-weight: 500; padding-inline: .35rem; }
-.xfo-cabins { display: grid; font-size: .72rem; gap: .25rem; }
-.xfo-cabins span:first-child { font-weight: 700; }
+.xfo-cabins { font-size: .72rem; }
+.xfo-cabins-stack { display: grid; gap: .25rem; }
+.xfo-cabins-stack span:first-child { font-weight: 700; }
 .xfo-view-link { align-items: center; display: inline-flex; font-size: .7rem; font-weight: 700; gap: .45rem; letter-spacing: .04em; min-height: 44px; position: relative; text-transform: uppercase; }
 .xfo-view-link::after { background: var(--xfo-yellow); bottom: 7px; content: ""; height: 2px; left: 0; position: absolute; right: 1.3rem; transform-origin: left; transition: transform .18s ease; }
 .xfo-view-link:hover::after { transform: scaleX(.55); }

@@ -5,6 +5,11 @@ const dateLocales: Record<Locale, string> = {
   th: "th-TH-u-ca-gregory-nu-latn",
 };
 
+const staffDateLocales: Record<Locale, string> = {
+  en: "en-GB-u-ca-gregory-nu-latn",
+  th: "th-TH-u-ca-buddhist-nu-latn",
+};
+
 const numberLocales: Record<Locale, string> = {
   en: "en-US-u-nu-latn",
   th: "th-TH-u-nu-latn",
@@ -36,4 +41,21 @@ const formatDuration = (durationMinutes: number, locale: Locale) => {
   return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
 };
 
-export { formatDate, formatDuration, formatPrice };
+const formatStaffDate = (value: string, locale: Locale) => {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat(staffDateLocales[locale], {
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+    year: "numeric",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+};
+
+const formatStaffDateTime = (value: string, locale: Locale, timeZone?: string) =>
+  new Intl.DateTimeFormat(staffDateLocales[locale], {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  }).format(new Date(value));
+
+export { formatDate, formatDuration, formatPrice, formatStaffDate, formatStaffDateTime };

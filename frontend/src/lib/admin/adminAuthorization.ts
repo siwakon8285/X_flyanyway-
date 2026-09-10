@@ -16,7 +16,7 @@ const navigationCatalog: readonly AdminNavigationItem[] = [
   { available: true, href: "/admin/bookings", id: "bookings", labelKey: "admin.navigation.bookings", permission: "bookings:read" },
   { available: true, href: "/admin/tickets", id: "tickets", labelKey: "admin.navigation.tickets", permission: "tickets:read" },
   { available: false, href: "/admin/reports", id: "reports", labelKey: "admin.navigation.reports", permission: "reports:read" },
-  { available: false, href: "/admin/api-clients", id: "api-clients", labelKey: "admin.navigation.apiClients", permission: "api_clients:read" },
+  { available: true, href: "/admin/api-clients", id: "api-clients", labelKey: "admin.navigation.apiClients", permission: "api_clients:read" },
   { available: false, href: "/admin/staff", id: "staff", labelKey: "admin.navigation.staff", permission: "staff:read" },
 ];
 

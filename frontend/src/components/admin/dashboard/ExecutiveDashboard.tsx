@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { formatDate, formatPrice } from "@/i18n/formatters";
+import { formatPrice, formatStaffDate, formatStaffDateTime } from "@/i18n/formatters";
 import { dashboardDataReconciles, type DashboardData, type DashboardFilters as Filters } from "@/lib/admin/dashboardTypes";
 import { DailyFigures, DemandChart, RevenueChart } from "./DashboardCharts";
 import { DashboardDetail } from "./DashboardDetail";
@@ -90,7 +90,7 @@ export function ExecutiveDashboard() {
 
     {fatalError ? <div className="exec-state" role="alert"><span>SYS / {error}</span><h2>{t(error === 401 ? "dashboard.unauthenticated" : error === 403 ? "dashboard.forbidden" : error === 422 || error === 400 ? "dashboard.invalid" : "dashboard.error")}</h2>{error === 401 ? <Link href="/admin/login">{t("dashboard.signIn")}</Link> : error === 403 ? <Link href="/admin">{t("dashboard.workspace")}</Link> : <button type="button" onClick={retry}>{t("dashboard.retry")} <i aria-hidden="true">↗</i></button>}</div> : !data ? <div className="exec-loading" role="status"><div className="exec-loader" aria-hidden="true"><span /><span /><span /></div><div><strong>{t("dashboard.loading")}</strong><p>{t("dashboard.loadingDetail")}</p></div></div> : <div className={loading ? "exec-data is-refreshing" : "exec-data"} data-dashboard-data>
       {error && <div className="exec-inline-error" role="alert"><span>{t("dashboard.refreshError")}</span><button type="button" onClick={retry}>{t("dashboard.retry")}</button></div>}
-      <div className="exec-context"><p><i aria-hidden="true" />{t(data.provider === "STRIPE" ? "dashboard.stripe" : "dashboard.mockBitcoin")}</p><span>{formatDate(data.from, locale)} — {formatDate(data.to, locale)}</span><span>{t("dashboard.refreshed")} {new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date(data.generatedAt))} / UTC+7</span></div>
+      <div className="exec-context"><p><i aria-hidden="true" />{t(data.provider === "STRIPE" ? "dashboard.stripe" : "dashboard.mockBitcoin")}</p><span>{formatStaffDate(data.from, locale)} — {formatStaffDate(data.to, locale)}</span><span>{t("dashboard.refreshed")} {formatStaffDateTime(data.generatedAt, locale, "Asia/Bangkok")} / UTC+7</span></div>
       <p className="exec-source">{t("dashboard.source")}</p>
       {data.summary.totalBookings === 0 && <div className="exec-empty" role="status"><span>00 / {t("dashboard.emptyCode")}</span><strong>{t("dashboard.empty")}</strong><p>{t("dashboard.emptyHelp")}</p></div>}
 

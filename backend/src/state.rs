@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     application::analytics::AnalyticsRepository,
+    application::api_client::ApiClientManagement,
     application::booking_confirmation::BookingConfirmationEmailService,
     application::cancellation::CancellationService,
     application::flight::FlightManagement,
@@ -36,6 +37,7 @@ pub struct AppState {
     pub flights: Option<FlightManagement>,
     pub booking_management: Option<Arc<dyn BookingManagementRepository>>,
     pub ticket_operations: Option<Arc<dyn TicketOperationsRepository>>,
+    pub api_clients: Option<ApiClientManagement>,
 }
 
 impl AppState {
@@ -67,6 +69,7 @@ impl AppState {
             flights: None,
             booking_management: None,
             ticket_operations: None,
+            api_clients: None,
         }
     }
 
@@ -137,6 +140,11 @@ impl AppState {
         repository: Arc<dyn TicketOperationsRepository>,
     ) -> Self {
         self.ticket_operations = Some(repository);
+        self
+    }
+
+    pub fn with_api_clients(mut self, api_clients: ApiClientManagement) -> Self {
+        self.api_clients = Some(api_clients);
         self
     }
 }
