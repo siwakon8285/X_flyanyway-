@@ -3,7 +3,7 @@
 import { type KeyboardEvent, type PointerEvent, type ReactNode, useId, useState } from "react";
 
 import { useLanguage } from "@/i18n/LanguageProvider";
-import { formatDate, formatPrice } from "@/i18n/formatters";
+import { formatPrice, formatStaffDate } from "@/i18n/formatters";
 import { dashboardCabins, type DashboardCabin, type DashboardData } from "@/lib/admin/dashboardTypes";
 
 export const cabinKeys = { business: "business", first: "first" } as const;
@@ -95,12 +95,12 @@ const ChartInspector = ({ children, className, metric, points, title }: ChartIns
   return <div className="exec-chart-inspector">
     <svg className={`exec-trend ${className}`} viewBox="0 0 680 278" role="img" tabIndex={0} aria-label={title} aria-describedby={`${id}-instructions${activePoint ? ` ${id}-inspection` : ""}`} data-values={points.map((point) => point[metric]).join(",")} onBlur={() => setActiveIndex(null)} onFocus={() => points.length && setActiveIndex((current) => current ?? points.length - 1)} onKeyDown={inspectWithKeyboard} onPointerDown={inspectAtClientX} onPointerMove={inspectAtClientX} onPointerLeave={(event) => { if (event.pointerType === "mouse") setActiveIndex(null); }}>
       <title>{title}</title>
-      <desc>{points.map((point) => `${formatDate(point.date, locale)}: ${metric === "revenue" ? formatPrice(point.revenue, locale) : point.bookings}`).join("; ")}</desc>
+      <desc>{points.map((point) => `${formatStaffDate(point.date, locale)}: ${metric === "revenue" ? formatPrice(point.revenue, locale) : point.bookings}`).join("; ")}</desc>
       {children(activeIndex)}
     </svg>
     <span className="sr-only" id={`${id}-instructions`}>{t("dashboard.chartInspectionInstructions")}</span>
     {activePoint && geometry && <div className={`exec-chart-tooltip${edge}${vertical}`} data-testid={`${metric}-inspection`} id={`${id}-inspection`} role="status" style={{ left: `${(geometry.x / chartWidth) * 100}%`, top: `${(geometry.y / 278) * 100}%` }}>
-      <span>{t("dashboard.tooltipDate")}</span><time dateTime={activePoint.date}>{formatDate(activePoint.date, locale)}</time>
+      <span>{t("dashboard.tooltipDate")}</span><time dateTime={activePoint.date}>{formatStaffDate(activePoint.date, locale)}</time>
       <span>{t(metric === "revenue" ? "dashboard.tooltipRevenue" : "dashboard.tooltipBookings")}</span><strong>{formattedValue}</strong>
     </div>}
   </div>;
@@ -122,7 +122,7 @@ export function RevenueChart({ points, title }: { points: DashboardData["trends"
     {coords.map((point, index) => <circle key={points[index].date} className={`exec-data-point${activeIndex === index ? " is-active" : ""}`} cx={point.x} cy={point.y} r={activeIndex === index ? 4.5 : 2} />)}
     {activeIndex !== null && coords[activeIndex] && <g className="exec-inspection-mark" aria-hidden="true"><line x1={coords[activeIndex].x} x2={coords[activeIndex].x} y1="40" y2="224" /><circle cx={coords[activeIndex].x} cy={coords[activeIndex].y} r="10" /></g>}
     {coords.length > 0 && <g className="exec-latest-point" transform={`translate(${coords.at(-1)!.x} ${coords.at(-1)!.y})`}><line x1="0" x2="0" y1="-14" y2="14" /><circle r="10" /><circle r="4" /><text x="-9" y={Math.max(-16, 30 - coords.at(-1)!.y)} textAnchor="end">{latest ? number.format(latest.revenue) : ""}</text></g>}
-    {points.length > 0 && <><text className="exec-axis-date" x="58" y="264">{formatDate(points[0].date, locale)}</text>{points.length > 1 && <text className="exec-axis-date" x="650" y="264" textAnchor="end">{formatDate(points.at(-1)!.date, locale)}</text>}</>}
+    {points.length > 0 && <><text className="exec-axis-date" x="58" y="264">{formatStaffDate(points[0].date, locale)}</text>{points.length > 1 && <text className="exec-axis-date" x="650" y="264" textAnchor="end">{formatStaffDate(points.at(-1)!.date, locale)}</text>}</>}
   </>}</ChartInspector>;
 }
 
@@ -136,7 +136,7 @@ export function DemandChart({ points, title }: { points: DashboardData["trends"]
     {coords.map((point, index) => <g key={points[index].date} data-demand-pulse className={`exec-demand-pulse${activeIndex === index ? " is-active" : ""}`}><line x1={point.x} x2={point.x} y1={point.y} y2="224" strokeWidth={width} /><circle cx={point.x} cy={point.y} r={activeIndex === index ? 4.5 : 2.7} /></g>)}
     {line && <path data-chart-line className="exec-demand-envelope" d={line} fill="none" />}
     {activeIndex !== null && coords[activeIndex] && <g className="exec-inspection-mark" aria-hidden="true"><line x1={coords[activeIndex].x} x2={coords[activeIndex].x} y1="40" y2="224" /><circle cx={coords[activeIndex].x} cy={coords[activeIndex].y} r="10" /></g>}
-    {points.length > 0 && <><text className="exec-axis-date" x="58" y="264">{formatDate(points[0].date, locale)}</text>{points.length > 1 && <text className="exec-axis-date" x="650" y="264" textAnchor="end">{formatDate(points.at(-1)!.date, locale)}</text>}</>}
+    {points.length > 0 && <><text className="exec-axis-date" x="58" y="264">{formatStaffDate(points[0].date, locale)}</text>{points.length > 1 && <text className="exec-axis-date" x="650" y="264" textAnchor="end">{formatStaffDate(points.at(-1)!.date, locale)}</text>}</>}
   </>}</ChartInspector>;
 }
 
@@ -170,5 +170,5 @@ export function CabinMix({ cabins }: { cabins: DashboardData["cabins"] }) {
 
 export function DailyFigures({ points }: { points: DashboardData["trends"] }) {
   const { t, locale } = useLanguage();
-  return <details className="exec-daily"><summary>{t("dashboard.chartTable")}</summary><div className="exec-table-scroll"><table><caption className="sr-only">{t("dashboard.daily")}</caption><thead><tr><th scope="col">{t("dashboard.date")}</th><th scope="col">{t("dashboard.bookingsShort")}</th><th scope="col">{t("dashboard.revenueShort")}</th></tr></thead><tbody>{points.map((point) => <tr key={point.date}><th scope="row">{formatDate(point.date, locale)}</th><td>{new Intl.NumberFormat(locale).format(point.bookings)}</td><td>{formatPrice(point.revenue, locale)}</td></tr>)}</tbody></table></div></details>;
+  return <details className="exec-daily"><summary>{t("dashboard.chartTable")}</summary><div className="exec-table-scroll"><table><caption className="sr-only">{t("dashboard.daily")}</caption><thead><tr><th scope="col">{t("dashboard.date")}</th><th scope="col">{t("dashboard.bookingsShort")}</th><th scope="col">{t("dashboard.revenueShort")}</th></tr></thead><tbody>{points.map((point) => <tr key={point.date}><th scope="row">{formatStaffDate(point.date, locale)}</th><td>{new Intl.NumberFormat(locale).format(point.bookings)}</td><td>{formatPrice(point.revenue, locale)}</td></tr>)}</tbody></table></div></details>;
 }

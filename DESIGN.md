@@ -473,7 +473,7 @@ Role-specific X-Fly workspace
   ├── Flight management
   ├── Booking management
   ├── Ticket / passenger operations
-  └── API client / token administration
+  └── API client registry administration
 ```
 
 A generic administrator does not automatically receive permission to create or edit flights. Flight mutation belongs to the responsible **Flight Manager** role.
@@ -1556,7 +1556,7 @@ BAGGAGE
   → read only the passenger/flight/baggage-related fields required for baggage operations
 
 API_ADMIN
-  → create/revoke API clients, tokens, scopes, integration access
+  → manage API client identities, lifecycle, and approved allowed scopes
 
 SYSTEM_ADMIN
   → identity/security/system administration only
@@ -1731,52 +1731,59 @@ The system must never expose full Stripe card data, client secrets, or unrelated
 
 External-system integration is a **core requirement**, not an optional future extra.
 
-Architecture:
+An API client is the durable administrative identity of an approved external
+application or system. It is not a staff user, customer identity, or browser
+session. Its public Client ID is a stable, non-secret identifier; the internal
+database UUID is not part of the admin API contract.
+
+Branch 24 establishes the registry and authorization configuration:
+
+```txt
+Authorized API_ADMIN staff
+  ↓
+API Client registry
+  ↓
+Lifecycle status + system-defined allowed scopes
+```
+
+Branch 25 will add the consumption path:
 
 ```txt
 External System
   ↓
-API Client ID / Secret or Token
-  ↓
-Authentication
-  ↓
-Scope authorization
+Scoped client authentication
   ↓
 X-Fly REST API
   ↓
 Approved data only
 ```
 
-Example scopes:
+The Branch 24 allowlisted scope catalog is seeded by migration and contains only:
 
 ```txt
 flights:read
-bookings:read
-passengers:read
-tickets:read
-baggage:read
 analytics:read
 ```
 
-Examples:
+Only typed catalog values may be assigned to a client. API_ADMIN may assign or
+remove those values, but cannot create arbitrary scope definitions through the
+admin UI or API. These scopes configure what the client may later be allowed to
+receive; they do not grant current API access.
 
-- baggage system receives only flight/passenger/baggage fields it needs
-- ticketing/operations integration receives booking/ticket fields
-- marketing analytics system receives approved booking/aggregate data, not campaign-building capability
-- airport/downstream operational systems may consume approved ticket data without X-Fly implementing their check-in workflow
+API client administration uses the effective permissions
+`api_clients:read` and `api_clients:manage`. No role-name bypass exists, and
+SYSTEM_ADMIN has no implicit access. Management actions preserve actor,
+timestamp, action, target, and safe before/after context. Important records are
+retained rather than physically deleted.
 
-API client administration should support:
+Lifecycle states are ACTIVE, SUSPENDED, and REVOKED. ACTIVE means only that the
+client is administratively approved and eligible for future API use. SUSPENDED
+is reversible. REVOKED is terminal and historical records remain inspectable.
 
-- create client
-- reveal secret/token once
-- store only a safe hash where applicable
-- assign/revoke scopes
-- revoke/disable client
-- regenerate/rotate secret
-- expiration where appropriate
-- rate limiting
-- audit log
-- last-used visibility
+Branch 24 issues no credential, secret, token, or authentication capability. It
+contains no External REST API, token rotation/expiration/last-used tracking, or
+external authentication middleware. Those capabilities, including scope
+enforcement, rate limiting, and field-level minimization, belong to Branch 25.
 
 External clients never connect directly to PostgreSQL.
 
@@ -3303,16 +3310,21 @@ feat/24-api-client-management
 
 ## Tasks
 
-- API client list
-- create client
-- reveal credential once
-- hashed/safe credential persistence
-- assign scopes
-- revoke / disable
-- rotate/regenerate
-- expiration
-- last-used
-- audit visibility
+- protected list, server-side search/filter, and bounded offset pagination
+- create and inspect API client identities without exposing internal UUIDs
+- edit safe metadata while keeping the public Client ID immutable
+- assign/remove typed `flights:read` and `analytics:read` allowed scopes
+- ACTIVE / SUSPENDED / terminal REVOKED lifecycle management
+- attributable audit history for creation, metadata, scope, and lifecycle changes
+- effective-permission authorization with `api_clients:read` and
+  `api_clients:manage`
+- private/no-store admin APIs with existing staff session and Origin/CSRF controls
+- complete typed EN/TH administrative presentation
+
+Branch 24 does **not** expose the External REST API and does **not** issue scoped
+access tokens. It contains no credentials or API secrets. Branch 25 owns client
+authentication, token/credential lifecycle, scope enforcement at consumption
+time, and the external data endpoints.
 
 ---
 
@@ -4909,10 +4921,10 @@ X-Fly Anyway is successful when:
 
 ## External Integration
 
-- external API clients use credentials/tokens
-- scopes restrict access
-- credentials can be revoked/rotated
-- tokens/secrets are stored safely
+- Branch 24 registers external API client identities and typed allowed scopes
+- Branch 25 authenticates external clients with safely managed credentials/tokens
+- Branch 25 enforces scopes at the External REST API boundary
+- Branch 25 owns credential revocation/rotation and secure token/secret storage
 - direct PostgreSQL access is never given to external systems
 - API has rate limiting/audit visibility
 - field-level data minimization is enforced

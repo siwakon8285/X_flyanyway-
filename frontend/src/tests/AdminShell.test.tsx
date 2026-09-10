@@ -33,6 +33,7 @@ describe("AdminShell", () => {
     const trigger = screen.getByRole("button", { name: "Open staff navigation" });
     fireEvent.click(trigger);
     expect(screen.getByRole("dialog", { name: "Staff navigation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name:"Close dialog" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "Staff navigation" })).not.toBeInTheDocument();
   });
@@ -59,5 +60,11 @@ describe("AdminShell", () => {
     render(<AdminShell principal={{ ...principal, roles:["TICKET_PASSENGER_OPERATIONS"], permissions:["tickets:read","tickets:print","passengers:read"] }}><p>Tickets</p></AdminShell>);
     expect(screen.getByRole("link", { name:"Tickets / Passengers" })).toHaveAttribute("href", "/admin/tickets");
     expect(screen.queryByRole("link", { name:"Bookings" })).not.toBeInTheDocument();
+  });
+
+  it("shows API client navigation from effective permissions without System Admin bypass", () => {
+    render(<AdminShell principal={{ ...principal, roles:["API_ADMIN"], permissions:["api_clients:read","api_clients:manage"] }}><p>API clients</p></AdminShell>);
+    expect(screen.getByRole("link", { name:"API Clients" })).toHaveAttribute("href", "/admin/api-clients");
+    expect(screen.queryByRole("link", { name:"Staff / Access" })).not.toBeInTheDocument();
   });
 });

@@ -237,8 +237,9 @@ describe("Executive Dashboard", () => {
     fireChartPointer(chart, "pointermove", 70, "mouse");
     const tooltip = screen.getByTestId("bookings-inspection");
     expect(within(tooltip).getByText("วันที่")).toBeInTheDocument();
-    expect(within(tooltip).getByText("01 ก.ย. 2026")).toBeInTheDocument();
+    expect(within(tooltip).getByText("01 ก.ย. 2569")).toBeInTheDocument();
     expect(within(tooltip).getByText("การจอง")).toBeInTheDocument();
+    expect(screen.getByText(/ข้อมูล ณ.*2569.*19:00.*UTC\+7/)).toBeInTheDocument();
   });
   it("renders final, usable dashboard content immediately for reduced-motion users", async () => {
     expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true);

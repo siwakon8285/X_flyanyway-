@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { DatePickerField } from "@/components/admin/flights/DatePickerField";
 import { FlightStatusBadge } from "@/components/admin/flights/FlightOperationsPrimitives";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatStaffDate } from "@/i18n/formatters";
 import type { TranslationKey } from "@/i18n/types";
 import type { FlightPage } from "@/lib/admin/flightTypes";
 import "./flightOperations.css";
@@ -17,7 +18,7 @@ const columns: TranslationKey[] = [
 ];
 
 const FlightsWorkspace = ({ canWrite }: { canWrite: boolean }) => {
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const [data, setData] = useState<FlightPage | null>(null);
   const [error, setError] = useState(false);
   const [filters, setFilters] = useState({ search:"", origin:"", destination:"", date:"", status:"" });
@@ -76,8 +77,8 @@ const FlightsWorkspace = ({ canWrite }: { canWrite: boolean }) => {
         <tbody>{data.items.map((flight) => <tr key={flight.id}>
           <th className="xfo-flight-number" scope="row">{flight.flightNumber}</th>
           <td className="xfo-route">{flight.originCode}<b aria-hidden="true">→</b>{flight.destinationCode}</td>
-          <td><time className="block font-medium" dateTime={flight.operatingDate ?? undefined}>{flight.operatingDate ?? t("flightManagement.recurring")}</time><span className="mt-1 block text-xs text-black/55">{flight.departureTime?.slice(0,5) ?? t("flightManagement.unavailable")}</span></td>
-          <td className="xfo-cabins"><span>{t("flightManagement.business")}</span><span>{t("flightManagement.first")}</span></td>
+          <td><time className="block font-medium" dateTime={flight.operatingDate ?? undefined}>{flight.operatingDate ? formatStaffDate(flight.operatingDate, locale) : t("flightManagement.recurring")}</time><span className="mt-1 block text-xs text-black/55">{flight.departureTime?.slice(0,5) ?? t("flightManagement.unavailable")}</span></td>
+          <td className="xfo-cabins"><div className="xfo-cabins-stack"><span>{t("flightManagement.business")}</span><span>{t("flightManagement.first")}</span></div></td>
           <td><FlightStatusBadge status={flight.status} /></td>
           <td><Link aria-label={`${t("flightManagement.view")} ${flight.flightNumber}`} className="xfo-view-link" href={`/admin/flights/${flight.id}`}>{t("flightManagement.view")}<ArrowRight aria-hidden="true" className="size-4" /></Link></td>
         </tr>)}</tbody>

@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AirportCombobox } from "@/components/admin/flights/AirportCombobox";
 import { DatePickerField } from "@/components/admin/flights/DatePickerField";
 import { OperationalSummary, OperationsSectionLegend } from "@/components/admin/flights/FlightOperationsPrimitives";
 import { TimePickerField } from "@/components/admin/flights/TimePickerField";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/Dialog";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatStaffDate, formatStaffDateTime } from "@/i18n/formatters";
 import type { FlightDetail, FlightReferenceData, ManagedFlight } from "@/lib/admin/flightTypes";
 import "./flightOperations.css";
 
@@ -27,6 +28,8 @@ const FlightEditor = ({ mode, flightId, canWrite }: { mode: "new" | "detail"; fl
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [cancelOpen, setCancelOpen] = useState(false);
+  const cancelTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const keepScheduledRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     const controller = new AbortController(); setLoading(true);
@@ -47,7 +50,24 @@ const FlightEditor = ({ mode, flightId, canWrite }: { mode: "new" | "detail"; fl
       const next = await response.json() as ManagedFlight; setFlight({ ...next, audit: flight?.audit ?? [] }); setForm(fromFlight(next)); setMessage(t("flightManagement.saved"));
     } catch (cause) { setError(cause instanceof Error ? cause.message : t("flightManagement.error")); } finally { setSaving(false); }
   };
-  const cancel = async () => { if (!flight) return; setSaving(true); setError(""); try { const response = await fetch(`/admin/api/flights/${flight.id}/cancel`, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json", "X-X-Fly-CSRF": "1" }, body: JSON.stringify({ version: flight.version }) }); if (!response.ok) throw new Error(t("flightManagement.conflict")); const next = await response.json() as ManagedFlight; setFlight({ ...next, audit: flight.audit }); setForm(fromFlight(next)); setCancelOpen(false); } catch (cause) { setError(cause instanceof Error ? cause.message : t("flightManagement.error")); } finally { setSaving(false); } };
+  const cancel = async () => {
+    if (!flight) return;
+    setSaving(true); setError("");
+    try {
+      const response = await fetch(`/admin/api/flights/${flight.id}/cancel`, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json", "X-X-Fly-CSRF": "1" }, body: JSON.stringify({ version: flight.version }) });
+      if (!response.ok) throw new Error(t("flightManagement.conflict"));
+      const next = await response.json() as ManagedFlight;
+      setFlight({ ...next, audit: flight.audit }); setForm(fromFlight(next)); setCancelOpen(false);
+      try {
+        const detailResponse = await fetch(`/admin/api/flights/${flight.id}`, { cache: "no-store", credentials: "same-origin" });
+        if (!detailResponse.ok) throw new Error();
+        const detail = await detailResponse.json() as FlightDetail;
+        setFlight(detail); setForm(fromFlight(detail));
+      } catch {
+        setError(t("flightManagement.cancelSyncWarning"));
+      }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : t("flightManagement.error")); } finally { setSaving(false); }
+  };
 
   if (loading) return <p aria-live="polite">{t("flightManagement.loading")}</p>;
   if (error && !references) return <p role="alert">{error}</p>;
@@ -64,10 +84,10 @@ const FlightEditor = ({ mode, flightId, canWrite }: { mode: "new" | "detail"; fl
       <fieldset className="xfo-form-section"><OperationsSectionLegend index="03" title={t("flightManagement.inventory")} /><label>{t("flightManagement.aircraftContext")}<select aria-label={t("flightManagement.aircraftContext")} className={inputClass} disabled={disabled} onChange={e => set("aircraftCode", e.target.value)} required value={form.aircraftCode}><option value="">{t("flightManagement.chooseAircraft")}</option>{references?.aircraft.map(item => <option key={item}>{item}</option>)}</select></label>{label(t("flightManagement.businessCapacity"), "businessCapacity", "number")}{label(t("flightManagement.firstCapacity"), "firstCapacity", "number")}</fieldset>
       <fieldset className="xfo-form-section is-commercial"><OperationsSectionLegend index="04" title={t("flightManagement.commercial")} />{label(t("flightManagement.businessPrice"), "businessPrice", "number")}{label(t("flightManagement.firstPrice"), "firstPrice", "number")}</fieldset>
       <div aria-live="polite" className="xfo-feedback">{error ? <p role="alert" className="text-red-700">{error}</p> : null}{message ? <p className="font-semibold text-green-800">{message}</p> : null}</div>
-      {canWrite && !disabled ? <div className="xfo-form-actions"><button className="xfo-save" disabled={saving} type="submit">{saving ? t("flightManagement.saving") : t("flightManagement.save")}</button>{mode === "detail" ? <button className="xfo-destructive" onClick={() => setCancelOpen(true)} type="button">{t("flightManagement.cancelFlight")}</button> : null}</div> : null}
+      {canWrite && !disabled ? <div className="xfo-form-actions"><button className="xfo-save" disabled={saving} type="submit">{saving ? t("flightManagement.saving") : t("flightManagement.save")}</button>{mode === "detail" ? <button className="xfo-destructive" onClick={(event) => { cancelTriggerRef.current = event.currentTarget; setCancelOpen(true); }} type="button">{t("flightManagement.cancelFlight")}</button> : null}</div> : null}
     </form>
-    {flight ? <section aria-labelledby="audit-title" className="xfo-audit"><h2 id="audit-title">{t("flightManagement.audit")}</h2>{flight.audit.length ? <ol className="mt-4">{flight.audit.map(item => <li key={item.id}><span>{t("flightManagement.createdBy", { action: t(auditAction[item.action]), actor: item.actorEmail })}</span><time className="text-sm text-black/55">{new Intl.DateTimeFormat(locale === "th" ? "th-TH" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.createdAt))}</time></li>)}</ol> : <p className="mt-3 text-black/55">{t("flightManagement.noAudit")}</p>}</section> : null}
-    {flight ? <Dialog onOpenChange={setCancelOpen} open={cancelOpen}><DialogContent><DialogHeader><DialogTitle>{t("flightManagement.cancelTitle", { flight: flight.flightNumber })}</DialogTitle><DialogDescription>{t("flightManagement.cancelDescription", { route: `${flight.originCode} → ${flight.destinationCode}`, departure: `${flight.operatingDate ?? t("flightManagement.recurring")} ${flight.departureTime?.slice(0, 5) ?? ""}` })}</DialogDescription></DialogHeader><DialogFooter><DialogClose asChild><button className="min-h-11 rounded-full border border-black/15 px-5" type="button">{t("flightManagement.keepScheduled")}</button></DialogClose><button className="min-h-11 rounded-full bg-red-800 px-5 font-semibold text-white" disabled={saving} onClick={() => void cancel()} type="button">{saving ? t("flightManagement.cancelling") : t("flightManagement.confirmCancel")}</button></DialogFooter></DialogContent></Dialog> : null}
+    {flight ? <section aria-labelledby="audit-title" className="xfo-audit"><h2 id="audit-title">{t("flightManagement.audit")}</h2>{flight.audit.length ? <ol className="mt-4">{flight.audit.map(item => <li key={item.id}><span>{t("flightManagement.createdBy", { action: t(auditAction[item.action]), actor: item.actorEmail })}</span><time className="text-sm text-black/55">{formatStaffDateTime(item.createdAt, locale)}</time></li>)}</ol> : <p className="mt-3 text-black/55">{t("flightManagement.noAudit")}</p>}</section> : null}
+    {flight ? <Dialog onOpenChange={setCancelOpen} open={cancelOpen}><DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); cancelTriggerRef.current?.focus(); }} onOpenAutoFocus={(event) => { event.preventDefault(); keepScheduledRef.current?.focus(); }} showCloseButton={false}><DialogHeader><DialogTitle>{t("flightManagement.cancelTitle", { flight: flight.flightNumber })}</DialogTitle><DialogDescription>{t("flightManagement.cancelDescription", { route: `${flight.originCode} → ${flight.destinationCode}`, departure: `${flight.operatingDate ? formatStaffDate(flight.operatingDate, locale) : t("flightManagement.recurring")} ${flight.departureTime?.slice(0, 5) ?? ""}` })}</DialogDescription></DialogHeader><DialogFooter><DialogClose asChild><button className="min-h-11 rounded-full border border-black/15 px-5" ref={keepScheduledRef} type="button">{t("flightManagement.keepScheduled")}</button></DialogClose><button className="min-h-11 rounded-full bg-red-800 px-5 font-semibold text-white" disabled={saving} onClick={() => void cancel()} type="button">{saving ? t("flightManagement.cancelling") : t("flightManagement.confirmCancel")}</button></DialogFooter></DialogContent></Dialog> : null}
   </section>;
 };
 

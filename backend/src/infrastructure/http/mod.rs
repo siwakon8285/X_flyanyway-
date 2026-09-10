@@ -11,10 +11,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use tower_http::{
-    cors::{AllowOrigin, CorsLayer},
-    trace::TraceLayer,
-};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use uuid::Uuid;
 
 use crate::{
@@ -37,6 +34,7 @@ use crate::{
 
 pub mod admin;
 mod browser_security;
+mod request_tracing;
 
 pub fn build_router(state: AppState) -> Router {
     let frontend_origin = state
@@ -52,7 +50,7 @@ pub fn build_router(state: AppState) -> Router {
         ])
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]);
 
-    Router::new()
+    let router = Router::new()
         .route("/health", get(health))
         .route("/api/v1/airports", get(list_airports))
         .route("/api/v1/flights", get(search_flights))
@@ -99,8 +97,9 @@ pub fn build_router(state: AppState) -> Router {
         )
         .merge(admin::router())
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state)
+        .with_state(state);
+
+    request_tracing::apply(router)
 }
 
 async fn health() -> Json<serde_json::Value> {

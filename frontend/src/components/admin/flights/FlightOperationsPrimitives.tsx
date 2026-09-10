@@ -3,6 +3,7 @@
 import { Armchair, ArrowRight, PlaneTakeoff } from "lucide-react";
 
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatStaffDate } from "@/i18n/formatters";
 import type { AirportReference, ManagedFlight } from "@/lib/admin/flightTypes";
 import { cn } from "@/lib/utils/cn";
 
@@ -54,11 +55,7 @@ const OperationalSummary = ({
   const origin = airports.find((airport) => airport.code === originCode);
   const destination = airports.find((airport) => airport.code === destinationCode);
   const formattedDate = operatingDate
-    ? new Intl.DateTimeFormat(locale === "th" ? "th-TH" : "en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }).format(new Date(`${operatingDate}T12:00:00Z`))
+    ? formatStaffDate(operatingDate, locale)
     : "—";
 
   return (

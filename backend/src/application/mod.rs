@@ -1,4 +1,5 @@
 pub mod analytics;
+pub mod api_client;
 pub mod booking_confirmation;
 pub mod cancellation;
 pub mod flight;

@@ -127,8 +127,17 @@ describe("Booking Management", () => {
     render(<BookingsWorkspace />, { locale:"th" });
     await screen.findByText("XF22COUNT0");
     expect(document.querySelector('time[datetime="2026-09-01T08:00:00Z"]')).toHaveTextContent("2569");
+    expect(document.querySelector('time[datetime="2026-12-18"]')).toHaveTextContent("2569");
     expect(screen.getByText("ผู้โดยสาร 1 คน")).toBeInTheDocument();
     expect(screen.getByText("ผู้โดยสาร 2 คน")).toBeInTheDocument();
+  });
+
+  it("uses the Thai staff calendar in the booking cancellation context", async () => {
+    jest.mocked(fetch).mockResolvedValueOnce(mockResponse(detail));
+    render(<BookingDetailWorkspace bookingReference={detail.bookingReference} canManage />, { locale:"th" });
+    fireEvent.click(await screen.findByRole("button", { name:"ยกเลิกการจอง / คืนเงินเต็มจำนวน" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("2569");
+    expect(screen.getByRole("dialog")).not.toHaveTextContent(detail.journey.travelDate);
   });
 
   it("renders localized empty and error states", async () => {
@@ -166,14 +175,24 @@ describe("Booking Management", () => {
     const cancelled: BookingDetail = { ...detail, bookingStatus: "CANCELLED", ticket: { ...detail.ticket, status: "CANCELLED", cancelledAt: "2026-09-08T08:00:00Z" }, cancellation: { ...detail.cancellation, eligibility: "UNAVAILABLE", cancelledAt: "2026-09-08T08:00:00Z", refundStatus: "PENDING", refundAmount: { amount: 99500, currencyCode: "THB" } }, audit: [{ action: "STAFF_BOOKING_CANCELLED", actorEmail: "synthetic.operator@x-fly.test", createdAt: "2026-09-08T08:00:00Z" }] };
     jest.mocked(fetch).mockResolvedValueOnce(mockResponse(detail)).mockResolvedValueOnce(mockResponse(cancelled));
     render(<BookingDetailWorkspace bookingReference={detail.bookingReference} canManage />);
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel booking / full refund" }));
-    expect(screen.getByRole("dialog", { name: `Cancel booking ${detail.bookingReference}?` })).toHaveTextContent("100% refund");
+    const trigger = await screen.findByRole("button", { name: "Cancel booking / full refund" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: `Cancel booking ${detail.bookingReference}?` });
+    expect(dialog).toHaveTextContent("100% refund");
+    expect(within(dialog).queryByRole("button", { name:"Close dialog" })).not.toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByRole("button", { name:"Keep booking" })).toHaveFocus());
+    fireEvent.keyDown(document, { key:"Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+    fireEvent.click(trigger);
     fireEvent.click(screen.getByRole("button", { name: "Confirm cancellation" }));
     expect(await screen.findByText(/Booking cancelled. The returned authoritative/)).toBeInTheDocument();
     expect(screen.getByText("synthetic.operator@x-fly.test")).toBeInTheDocument();
     const [, init] = jest.mocked(fetch).mock.calls[1];
     expect(init?.method).toBe("POST");
     expect(new Headers(init?.headers).get("x-x-fly-csrf")).toBe("1");
+    expect(jest.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1);
   });
 
   it("does not expose cancellation controls without manage permission", async () => {

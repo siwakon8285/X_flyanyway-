@@ -14,6 +14,7 @@ use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tower::ServiceExt;
+use uuid::Uuid;
 use x_fly_api::{
     application::staff_auth::{ProvisionMode, StaffAuthService},
     domain::staff::{PermissionCode, RoleCode},
@@ -117,6 +118,44 @@ fn login_request(email: &str, password: &str, csrf: bool) -> Request<Body> {
 }
 
 #[tokio::test]
+async fn server_generates_unique_request_ids_and_replaces_client_values() {
+    let _guard = fixture_guard().await;
+    let pool = test_pool().await;
+    let router = app(pool.clone(), staff_service(pool));
+
+    let first = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/health?passengerName=must-not-be-logged")
+                .header("x-request-id", "client-controlled")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    assert!(first.headers().get(header::SET_COOKIE).is_none());
+    let first_id = first.headers()["x-request-id"].to_str().unwrap();
+    assert_ne!(first_id, "client-controlled");
+    Uuid::parse_str(first_id).unwrap();
+
+    let second = router
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+    let second_id = second.headers()["x-request-id"].to_str().unwrap();
+    Uuid::parse_str(second_id).unwrap();
+    assert_ne!(first_id, second_id);
+}
+
+#[tokio::test]
 async fn login_session_and_repeated_logout_use_a_separate_private_cookie() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
@@ -135,6 +174,7 @@ async fn login_session_and_repeated_logout_use_a_separate_private_cookie() {
         .unwrap();
     assert_eq!(login.status(), StatusCode::OK);
     assert_eq!(login.headers()[header::CACHE_CONTROL], "no-store, private");
+    Uuid::parse_str(login.headers()["x-request-id"].to_str().unwrap()).unwrap();
     let set_cookie = login.headers()[header::SET_COOKIE].to_str().unwrap();
     assert!(set_cookie.starts_with("x_fly_staff_session="));
     assert!(set_cookie.contains("Path=/admin"));

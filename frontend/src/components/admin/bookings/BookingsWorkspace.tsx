@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { cabinKeys, formatBookingDateTime, isLegacyCabin, passengerCountKey, statusKeys } from "./bookingPresentation";
 import { DatePickerField } from "@/components/admin/flights/DatePickerField";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatStaffDate } from "@/i18n/formatters";
 import type { BookingListItem, BookingListPage } from "@/lib/admin/bookingTypes";
 import "./bookingOperations.css";
 
@@ -73,7 +74,7 @@ const BookingsWorkspace = () => {
     {items.length ? <div aria-label={t("bookingManagement.title")} className="xbo-table-wrap" role="region" tabIndex={0}><table><caption className="sr-only">{t("bookingManagement.title")}</caption><thead><tr><th scope="col">{t("bookingManagement.bookingReference")}</th><th scope="col">{t("bookingManagement.lead")}</th><th scope="col">{t("bookingManagement.journey")}</th><th scope="col">{t("bookingManagement.cabin")}</th><th scope="col">{t("bookingManagement.bookingStatus")}</th><th scope="col">{t("bookingManagement.payment")}</th><th scope="col">{t("bookingManagement.ticket")}</th><th scope="col">{t("bookingManagement.actions")}</th></tr></thead><tbody>{items.map((booking) => <tr key={booking.bookingReference}>
       <th scope="row"><span className="xbo-reference">{booking.bookingReference}</span><time dateTime={booking.bookedAt}>{formatBookingDateTime(booking.bookedAt, locale)}</time></th>
       <td><strong>{booking.leadPassengerName}</strong><span>{t(passengerCountKey(booking.passengerCount), { count: booking.passengerCount })}</span></td>
-      <td><strong>{booking.flightNumber} · {booking.originCode} → {booking.destinationCode}</strong><time dateTime={booking.travelDate}>{booking.travelDate}</time><span className={`xbo-chip ${booking.flightStatus === "CANCELLED" ? "is-alert" : ""}`}>{t(statusKeys[booking.flightStatus])}</span></td>
+      <td><strong>{booking.flightNumber} · {booking.originCode} → {booking.destinationCode}</strong><time dateTime={booking.travelDate}>{formatStaffDate(booking.travelDate, locale)}</time><span className={`xbo-chip ${booking.flightStatus === "CANCELLED" ? "is-alert" : ""}`}>{t(statusKeys[booking.flightStatus])}</span></td>
       <td><span>{t(cabinKeys[booking.cabin])}</span>{isLegacyCabin(booking.cabin) ? <small>{t("bookingManagement.historical")}</small> : null}</td>
       <td><span className={`xbo-chip ${booking.bookingStatus === "CANCELLED" ? "is-muted" : ""}`}>{t(statusKeys[booking.bookingStatus])}</span></td>
       <td><span className="xbo-chip">{t(statusKeys[booking.paymentStatus])}</span></td><td><span className="xbo-chip">{t(statusKeys[booking.ticketStatus])}</span></td>

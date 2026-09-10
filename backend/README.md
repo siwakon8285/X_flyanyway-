@@ -93,6 +93,29 @@ cd backend
 cargo run
 ```
 
+### Safe HTTP request tracing
+
+Axum emits one structured completion event for every HTTP request. Each request
+receives a new server-generated UUID in the `X-Request-ID` response header;
+incoming client values are replaced and are never treated as authoritative
+correlation IDs. Successful and redirect responses log at `INFO`, client errors
+at `WARN`, and server errors at `ERROR`.
+
+Request events contain only `request_id`, HTTP `method`, the Axum matched route
+template, response `status`, and `latency_ms`. Unmatched requests use a fixed
+`<unmatched>` route label. Query strings, concrete route identifiers, headers,
+bodies, cookies, credentials, session/CSRF values, passenger or payment data,
+and raw database errors are deliberately excluded.
+
+Normal `cargo run --bin x-fly-api` output includes these request events at the
+default application `INFO` level. `RUST_LOG` remains available for temporary
+verbosity changes without enabling third-party `DEBUG` or `TRACE` output by
+default, for example:
+
+```bash
+RUST_LOG=x_fly_api=debug,tower_http=info cargo run --bin x-fly-api
+```
+
 Start Next.js in a third terminal:
 
 ```bash

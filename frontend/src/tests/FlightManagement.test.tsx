@@ -27,6 +27,28 @@ describe("Flight Management", () => {
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining("search=951"), expect.anything()));
   });
 
+  it("keeps multi-line cabin content in an internal stack inside the table cell", async () => {
+    render(<FlightsWorkspace canWrite />);
+    await screen.findByRole("rowheader", { name: "XF 951" });
+
+    const cabinCell = screen.getByRole("cell", { name: /Business.*First/ });
+    expect(cabinCell.tagName).toBe("TD");
+    expect(cabinCell).toHaveClass("xfo-cabins");
+    const stack = cabinCell.querySelector(".xfo-cabins-stack");
+    expect(stack).toBeInTheDocument();
+    expect(stack).toHaveTextContent("Business");
+    expect(stack).toHaveTextContent("First");
+    expect(stack?.children).toHaveLength(2);
+  });
+
+  it("renders Thai flight registry dates in the Buddhist Era without changing the ISO attribute", async () => {
+    render(<FlightsWorkspace canWrite />, { locale:"th" });
+    await screen.findByRole("rowheader", { name:"XF 951" });
+    const date = document.querySelector('time[datetime="2026-10-08"]');
+    expect(date).toHaveTextContent("2569");
+    expect(date).not.toHaveTextContent("2026");
+  });
+
   it("keeps read-only staff operationally useful without mutation controls", async () => {
     render(<FlightsWorkspace canWrite={false} />);
     expect(await screen.findByRole("rowheader", { name: "XF 951" })).toBeInTheDocument();
