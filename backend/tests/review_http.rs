@@ -6,7 +6,7 @@ use axum::{
     body::Body,
     http::{header, Request, StatusCode},
 };
-use chrono::{Duration as ChronoDuration, NaiveDate};
+use chrono::NaiveDate;
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -14,7 +14,7 @@ use tower::ServiceExt;
 
 use x_fly_api::{
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository},
+        database::{prepare_test_database, SqlxSeatHoldRepository},
         http::build_router,
     },
     state::AppState,
@@ -23,7 +23,7 @@ use x_fly_api::{
 async fn app() -> (axum::Router, PgPool) {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));
     (
         build_router(AppState::new(
@@ -39,9 +39,14 @@ async fn app() -> (axum::Router, PgPool) {
     )
 }
 
-fn departure_date() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2100, 1, 1).unwrap()
-        + ChronoDuration::days((uuid::Uuid::new_v4().as_u128() % 100_000) as i64)
+async fn departure_date() -> NaiveDate {
+    common::allocate_test_departure_date(
+        "xf-201",
+        NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+    )
+    .await
+    .unwrap()
 }
 
 async fn body(response: axum::response::Response) -> Value {
@@ -49,7 +54,7 @@ async fn body(response: axum::response::Response) -> Value {
 }
 
 async fn create_hold(app: &axum::Router) -> (String, String, NaiveDate) {
-    let departure = departure_date();
+    let departure = departure_date().await;
     let response = app
         .clone()
         .oneshot(

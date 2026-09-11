@@ -17,12 +17,32 @@ use crate::domain::{
 
 use super::SqlxSeatHoldRepository;
 
+fn checked_pagination(
+    limit: i64,
+    offset: i64,
+) -> Result<(usize, i64, i64), TicketOperationsRepositoryError> {
+    if !(1..=50).contains(&limit) || offset < 0 {
+        return Err(TicketOperationsRepositoryError::InvalidPagination);
+    }
+    let next_offset = offset
+        .checked_add(limit)
+        .ok_or(TicketOperationsRepositoryError::InvalidPagination)?;
+    let fetch_limit = limit
+        .checked_add(1)
+        .ok_or(TicketOperationsRepositoryError::InvalidPagination)?;
+    let page_size =
+        usize::try_from(limit).map_err(|_| TicketOperationsRepositoryError::InvalidPagination)?;
+    Ok((page_size, fetch_limit, next_offset))
+}
+
 #[async_trait]
 impl TicketOperationsRepository for SqlxSeatHoldRepository {
     async fn list_tickets(
         &self,
         filter: &TicketOperationsFilter,
     ) -> Result<TicketOperationsPage, TicketOperationsRepositoryError> {
+        let (page_size, fetch_limit, next_offset) =
+            checked_pagination(filter.limit, filter.offset)?;
         let status = filter.ticket_status.map(|status| match status {
             TicketStatus::Issued => "ISSUED",
             TicketStatus::Cancelled => "CANCELLED",
@@ -69,20 +89,20 @@ impl TicketOperationsRepository for SqlxSeatHoldRepository {
         .bind(filter.travel_date)
         .bind(status)
         .bind(filter.cabin.as_deref())
-        .bind(filter.limit + 1)
+        .bind(fetch_limit)
         .bind(filter.offset)
         .fetch_all(self.pool())
         .await
         .map_err(TicketOperationsRepositoryError::Infrastructure)?;
-        let has_more = rows.len() > filter.limit as usize;
+        let has_more = rows.len() > page_size;
         let items = rows
             .into_iter()
-            .take(filter.limit as usize)
+            .take(page_size)
             .map(ListRow::domain)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(TicketOperationsPage {
             items,
-            next_offset: has_more.then_some(filter.offset + filter.limit),
+            next_offset: has_more.then_some(next_offset),
         })
     }
 

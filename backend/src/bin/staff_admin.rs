@@ -4,7 +4,7 @@ use sqlx::postgres::PgPoolOptions;
 use x_fly_api::{
     application::staff_auth::{StaffAdminCommand, StaffAuthService},
     infrastructure::{
-        database::{prepare_database, SqlxStaffAuthRepository},
+        database::{verify_database_ready, SqlxStaffAuthRepository},
         password::Argon2PasswordService,
     },
 };
@@ -19,12 +19,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("password confirmation does not match".into());
     }
 
-    let database_url = env::var("DATABASE_URL").map_err(|_| "DATABASE_URL must be configured")?;
+    let database_url = env::var("MIGRATION_DATABASE_URL")
+        .map_err(|_| "MIGRATION_DATABASE_URL must be configured")?;
     let pool = PgPoolOptions::new()
         .max_connections(2)
         .connect(&database_url)
         .await?;
-    prepare_database(&pool).await?;
+    verify_database_ready(&pool).await?;
     let service = StaffAuthService::new(
         Arc::new(SqlxStaffAuthRepository::new(pool)),
         Argon2PasswordService::default(),

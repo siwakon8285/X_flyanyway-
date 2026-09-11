@@ -105,7 +105,7 @@ impl RefundGateway for StripeRefundGateway {
             .client
             .post("https://api.stripe.com/v1/refunds")
             .bearer_auth(&self.key)
-            .header("Idempotency-Key", format!("x-fly-refund/{}", job.id))
+            .header("Idempotency-Key", refund_idempotency_key(job))
             .form(&[
                 ("payment_intent", job.provider_payment_id.as_str()),
                 ("amount", amount.as_str()),
@@ -161,11 +161,44 @@ fn validate_refund(
         status: map_status(&r.status)?,
     })
 }
+
+fn refund_idempotency_key(job: &RefundJob) -> String {
+    format!("x-fly-refund/{}", job.id)
+}
+
 pub fn map_status(status: &str) -> Result<ProviderRefundStatus, RefundFailure> {
     match status {
         "pending" => Ok(ProviderRefundStatus::Processing),
         "requires_action" | "failed" | "canceled" => Ok(ProviderRefundStatus::RequiresAttention),
         "succeeded" => Ok(ProviderRefundStatus::Succeeded),
         _ => Err(RefundFailure::Permanent("STRIPE_UNKNOWN_REFUND_STATUS")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{extras::Money, payment::PaymentProvider};
+
+    #[test]
+    fn refund_idempotency_key_is_stable_for_a_job() {
+        let job = RefundJob {
+            id: uuid::Uuid::new_v4(),
+            payment_attempt_id: uuid::Uuid::new_v4(),
+            provider: PaymentProvider::Stripe,
+            provider_payment_id: "pi_test".to_owned(),
+            provider_refund_id: None,
+            amount: Money {
+                amount: 100,
+                currency_code: "THB".to_owned(),
+            },
+            attempt_count: 1,
+            lease_token: uuid::Uuid::new_v4(),
+        };
+        assert_eq!(
+            refund_idempotency_key(&job),
+            format!("x-fly-refund/{}", job.id)
+        );
+        assert_eq!(refund_idempotency_key(&job), refund_idempotency_key(&job));
     }
 }

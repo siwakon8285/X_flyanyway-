@@ -16,8 +16,9 @@ use tower::ServiceExt;
 use uuid::Uuid;
 use x_fly_api::{
     application::staff_auth::StaffAuthService,
+    domain::{repositories::TicketOperationsRepository, ticket_operations::TicketOperationsFilter},
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository, SqlxStaffAuthRepository},
+        database::{prepare_test_database, SqlxSeatHoldRepository, SqlxStaffAuthRepository},
         http::build_router,
         password::Argon2PasswordService,
     },
@@ -36,7 +37,7 @@ async fn pool() -> PgPool {
         .connect(&common::test_database_url())
         .await
         .unwrap();
-    prepare_database(&p).await.unwrap();
+    prepare_test_database(&p).await.unwrap();
     cleanup(&p).await;
     p
 }
@@ -313,5 +314,65 @@ async fn print_reuses_signed_ticket_and_never_mutates_authoritative_records() {
     );
     let after:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT COUNT(*) FROM tickets),(SELECT COUNT(*) FROM payment_attempts),(SELECT COUNT(*) FROM booking_cancellations)").fetch_one(&p).await.unwrap();
     assert_eq!(before, after);
+    cleanup(&p).await
+}
+
+#[tokio::test]
+async fn ticket_pagination_rejects_offsets_that_cannot_advance() {
+    let _g = guard().await;
+    let p = pool().await;
+    let c = cookie(&p, "TICKET_PASSENGER_OPERATIONS", "overflow").await;
+    let router = app(p.clone());
+    let response = send(
+        &router,
+        "GET",
+        &format!("/api/v1/admin/tickets?limit=50&offset={}", i64::MAX),
+        Some(&c),
+        None,
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let response = send(
+        &router,
+        "POST",
+        "/api/v1/admin/tickets/search",
+        Some(&c),
+        Some(json!({"limit": 50, "offset": i64::MAX})),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let repository = SqlxSeatHoldRepository::new(p.clone());
+    let boundary = TicketOperationsFilter {
+        ticket_number: None,
+        booking_reference: None,
+        passenger_name: None,
+        flight_number: None,
+        origin: None,
+        destination: None,
+        travel_date: None,
+        ticket_status: None,
+        cabin: None,
+        limit: 50,
+        offset: i64::MAX - 50,
+    };
+    assert!(repository.list_tickets(&boundary).await.is_ok());
+    let overflow = TicketOperationsFilter {
+        offset: i64::MAX - 49,
+        ..boundary.clone()
+    };
+    assert!(matches!(
+        repository.list_tickets(&overflow).await,
+        Err(x_fly_api::domain::repositories::TicketOperationsRepositoryError::InvalidPagination)
+    ));
+    let invalid_limit = TicketOperationsFilter {
+        limit: i64::MAX,
+        offset: 0,
+        ..boundary
+    };
+    assert!(matches!(
+        repository.list_tickets(&invalid_limit).await,
+        Err(x_fly_api::domain::repositories::TicketOperationsRepositoryError::InvalidPagination)
+    ));
     cleanup(&p).await
 }

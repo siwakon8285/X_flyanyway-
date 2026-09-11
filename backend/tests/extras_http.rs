@@ -13,7 +13,7 @@ use tower::ServiceExt;
 
 use x_fly_api::{
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository},
+        database::{prepare_test_database, SqlxSeatHoldRepository},
         http::build_router,
     },
     state::AppState,
@@ -22,7 +22,7 @@ use x_fly_api::{
 async fn app() -> (axum::Router, PgPool) {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));
     (
         build_router(AppState::new(
@@ -41,8 +41,13 @@ async fn app() -> (axum::Router, PgPool) {
 #[tokio::test]
 async fn removed_extras_endpoint_cannot_read_or_add_optional_products() {
     let (app, pool) = app().await;
-    let departure = chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap()
-        + chrono::Duration::days((uuid::Uuid::new_v4().as_u128() % 100_000) as i64);
+    let departure = common::allocate_test_departure_date(
+        "xf-201",
+        chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
+        chrono::NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+    )
+    .await
+    .unwrap();
     let created = app
         .clone()
         .oneshot(

@@ -13,26 +13,29 @@ use tower::ServiceExt;
 
 use x_fly_api::{
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository},
+        database::{prepare_test_database, SqlxSeatHoldRepository},
         http::build_router,
     },
     state::AppState,
 };
 
-async fn app() -> axum::Router {
+async fn app() -> (axum::Router, PgPool) {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
-    let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
-    build_router(AppState::new(
-        repository.clone(),
-        repository.clone(),
-        repository.clone(),
-        repository,
-        Duration::from_secs(600),
-        false,
-        "http://localhost:3000".to_owned(),
-    ))
+    prepare_test_database(&pool).await.unwrap();
+    let repository = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));
+    (
+        build_router(AppState::new(
+            repository.clone(),
+            repository.clone(),
+            repository.clone(),
+            repository,
+            Duration::from_secs(600),
+            false,
+            "http://localhost:3000".to_owned(),
+        )),
+        pool,
+    )
 }
 
 fn create_request(seat: &str, date: chrono::NaiveDate) -> Request<Body> {
@@ -73,31 +76,40 @@ fn create_request_for_cabin(cabin: &str, seat: &str, date: chrono::NaiveDate) ->
 
 #[tokio::test]
 async fn customer_hold_api_accepts_business_and_first_and_rejects_legacy_cabins() {
-    let app = app().await;
-    let base = chrono::NaiveDate::from_ymd_opt(2190, 1, 1).unwrap()
-        + chrono::Duration::days((uuid::Uuid::new_v4().as_u128() % 1_000) as i64);
+    let (app, _) = app().await;
+    let earliest = chrono::NaiveDate::from_ymd_opt(2190, 1, 1).unwrap();
+    let latest = chrono::NaiveDate::from_ymd_opt(2194, 12, 31).unwrap();
+    let dates = [
+        common::allocate_test_departure_date("xf-201", earliest, latest)
+            .await
+            .unwrap(),
+        common::allocate_test_departure_date("xf-201", earliest, latest)
+            .await
+            .unwrap(),
+        common::allocate_test_departure_date("xf-201", earliest, latest)
+            .await
+            .unwrap(),
+        common::allocate_test_departure_date("xf-201", earliest, latest)
+            .await
+            .unwrap(),
+    ];
 
-    for (offset, cabin, seat) in [(0, "business", "3A"), (1, "first", "1A")] {
+    for (date, cabin, seat) in [(dates[0], "business", "3A"), (dates[1], "first", "1A")] {
         let response = app
             .clone()
-            .oneshot(create_request_for_cabin(
-                cabin,
-                seat,
-                base + chrono::Duration::days(offset),
-            ))
+            .oneshot(create_request_for_cabin(cabin, seat, date))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::CREATED);
     }
 
-    for (offset, cabin, seat) in [(2, "economy", "20A"), (3, "premium-economy", "11A")] {
+    for (date, cabin, seat) in [
+        (dates[2], "economy", "20A"),
+        (dates[3], "premium-economy", "11A"),
+    ] {
         let response = app
             .clone()
-            .oneshot(create_request_for_cabin(
-                cabin,
-                seat,
-                base + chrono::Duration::days(offset),
-            ))
+            .oneshot(create_request_for_cabin(cabin, seat, date))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -106,9 +118,14 @@ async fn customer_hold_api_accepts_business_and_first_and_rejects_legacy_cabins(
 
 #[tokio::test]
 async fn create_conflict_and_scoped_http_only_authorization_contract() {
-    let app = app().await;
-    let date = chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap()
-        + chrono::Duration::days((uuid::Uuid::new_v4().as_u128() % 100_000) as i64);
+    let (app, _) = app().await;
+    let date = common::allocate_test_departure_date(
+        "xf-201",
+        chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
+        chrono::NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+    )
+    .await
+    .unwrap();
     let first_response = app
         .clone()
         .oneshot(create_request("3K", date))
@@ -183,9 +200,14 @@ async fn create_conflict_and_scoped_http_only_authorization_contract() {
 
 #[tokio::test]
 async fn continue_validation_rejects_a_partial_hold() {
-    let app = app().await;
-    let date = chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap()
-        + chrono::Duration::days((uuid::Uuid::new_v4().as_u128() % 100_000) as i64);
+    let (app, _) = app().await;
+    let date = common::allocate_test_departure_date(
+        "xf-201",
+        chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
+        chrono::NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+    )
+    .await
+    .unwrap();
     let create = Request::builder()
         .method("POST")
         .uri("/api/v1/seat-holds")

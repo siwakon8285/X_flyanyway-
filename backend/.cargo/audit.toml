@@ -1,0 +1,16 @@
+[advisories]
+# RUSTSEC-2023-0071 affects rsa 0.9.10 through a timing side channel.
+# X-Fly is PostgreSQL-only: SQLx PostgreSQL is enabled, while MySQL and
+# all-databases are not. The package is retained in Cargo.lock only through
+# SQLx's inactive optional sqlx-mysql path; cargo tree confirms neither
+# sqlx-mysql nor rsa is active, and X-Fly has no RSA/MySQL runtime usage.
+# RustSec currently lists no patched release for this advisory.
+# This temporary exception must be removed when the package leaves the
+# lockfile, the locked version is marked patched/unaffected, or an upstream
+# fix becomes available and dependency resolution can move. Re-evaluate it
+# immediately if SQLx MySQL/all-databases is enabled, sqlx-mysql becomes
+# active, rsa becomes active through another dependency, or X-Fly adds RSA
+# functionality.
+ignore = [
+    "RUSTSEC-2023-0071",
+]

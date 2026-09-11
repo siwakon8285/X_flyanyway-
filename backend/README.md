@@ -60,8 +60,6 @@ DELETE /api/v1/seat-holds/{hold_id}
 POST   /api/v1/seat-holds/{hold_id}/validation
 GET    /api/v1/seat-holds/{hold_id}/passengers
 PUT    /api/v1/seat-holds/{hold_id}/passengers
-GET    /api/v1/seat-holds/{hold_id}/extras
-PUT    /api/v1/seat-holds/{hold_id}/extras
 GET    /api/v1/seat-holds/{hold_id}/review
 ```
 
@@ -79,6 +77,25 @@ Copy the Compose environment from the repository root and the API environment in
 cp .env.example .env
 cp backend/.env.example backend/.env
 ```
+
+The database lifecycle is explicit. `DATABASE_URL` is only the
+`x_fly_runtime` application connection. `MIGRATION_DATABASE_URL` is the
+separate `x_fly_migrator` connection used by the operator command:
+
+```bash
+cd backend
+cargo run --bin db_admin -- migrate
+DEMO_SEED_DATABASE=x_fly_concurrency_test cargo run --bin db_admin -- seed-demo
+```
+
+`migrate` never seeds. `seed-demo` requires an exact database-name
+confirmation and refuses an inventory that is already populated. Normal API
+startup uses `DATABASE_URL` as `x_fly_runtime` and only verifies that every
+embedded migration is already present with its expected checksum. The
+operator-only `staff_admin` command uses `MIGRATION_DATABASE_URL`; neither
+startup path runs migrations or demo seed.
+Provision the roles and reviewed grants using the instructions in
+`provisioning/README.md` before configuring these URLs.
 
 The normal development topology runs PostgreSQL in Docker and the Rust API directly on the Mac. Start only the development database from the repository root:
 
@@ -129,7 +146,7 @@ Stop the backend and frontend with `Ctrl+C`. Stop the development database from 
 docker compose stop db
 ```
 
-`DATABASE_URL` is the host-run API connection and uses `127.0.0.1:5433` by default. The API binds to `127.0.0.1:8080`, and the frontend continues to use `http://localhost:8080/api/v1`. The development database is published on `localhost:${POSTGRES_HOST_PORT}` (default `5433`). Configure pgAdmin on the Mac with:
+`DATABASE_URL` is the host-run restricted API connection and uses `127.0.0.1:5433` by default. The API binds to `127.0.0.1:8080`, and the frontend continues to use `http://localhost:8080/api/v1`. The development database is published only on loopback at `127.0.0.1:${POSTGRES_HOST_PORT}` (default `5433`). Configure pgAdmin on the Mac with:
 
 ```text
 Host: localhost
@@ -139,13 +156,18 @@ Username: x_fly_app (or POSTGRES_USER)
 Password: the local POSTGRES_PASSWORD
 ```
 
+`x_fly_app` is the historical infrastructure/bootstrap administrator for this
+existing local cluster; it is not a required production administrator name.
+Normal API traffic uses `x_fly_runtime`, while migrations and operator commands
+use `x_fly_migrator` through their separate configured URLs.
+
 The host-run backend and pgAdmin both connect through port `5433`, so they inspect the same Docker PostgreSQL instance. Useful tables are `flight_instances`, `flight_seats`, `seat_holds`, and `hold_passengers`; the passenger table makes successful saves inspectable locally while remaining protected behind the API in the application. `seat_holds` exposes expiry/ownership hashes without storing the browser secret. Do not publish production PostgreSQL. Production inspection remains pgAdmin over an SSH tunnel to server-side `127.0.0.1:5432`.
 
 The root Compose file intentionally contains PostgreSQL services only. `backend/Dockerfile` is retained for future production/self-hosted deployment builds, but it is not part of the local Compose workflow.
 
 ## Historical Travel Extras compatibility
 
-Travel Extras are retired from the active customer booking flow. The former customer `GET`/`PUT /api/v1/seat-holds/{hold_id}/extras` endpoints are not routed, Review and Payment do not depend on `extras_saved_at`, and new customer bookings cannot add optional ancillary charges. The `hold_extras` schema, repository support, and product labels remain so Manage Booking can truthfully render selections recorded by historical bookings without rewriting or deleting them.
+Travel Extras are retired from the active customer booking flow. The former customer `GET`/`PUT /api/v1/seat-holds/{hold_id}/extras` endpoints are not routed, and the legacy frontend `/booking/extras` route redirects safely to Review while preserving only allowlisted recovery context. Review and Payment do not depend on `extras_saved_at`, and new customer bookings cannot add optional ancillary charges. The `hold_extras` schema, repository support, and product labels remain so Manage Booking can truthfully render selections recorded by historical bookings without rewriting or deleting them.
 
 Included cabin benefits remain active fare properties rather than optional Travel Extras. The stored cabin fixtures are:
 
@@ -206,7 +228,7 @@ Refunding is a separate durable worker lifecycle: `PENDING`, `IN_FLIGHT`, `PROCE
 
 ## Isolated PostgreSQL tests
 
-Repository and race tests refuse a database whose URL path does not end in `_test`. `TEST_DATABASE_URL` is separate from `DATABASE_URL` and uses host port `5434` for host-run tests. Start the isolated, tmpfs-backed test database only when required:
+Repository and race tests refuse a database whose URL path does not end in `_test`. `TEST_DATABASE_URL` is the migration/fixture credential and `TEST_RUNTIME_DATABASE_URL` is the restricted application credential. Both must resolve to the same guarded TEST host, port, and database; neither falls back to `DATABASE_URL`. The default host port is `5434`. Start the isolated, tmpfs-backed test database only when required:
 
 ```bash
 docker compose --profile test up -d db_test
@@ -214,6 +236,6 @@ cd backend
 cargo test
 ```
 
-The integration-test harness first honors an explicitly supplied `TEST_DATABASE_URL`; when it is absent, a normal `cargo test` run from `backend/` loads the ignored local `backend/.env`. Before opening a connection, the shared guard rejects the DEV port `5433`, the DEV database `x_fly`, missing database names, and every name that does not end in `_test`. It never reads or substitutes `DATABASE_URL`.
+The integration-test harness first honors an explicitly supplied `TEST_DATABASE_URL`; when it is absent, a normal `cargo test` run from `backend/` loads the ignored local `backend/.env`. Before opening a connection, the shared guard rejects the DEV port `5433`, the DEV database `x_fly`, missing database names, and every name that does not end in `_test`. Tests that exercise restricted permissions additionally require `TEST_RUNTIME_DATABASE_URL` and fail closed unless both URLs identify the same TEST target.
 
 The default example name is `x_fly_concurrency_test`; callers can supply any dedicated `<project_db>_test` through `TEST_DATABASE_URL`. If neither the shell nor `backend/.env` supplies a safe test target, the suite fails closed with configuration guidance. Integration setup and cleanup operate only on that guarded TEST database; they never reset or truncate DEV data.

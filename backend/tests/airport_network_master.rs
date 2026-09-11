@@ -6,7 +6,7 @@ use uuid::Uuid;
 use x_fly_api::{
     application::flight::{FlightRepository, PublicFlightFilter},
     domain::{flight::FlightCommand, value_objects::CabinClass},
-    infrastructure::database::{prepare_database, SqlxFlightRepository},
+    infrastructure::database::{prepare_test_database, SqlxFlightRepository},
 };
 
 async fn test_pool() -> PgPool {
@@ -16,7 +16,7 @@ async fn test_pool() -> PgPool {
         .connect(&url)
         .await
         .unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     pool
 }
 

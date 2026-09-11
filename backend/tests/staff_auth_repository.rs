@@ -10,7 +10,7 @@ use x_fly_api::{
     application::staff_auth::{ProvisionMode, StaffAuthError, StaffAuthService},
     domain::staff::{PermissionCode, RoleCode},
     infrastructure::{
-        database::{prepare_database, SqlxStaffAuthRepository},
+        database::{prepare_test_database, SqlxStaffAuthRepository},
         password::Argon2PasswordService,
     },
 };
@@ -50,7 +50,7 @@ async fn test_pool() -> PgPool {
         .connect(&database_url)
         .await
         .unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     pool
 }
 

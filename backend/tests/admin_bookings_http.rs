@@ -19,11 +19,12 @@ use uuid::Uuid;
 use x_fly_api::{
     application::{cancellation::CancellationService, staff_auth::StaffAuthService},
     domain::{
+        booking_management::BookingListFilter,
         cancellation::{Clock, StaffCancellationActor},
-        repositories::CancellationRepository,
+        repositories::{BookingManagementRepository, CancellationRepository},
     },
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository, SqlxStaffAuthRepository},
+        database::{prepare_test_database, SqlxSeatHoldRepository, SqlxStaffAuthRepository},
         http::build_router,
         password::Argon2PasswordService,
     },
@@ -44,7 +45,7 @@ async fn test_pool() -> PgPool {
         .connect(&url)
         .await
         .unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     cleanup(&pool).await;
     pool
 }
@@ -556,5 +557,66 @@ async fn cancellation_exact_boundary_and_staff_customer_race_create_one_refund()
     assert_eq!(counts.0, 1);
     assert!(counts.1 <= 1);
     assert_eq!(counts.2, 1);
+    cleanup(&pool).await;
+}
+
+#[tokio::test]
+async fn booking_pagination_rejects_offsets_that_cannot_advance() {
+    let _guard = fixture_guard().await;
+    let pool = test_pool().await;
+    let cookie = cookie(&pool, "BOOKING_OPERATIONS", "overflow").await;
+    let router = app(pool.clone());
+    let extreme = format!("/api/v1/admin/bookings?limit=50&offset={}", i64::MAX);
+    assert_eq!(
+        send(&router, "GET", &extreme, Some(&cookie), None, false)
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        send(
+            &router,
+            "POST",
+            "/api/v1/admin/bookings/search",
+            Some(&cookie),
+            Some(json!({"limit": 50, "offset": i64::MAX})),
+            true,
+        )
+        .await
+        .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    let repository = SqlxSeatHoldRepository::new(pool.clone());
+    let boundary = BookingListFilter {
+        booking_reference: None,
+        passenger_name: None,
+        flight_number: None,
+        travel_date: None,
+        booking_status: None,
+        cabin: None,
+        origin: None,
+        destination: None,
+        limit: 50,
+        offset: i64::MAX - 50,
+    };
+    assert!(repository.list_bookings(&boundary).await.is_ok());
+    let overflow = BookingListFilter {
+        offset: i64::MAX - 49,
+        ..boundary.clone()
+    };
+    assert!(matches!(
+        repository.list_bookings(&overflow).await,
+        Err(x_fly_api::domain::repositories::BookingManagementRepositoryError::InvalidPagination)
+    ));
+    let invalid_limit = BookingListFilter {
+        limit: i64::MAX,
+        offset: 0,
+        ..boundary
+    };
+    assert!(matches!(
+        repository.list_bookings(&invalid_limit).await,
+        Err(x_fly_api::domain::repositories::BookingManagementRepositoryError::InvalidPagination)
+    ));
     cleanup(&pool).await;
 }

@@ -102,6 +102,12 @@ pub trait CancellationRepository: Send + Sync {
         clock: &dyn Clock,
         staff_actor: Option<&StaffCancellationActor>,
     ) -> Result<Cancellation, CancellationRepositoryError>;
+    async fn cancel_booking_for_staff(
+        &self,
+        ticket_id: Uuid,
+        clock: &dyn Clock,
+        staff_actor: &StaffCancellationActor,
+    ) -> Result<BookingDetail, CancellationRepositoryError>;
     async fn claim_due_refund(
         &self,
         now: chrono::DateTime<chrono::Utc>,
@@ -131,6 +137,8 @@ pub trait CancellationRepository: Send + Sync {
 
 #[derive(Debug, Error)]
 pub enum BookingManagementRepositoryError {
+    #[error("pagination is invalid")]
+    InvalidPagination,
     #[error("authoritative booking state is inconsistent")]
     InconsistentState,
     #[error("database operation failed")]
@@ -156,6 +164,8 @@ pub trait BookingManagementRepository: Send + Sync {
 
 #[derive(Debug, Error)]
 pub enum TicketOperationsRepositoryError {
+    #[error("pagination is invalid")]
+    InvalidPagination,
     #[error("authoritative ticket state is inconsistent")]
     InconsistentState,
     #[error("database operation failed")]

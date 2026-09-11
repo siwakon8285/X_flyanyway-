@@ -3,7 +3,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
-use thiserror::Error;
 use uuid::Uuid;
 
 use crate::domain::{
@@ -21,6 +20,7 @@ mod booking_management;
 mod cancellation;
 mod extras;
 mod flight;
+mod lifecycle;
 mod manage_booking;
 mod passengers;
 mod payment;
@@ -32,23 +32,11 @@ mod ticket_operations;
 pub use analytics::SqlxAnalyticsRepository;
 pub use api_client::SqlxApiClientRepository;
 pub use flight::SqlxFlightRepository;
+pub use lifecycle::{
+    migrate_database, prepare_test_database, seed_demo_database, verify_database_ready,
+    DatabaseCommand, DatabaseLifecycleError,
+};
 pub use staff_auth::SqlxStaffAuthRepository;
-
-#[derive(Debug, Error)]
-pub enum DatabaseInitError {
-    #[error("database migration failed")]
-    Migration(#[from] sqlx::migrate::MigrateError),
-    #[error("reference inventory seed failed")]
-    Seed(#[from] sqlx::Error),
-}
-
-pub async fn prepare_database(pool: &PgPool) -> Result<(), DatabaseInitError> {
-    sqlx::migrate!("./migrations").run(pool).await?;
-    sqlx::raw_sql(include_str!("../../../seeds/demo_flight_inventory.sql"))
-        .execute(pool)
-        .await?;
-    Ok(())
-}
 
 #[derive(Clone, Debug)]
 pub struct SqlxSeatHoldRepository {

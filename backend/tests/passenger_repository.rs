@@ -1,9 +1,6 @@
 mod common;
 
-use std::{
-    sync::atomic::{AtomicI64, Ordering},
-    time::Duration,
-};
+use std::time::Duration;
 
 use chrono::{Datelike, Duration as ChronoDuration, NaiveDate, Utc};
 use sqlx::PgPool;
@@ -15,19 +12,21 @@ use x_fly_api::{
         repositories::{PassengerRepository, PassengerRepositoryError, SeatHoldRepository},
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
-    infrastructure::database::{prepare_database, SqlxSeatHoldRepository},
+    infrastructure::database::{prepare_test_database, SqlxSeatHoldRepository},
 };
 
 async fn test_pool() -> PgPool {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     pool
 }
 
-fn test_date() -> NaiveDate {
-    static NEXT_OFFSET: AtomicI64 = AtomicI64::new(0);
-    Utc::now().date_naive() + ChronoDuration::days(30 + NEXT_OFFSET.fetch_add(1, Ordering::Relaxed))
+async fn test_date() -> NaiveDate {
+    let earliest = Utc::now().date_naive() + ChronoDuration::days(30);
+    common::allocate_test_departure_date("xf-201", earliest, earliest + ChronoDuration::days(670))
+        .await
+        .unwrap()
 }
 
 async fn create_hold(
@@ -83,7 +82,7 @@ fn passenger(ordinal: u8, passenger_type: PassengerType, dob: NaiveDate) -> Pass
 #[tokio::test]
 async fn saves_and_reloads_a_normalized_full_draft() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
-    let departure = test_date();
+    let departure = test_date().await;
     let hold = create_hold(
         &repository,
         departure,
@@ -156,7 +155,7 @@ async fn saves_and_reloads_a_normalized_full_draft() {
 #[tokio::test]
 async fn rejects_wrong_types_without_overwriting_the_previous_draft() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
-    let departure = test_date();
+    let departure = test_date().await;
     let hold = create_hold(
         &repository,
         departure,
@@ -209,7 +208,7 @@ async fn expired_released_and_other_hold_credentials_cannot_access_passengers() 
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
     let expired = create_hold(
         &repository,
-        test_date(),
+        test_date().await,
         PassengerCounts::new(1, 0, 0).unwrap(),
         [43; 32],
         Duration::ZERO,
@@ -239,7 +238,7 @@ async fn expired_released_and_other_hold_credentials_cannot_access_passengers() 
 
     let released = create_hold(
         &repository,
-        test_date(),
+        test_date().await,
         PassengerCounts::new(1, 0, 0).unwrap(),
         [44; 32],
         Duration::from_secs(600),
@@ -273,7 +272,7 @@ async fn expired_released_and_other_hold_credentials_cannot_access_passengers() 
 
     let active = create_hold(
         &repository,
-        test_date(),
+        test_date().await,
         PassengerCounts::new(1, 0, 0).unwrap(),
         [45; 32],
         Duration::from_secs(600),

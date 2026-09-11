@@ -2,7 +2,7 @@ mod common;
 
 use std::{sync::Arc, time::Duration};
 
-use chrono::{Duration as ChronoDuration, NaiveDate};
+use chrono::NaiveDate;
 use sqlx::{PgPool, Row};
 use tokio::sync::Barrier;
 
@@ -11,7 +11,7 @@ use x_fly_api::domain::{
     repositories::{SeatHoldRepository, SeatHoldRepositoryError},
     value_objects::{CabinClass, PassengerCounts, SeatNumber},
 };
-use x_fly_api::infrastructure::database::{prepare_database, SqlxSeatHoldRepository};
+use x_fly_api::infrastructure::database::{prepare_test_database, SqlxSeatHoldRepository};
 
 async fn test_pool() -> PgPool {
     let database_url = common::test_database_url();
@@ -19,15 +19,20 @@ async fn test_pool() -> PgPool {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("connect to isolated test PostgreSQL");
-    prepare_database(&pool)
+    prepare_test_database(&pool)
         .await
         .expect("apply clean migrations and reference inventory");
     pool
 }
 
-fn test_date() -> NaiveDate {
-    let offset = (uuid::Uuid::new_v4().as_u128() % 100_000) as i64;
-    NaiveDate::from_ymd_opt(2100, 1, 1).unwrap() + ChronoDuration::days(offset)
+async fn test_date() -> NaiveDate {
+    common::allocate_test_departure_date(
+        "xf-201",
+        NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+    )
+    .await
+    .unwrap()
 }
 
 fn selection(flight_id: &str, departure_date: NaiveDate) -> FlightSelection {
@@ -62,8 +67,8 @@ fn command(
 #[tokio::test]
 async fn holds_one_or_multiple_available_seats_and_owner_can_revalidate() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
-    let single_date = test_date();
-    let multiple_date = test_date();
+    let single_date = test_date().await;
+    let multiple_date = test_date().await;
 
     let single = repository
         .create_hold(
@@ -91,7 +96,7 @@ async fn holds_one_or_multiple_available_seats_and_owner_can_revalidate() {
 #[tokio::test]
 async fn new_holds_accept_only_business_and_first_while_legacy_values_still_parse() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
-    let date = test_date();
+    let date = test_date().await;
 
     repository
         .create_hold(
@@ -101,7 +106,7 @@ async fn new_holds_accept_only_business_and_first_while_legacy_values_still_pars
         .await
         .unwrap();
 
-    let mut first = command("xf-201", test_date(), &["1A"], 32);
+    let mut first = command("xf-201", test_date().await, &["1A"], 32);
     first.selection.cabin = CabinClass::First;
     repository
         .create_hold(first, Duration::from_secs(600))
@@ -109,7 +114,7 @@ async fn new_holds_accept_only_business_and_first_while_legacy_values_still_pars
         .unwrap();
 
     for (cabin, token) in [(CabinClass::Economy, 33), (CabinClass::PremiumEconomy, 34)] {
-        let mut legacy = command("xf-201", test_date(), &["3A"], token);
+        let mut legacy = command("xf-201", test_date().await, &["3A"], token);
         legacy.selection.cabin = cabin;
         assert!(matches!(
             repository
@@ -132,9 +137,9 @@ async fn new_holds_accept_only_business_and_first_while_legacy_values_still_pars
 #[tokio::test]
 async fn rejects_nonexistent_wrong_flight_and_mismatched_seat_counts() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
-    let nonexistent_date = test_date();
-    let wrong_flight_date = test_date();
-    let mismatch_date = test_date();
+    let nonexistent_date = test_date().await;
+    let wrong_flight_date = test_date().await;
+    let mismatch_date = test_date().await;
 
     let nonexistent = repository
         .create_hold(
@@ -180,8 +185,8 @@ async fn rejects_nonexistent_wrong_flight_and_mismatched_seat_counts() {
 #[tokio::test]
 async fn active_hold_conflicts_but_expired_hold_does_not_block_inventory() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
-    let conflict_date = test_date();
-    let expiry_date = test_date();
+    let conflict_date = test_date().await;
+    let expiry_date = test_date().await;
 
     repository
         .create_hold(
@@ -226,7 +231,7 @@ async fn active_hold_conflicts_but_expired_hold_does_not_block_inventory() {
 async fn exactly_one_concurrent_request_wins_the_same_seat() {
     let repository = Arc::new(SqlxSeatHoldRepository::new(test_pool().await));
     let barrier = Arc::new(Barrier::new(2));
-    let departure_date = test_date();
+    let departure_date = test_date().await;
 
     let attempts = [11_u8, 12_u8].map(|token_byte| {
         let repository = Arc::clone(&repository);
@@ -261,7 +266,7 @@ async fn exactly_one_concurrent_request_wins_the_same_seat() {
 #[tokio::test]
 async fn release_returns_inventory_to_available() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
-    let departure_date = test_date();
+    let departure_date = test_date().await;
     let hold = repository
         .create_hold(
             command("xf-201", departure_date, &["3A"], 13),
@@ -288,7 +293,7 @@ async fn release_returns_inventory_to_available() {
 async fn booked_seat_cannot_be_held() {
     let pool = test_pool().await;
     let repository = SqlxSeatHoldRepository::new(pool.clone());
-    let departure_date = test_date();
+    let departure_date = test_date().await;
     repository
         .seat_map(&selection("xf-201", departure_date), None)
         .await
@@ -325,7 +330,7 @@ async fn booked_seat_cannot_be_held() {
 #[tokio::test]
 async fn replacing_seats_is_atomic_and_keeps_the_original_expiry() {
     let repository = SqlxSeatHoldRepository::new(test_pool().await);
-    let departure_date = test_date();
+    let departure_date = test_date().await;
     let original = repository
         .create_hold(
             command("xf-201", departure_date, &["3A"], 16),
@@ -348,4 +353,88 @@ async fn replacing_seats_is_atomic_and_keeps_the_original_expiry() {
         .unwrap()
         .get("count");
     assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn fixture_departure_allocator_atomically_claims_distinct_instances() {
+    let pool = test_pool().await;
+    let earliest = NaiveDate::from_ymd_opt(2179, 1, 1).unwrap();
+    let latest = NaiveDate::from_ymd_opt(2179, 1, 2).unwrap();
+    sqlx::query(
+        "DELETE FROM flight_instances AS instance
+         USING flight_services AS service
+         WHERE instance.flight_service_id = service.id
+           AND service.public_id = $1
+           AND instance.departure_date BETWEEN $2 AND $3",
+    )
+    .bind("xf-201")
+    .bind(earliest)
+    .bind(latest)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (first, second) = tokio::join!(
+        common::allocate_test_departure_date("xf-201", earliest, latest),
+        common::allocate_test_departure_date("xf-201", earliest, latest),
+    );
+    let first = first.unwrap();
+    let second = second.unwrap();
+
+    assert_ne!(first, second);
+    assert!((earliest..=latest).contains(&first));
+    assert!((earliest..=latest).contains(&second));
+    let claimed: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM flight_instances AS instance
+         JOIN flight_services AS service ON service.id = instance.flight_service_id
+         WHERE service.public_id = $1
+           AND instance.departure_date IN ($2, $3)",
+    )
+    .bind("xf-201")
+    .bind(first)
+    .bind(second)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(claimed, 2);
+}
+
+#[tokio::test]
+async fn fixture_departure_allocator_refuses_to_escape_an_exhausted_window() {
+    let pool = test_pool().await;
+    let earliest = NaiveDate::from_ymd_opt(2178, 1, 1).unwrap();
+    let latest = NaiveDate::from_ymd_opt(2178, 1, 2).unwrap();
+    sqlx::query(
+        "DELETE FROM flight_instances AS instance
+         USING flight_services AS service
+         WHERE instance.flight_service_id = service.id
+           AND service.public_id = $1
+           AND instance.departure_date BETWEEN $2 AND $3",
+    )
+    .bind("xf-201")
+    .bind(earliest)
+    .bind(latest)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        common::allocate_test_departure_date("xf-201", earliest, latest)
+            .await
+            .unwrap(),
+        earliest
+    );
+    assert_eq!(
+        common::allocate_test_departure_date("xf-201", earliest, latest)
+            .await
+            .unwrap(),
+        latest
+    );
+    let error = common::allocate_test_departure_date("xf-201", earliest, latest)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "TEST flight instance namespace exhausted: flight=xf-201 earliest=2178-01-01 latest=2178-01-02"
+    );
 }

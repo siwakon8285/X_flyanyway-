@@ -1,12 +1,6 @@
 mod common;
 
-use std::{
-    sync::{
-        atomic::{AtomicI64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -20,7 +14,7 @@ use tower::ServiceExt;
 
 use x_fly_api::{
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository},
+        database::{prepare_test_database, SqlxSeatHoldRepository},
         http::build_router,
     },
     state::AppState,
@@ -29,7 +23,7 @@ use x_fly_api::{
 async fn app() -> (axum::Router, PgPool) {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));
     (
         build_router(AppState::new(
@@ -45,10 +39,11 @@ async fn app() -> (axum::Router, PgPool) {
     )
 }
 
-fn departure_date() -> NaiveDate {
-    static NEXT_OFFSET: AtomicI64 = AtomicI64::new(0);
-    Utc::now().date_naive()
-        + ChronoDuration::days(200 + NEXT_OFFSET.fetch_add(1, Ordering::Relaxed))
+async fn departure_date() -> NaiveDate {
+    let earliest = Utc::now().date_naive() + ChronoDuration::days(200);
+    common::allocate_test_departure_date("xf-201", earliest, earliest + ChronoDuration::days(500))
+        .await
+        .unwrap()
 }
 
 async fn create_hold(
@@ -124,7 +119,7 @@ async fn json_body(response: axum::response::Response) -> Value {
 #[tokio::test]
 async fn saves_and_reloads_the_authorized_passenger_resource() {
     let (app, _) = app().await;
-    let departure = departure_date();
+    let departure = departure_date().await;
     let (hold_id, cookie) = create_hold(
         &app,
         departure,
@@ -197,7 +192,7 @@ async fn saves_and_reloads_the_authorized_passenger_resource() {
 #[tokio::test]
 async fn rejects_count_and_type_tampering_with_safe_error_payloads() {
     let (app, _) = app().await;
-    let departure = departure_date();
+    let departure = departure_date().await;
     let (hold_id, cookie) = create_hold(
         &app,
         departure,
@@ -265,7 +260,7 @@ async fn rejects_count_and_type_tampering_with_safe_error_payloads() {
 #[tokio::test]
 async fn rejects_unspecified_gender_for_new_passenger_input() {
     let (app, _) = app().await;
-    let departure = departure_date();
+    let departure = departure_date().await;
     let (hold_id, cookie) = create_hold(
         &app,
         departure,
@@ -305,7 +300,7 @@ async fn rejects_unspecified_gender_for_new_passenger_input() {
 #[tokio::test]
 async fn expired_released_and_other_hold_cookies_cannot_read_passenger_data() {
     let (app, pool) = app().await;
-    let departure = departure_date();
+    let departure = departure_date().await;
     let (first_id, first_cookie) = create_hold(
         &app,
         departure,

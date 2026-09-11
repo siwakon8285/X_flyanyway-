@@ -1,9 +1,6 @@
 mod common;
 
-use std::{
-    sync::atomic::{AtomicI64, Ordering},
-    time::Duration,
-};
+use std::time::Duration;
 
 use chrono::{Datelike, Duration as ChronoDuration, NaiveDate, Utc};
 use sqlx::PgPool;
@@ -18,20 +15,14 @@ use x_fly_api::{
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
-    infrastructure::database::{prepare_database, SqlxSeatHoldRepository},
+    infrastructure::database::{prepare_test_database, SqlxSeatHoldRepository},
 };
 
 async fn test_pool() -> PgPool {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     pool
-}
-
-fn test_date() -> NaiveDate {
-    static NEXT_OFFSET: AtomicI64 = AtomicI64::new(0);
-    Utc::now().date_naive()
-        + ChronoDuration::days(1_000 + NEXT_OFFSET.fetch_add(1, Ordering::Relaxed))
 }
 
 async fn complete_hold(
@@ -44,7 +35,14 @@ async fn complete_hold(
         .execute(repository.pool())
         .await
         .unwrap();
-    let departure = test_date();
+    let earliest = Utc::now().date_naive() + ChronoDuration::days(1_000);
+    let departure = common::allocate_test_departure_date(
+        "xf-201",
+        earliest,
+        earliest + ChronoDuration::days(365),
+    )
+    .await
+    .unwrap();
     let seats = ["3A", "3D", "3G"]
         .iter()
         .take(counts.required_seats())
