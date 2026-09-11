@@ -1,6 +1,6 @@
 mod common;
 
-use common::{test_database_url, validate_test_database_url};
+use common::{test_database_url, validate_test_database_pair, validate_test_database_url};
 
 #[test]
 fn resolves_an_explicit_safe_test_database_url() {
@@ -53,6 +53,29 @@ fn rejects_a_missing_database_name() {
 fn rejects_a_clearly_non_test_database_name() {
     assert!(validate_test_database_url(
         "postgresql://test_user:test_password@database.internal:5432/x_fly_production"
+    )
+    .is_err());
+}
+
+#[test]
+fn accepts_setup_and_runtime_credentials_for_the_same_test_database() {
+    assert!(validate_test_database_pair(
+        "postgresql://setup:secret@127.0.0.1:5434/x_fly_concurrency_test",
+        "postgresql://runtime:secret@127.0.0.1:5434/x_fly_concurrency_test",
+    )
+    .is_ok());
+}
+
+#[test]
+fn rejects_test_credentials_that_resolve_to_different_targets() {
+    assert!(validate_test_database_pair(
+        "postgresql://setup:secret@127.0.0.1:5434/x_fly_concurrency_test",
+        "postgresql://runtime:secret@127.0.0.1:5435/x_fly_concurrency_test",
+    )
+    .is_err());
+    assert!(validate_test_database_pair(
+        "postgresql://setup:secret@127.0.0.1:5434/x_fly_concurrency_test",
+        "postgresql://runtime:secret@127.0.0.1:5434/another_test",
     )
     .is_err());
 }

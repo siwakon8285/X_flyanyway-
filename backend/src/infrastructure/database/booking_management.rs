@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Days, NaiveDate, NaiveTime, Utc};
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::domain::{
@@ -19,12 +19,32 @@ use crate::domain::{
 
 use super::SqlxSeatHoldRepository;
 
+fn checked_pagination(
+    limit: i64,
+    offset: i64,
+) -> Result<(usize, i64, i64), BookingManagementRepositoryError> {
+    if !(1..=50).contains(&limit) || offset < 0 {
+        return Err(BookingManagementRepositoryError::InvalidPagination);
+    }
+    let next_offset = offset
+        .checked_add(limit)
+        .ok_or(BookingManagementRepositoryError::InvalidPagination)?;
+    let fetch_limit = limit
+        .checked_add(1)
+        .ok_or(BookingManagementRepositoryError::InvalidPagination)?;
+    let page_size =
+        usize::try_from(limit).map_err(|_| BookingManagementRepositoryError::InvalidPagination)?;
+    Ok((page_size, fetch_limit, next_offset))
+}
+
 #[async_trait]
 impl BookingManagementRepository for SqlxSeatHoldRepository {
     async fn list_bookings(
         &self,
         filter: &BookingListFilter,
     ) -> Result<BookingListPage, BookingManagementRepositoryError> {
+        let (page_size, fetch_limit, next_offset) =
+            checked_pagination(filter.limit, filter.offset)?;
         let booking_status = filter.booking_status.map(|status| match status {
             BookingStatus::Confirmed => "CONFIRMED",
             BookingStatus::Cancelled => "CANCELLED",
@@ -78,20 +98,20 @@ impl BookingManagementRepository for SqlxSeatHoldRepository {
         .bind(filter.cabin.as_deref())
         .bind(filter.origin.as_deref())
         .bind(filter.destination.as_deref())
-        .bind(filter.limit + 1)
+        .bind(fetch_limit)
         .bind(filter.offset)
         .fetch_all(self.pool())
         .await
         .map_err(BookingManagementRepositoryError::Infrastructure)?;
 
-        let has_more = rows.len() > filter.limit as usize;
+        let has_more = rows.len() > page_size;
         let items = rows
             .into_iter()
-            .take(filter.limit as usize)
+            .take(page_size)
             .map(BookingListRow::domain)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(BookingListPage {
-            next_offset: has_more.then_some(filter.offset + filter.limit),
+            next_offset: has_more.then_some(next_offset),
             items,
         })
     }
@@ -110,8 +130,32 @@ impl BookingManagementRepository for SqlxSeatHoldRepository {
             .execute(&mut *tx)
             .await
             .map_err(BookingManagementRepositoryError::Infrastructure)?;
-        let row = sqlx::query_as::<_, BookingDetailRow>(
-            "SELECT ticket.id ticket_id,ticket.booking_reference,ticket.ticket_number,
+        let detail = load_booking_detail(&mut tx, booking_reference, now).await?;
+        tx.commit()
+            .await
+            .map_err(BookingManagementRepositoryError::Infrastructure)?;
+        Ok(detail)
+    }
+
+    async fn ticket_id_for_booking_reference(
+        &self,
+        booking_reference: &str,
+    ) -> Result<Option<Uuid>, BookingManagementRepositoryError> {
+        sqlx::query_scalar("SELECT id FROM tickets WHERE booking_reference=$1")
+            .bind(booking_reference)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(BookingManagementRepositoryError::Infrastructure)
+    }
+}
+
+pub(super) async fn load_booking_detail(
+    tx: &mut Transaction<'_, Postgres>,
+    booking_reference: &str,
+    now: DateTime<Utc>,
+) -> Result<Option<BookingDetail>, BookingManagementRepositoryError> {
+    let row = sqlx::query_as::<_, BookingDetailRow>(
+        "SELECT ticket.id ticket_id,ticket.booking_reference,ticket.ticket_number,
                     ticket.status ticket_status,
                     ticket.issued_at,ticket.cancelled_at ticket_cancelled_at,
                     ticket.created_at booking_created_at,
@@ -141,132 +185,114 @@ impl BookingManagementRepository for SqlxSeatHoldRepository {
              LEFT JOIN booking_contacts contact ON contact.seat_hold_id=hold.id
              LEFT JOIN booking_cancellations cancellation ON cancellation.ticket_id=ticket.id
              WHERE ticket.booking_reference=$1 AND attempt.status='SUCCEEDED'",
-        )
-        .bind(booking_reference)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(BookingManagementRepositoryError::Infrastructure)?;
-        let Some(row) = row else {
-            tx.commit()
-                .await
-                .map_err(BookingManagementRepositoryError::Infrastructure)?;
-            return Ok(None);
-        };
+    )
+    .bind(booking_reference)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(BookingManagementRepositoryError::Infrastructure)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
 
-        let passenger_rows = sqlx::query_as::<_, PassengerRow>(
-            "SELECT ordinal,passenger_type,given_name,middle_name,family_name,gender
+    let passenger_rows = sqlx::query_as::<_, PassengerRow>(
+        "SELECT ordinal,passenger_type,given_name,middle_name,family_name,gender
              FROM hold_passengers WHERE seat_hold_id=$1 ORDER BY ordinal",
-        )
-        .bind(row.hold_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(BookingManagementRepositoryError::Infrastructure)?;
-        let seats = sqlx::query_scalar::<_, String>(
-            "SELECT seat.seat_number FROM payment_attempt_seats finalized
+    )
+    .bind(row.hold_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(BookingManagementRepositoryError::Infrastructure)?;
+    let seats = sqlx::query_scalar::<_, String>(
+        "SELECT seat.seat_number FROM payment_attempt_seats finalized
              JOIN flight_seats seat ON seat.id=finalized.flight_seat_id
              WHERE finalized.payment_attempt_id=$1 ORDER BY seat.row_number,seat.column_code",
-        )
-        .bind(row.payment_attempt_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(BookingManagementRepositoryError::Infrastructure)?;
-        let audit = sqlx::query_as::<_, AuditRow>(
-            "SELECT action,actor_email,created_at FROM booking_operations_audit
+    )
+    .bind(row.payment_attempt_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(BookingManagementRepositoryError::Infrastructure)?;
+    let audit = sqlx::query_as::<_, AuditRow>(
+        "SELECT action,actor_email,created_at FROM booking_operations_audit
              WHERE ticket_id=$1 ORDER BY created_at DESC,id DESC",
-        )
-        .bind(row.ticket_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(BookingManagementRepositoryError::Infrastructure)?;
-        tx.commit()
-            .await
-            .map_err(BookingManagementRepositoryError::Infrastructure)?;
+    )
+    .bind(row.ticket_id)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(BookingManagementRepositoryError::Infrastructure)?;
 
-        let ticket_status = parse_ticket_status(&row.ticket_status)?;
-        let payment_status = PaymentStatus::parse_database(&row.payment_status)
-            .ok_or(BookingManagementRepositoryError::InconsistentState)?;
-        let eligibility = derive_travel_eligibility(row.departure_at, ticket_status, now);
-        let arrival_date = row.arrival_day_offset.and_then(|offset| {
-            u64::try_from(offset)
-                .ok()
-                .and_then(|days| row.travel_date.checked_add_days(Days::new(days)))
-        });
-        let currency_code = row.currency_code.clone();
-        Ok(Some(BookingDetail {
-            booking_reference: row.booking_reference,
-            booking_status: booking_status(ticket_status),
-            created_at: row.booking_created_at,
-            journey: BookingJourney {
-                flight_number: row.flight_number,
-                origin_code: row.origin_code,
-                destination_code: row.destination_code,
-                travel_date: row.travel_date,
-                departure_at: row.departure_at,
-                departure_time: format_time(row.departure_time),
-                arrival_date,
-                arrival_time: format_time(row.arrival_time),
-                origin_time_zone: row.origin_time_zone,
-                aircraft_code: row.aircraft_code,
-                cabin: row.cabin,
-                flight_status: row.flight_status,
+    let ticket_status = parse_ticket_status(&row.ticket_status)?;
+    let payment_status = PaymentStatus::parse_database(&row.payment_status)
+        .ok_or(BookingManagementRepositoryError::InconsistentState)?;
+    let eligibility = derive_travel_eligibility(row.departure_at, ticket_status, now);
+    let arrival_date = row.arrival_day_offset.and_then(|offset| {
+        u64::try_from(offset)
+            .ok()
+            .and_then(|days| row.travel_date.checked_add_days(Days::new(days)))
+    });
+    let currency_code = row.currency_code.clone();
+    Ok(Some(BookingDetail {
+        booking_reference: row.booking_reference,
+        booking_status: booking_status(ticket_status),
+        created_at: row.booking_created_at,
+        journey: BookingJourney {
+            flight_number: row.flight_number,
+            origin_code: row.origin_code,
+            destination_code: row.destination_code,
+            travel_date: row.travel_date,
+            departure_at: row.departure_at,
+            departure_time: format_time(row.departure_time),
+            arrival_date,
+            arrival_time: format_time(row.arrival_time),
+            origin_time_zone: row.origin_time_zone,
+            aircraft_code: row.aircraft_code,
+            cabin: row.cabin,
+            flight_status: row.flight_status,
+        },
+        passengers: passenger_rows
+            .into_iter()
+            .map(PassengerRow::domain)
+            .collect::<Result<Vec<_>, _>>()?,
+        seats,
+        contact: row.phone_country_code.zip(row.phone_number).map(
+            |(phone_country_code, phone_number)| BookingContactSummary {
+                phone_country_code,
+                phone_number,
             },
-            passengers: passenger_rows
-                .into_iter()
-                .map(PassengerRow::domain)
-                .collect::<Result<Vec<_>, _>>()?,
-            seats,
-            contact: row.phone_country_code.zip(row.phone_number).map(
-                |(phone_country_code, phone_number)| BookingContactSummary {
-                    phone_country_code,
-                    phone_number,
-                },
-            ),
-            payment: BookingPaymentSummary {
-                method: PaymentMethod::parse_database(&row.payment_method)
-                    .ok_or(BookingManagementRepositoryError::InconsistentState)?,
-                provider: PaymentProvider::parse_database(&row.provider)
-                    .ok_or(BookingManagementRepositoryError::InconsistentState)?,
-                status: payment_status,
-                amount: Money {
-                    amount: row.amount,
-                    currency_code: currency_code.clone(),
-                },
-                succeeded_at: row.succeeded_at,
+        ),
+        payment: BookingPaymentSummary {
+            method: PaymentMethod::parse_database(&row.payment_method)
+                .ok_or(BookingManagementRepositoryError::InconsistentState)?,
+            provider: PaymentProvider::parse_database(&row.provider)
+                .ok_or(BookingManagementRepositoryError::InconsistentState)?,
+            status: payment_status,
+            amount: Money {
+                amount: row.amount,
+                currency_code: currency_code.clone(),
             },
-            ticket: BookingTicketSummary {
-                ticket_number: row.ticket_number,
-                status: ticket_status,
-                issued_at: row.issued_at,
-                cancelled_at: row.ticket_cancelled_at,
-            },
-            cancellation: BookingCancellationSummary {
-                eligibility: eligibility.cancellation,
-                cutoff_at: eligibility.cancellation_cutoff_at,
-                cancelled_at: row.cancelled_at,
-                refund_status: row
-                    .refund_status
-                    .as_deref()
-                    .and_then(crate::domain::cancellation::RefundStatus::parse_database),
-                refund_amount: row.refund_amount.map(|amount| Money {
-                    amount,
-                    currency_code,
-                }),
-                refunded_at: row.refunded_at,
-            },
-            audit: audit.into_iter().map(AuditRow::domain).collect(),
-        }))
-    }
-
-    async fn ticket_id_for_booking_reference(
-        &self,
-        booking_reference: &str,
-    ) -> Result<Option<Uuid>, BookingManagementRepositoryError> {
-        sqlx::query_scalar("SELECT id FROM tickets WHERE booking_reference=$1")
-            .bind(booking_reference)
-            .fetch_optional(self.pool())
-            .await
-            .map_err(BookingManagementRepositoryError::Infrastructure)
-    }
+            succeeded_at: row.succeeded_at,
+        },
+        ticket: BookingTicketSummary {
+            ticket_number: row.ticket_number,
+            status: ticket_status,
+            issued_at: row.issued_at,
+            cancelled_at: row.ticket_cancelled_at,
+        },
+        cancellation: BookingCancellationSummary {
+            eligibility: eligibility.cancellation,
+            cutoff_at: eligibility.cancellation_cutoff_at,
+            cancelled_at: row.cancelled_at,
+            refund_status: row
+                .refund_status
+                .as_deref()
+                .and_then(crate::domain::cancellation::RefundStatus::parse_database),
+            refund_amount: row.refund_amount.map(|amount| Money {
+                amount,
+                currency_code,
+            }),
+            refunded_at: row.refunded_at,
+        },
+        audit: audit.into_iter().map(AuditRow::domain).collect(),
+    }))
 }
 
 #[derive(FromRow)]

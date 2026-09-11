@@ -29,6 +29,7 @@ use crate::{
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
         DomainError,
     },
+    infrastructure::diagnostics::classify_sqlx_error,
     state::AppState,
 };
 
@@ -1373,7 +1374,12 @@ impl From<SeatHoldRepositoryError> for ApiError {
                 Self::payment_finalization_conflict()
             }
             SeatHoldRepositoryError::Infrastructure(error) => {
-                tracing::error!(?error, "seat hold repository failure");
+                tracing::error!(
+                    component = "seat_hold",
+                    operation = "repository",
+                    error_category = %classify_sqlx_error(&error),
+                    "seat hold repository failure"
+                );
                 Self::internal()
             }
         }
@@ -1521,5 +1527,63 @@ impl IntoResponse for ApiError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        io::{self, Write},
+        sync::{Arc, Mutex},
+    };
+
+    use axum::body::to_bytes;
+
+    use super::*;
+    use crate::domain::repositories::SeatHoldRepositoryError;
+
+    struct Buffer(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Buffer {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().expect("buffer lock").extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn seat_hold_database_error_logs_do_not_render_database_details() {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer_output = output.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || Buffer(writer_output.clone()))
+            .finish();
+
+        tracing::subscriber::with_default(subscriber, || {
+            let _ = ApiError::from(SeatHoldRepositoryError::Infrastructure(
+                sqlx::Error::Protocol("SENSITIVE_DB_DETAIL".to_owned()),
+            ));
+        });
+
+        let output = String::from_utf8(output.lock().expect("buffer lock").clone())
+            .expect("UTF-8 log output");
+        assert!(!output.contains("SENSITIVE_DB_DETAIL"));
+    }
+
+    #[tokio::test]
+    async fn generic_http_error_output_does_not_include_database_details() {
+        let response = ApiError::from(SeatHoldRepositoryError::Infrastructure(
+            sqlx::Error::Protocol("SENSITIVE_DB_DETAIL".to_owned()),
+        ))
+        .into_response();
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("error response body");
+        assert!(!String::from_utf8_lossy(&body).contains("SENSITIVE_DB_DETAIL"));
     }
 }

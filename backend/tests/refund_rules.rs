@@ -5,6 +5,7 @@ use uuid::Uuid;
 use x_fly_api::{
     application::cancellation::RefundDispatcher,
     domain::{
+        booking_management::BookingDetail,
         cancellation::{
             Cancellation, Clock, ProviderRefund, ProviderRefundStatus, RefundFailure, RefundJob,
             StripeRefundEvent,
@@ -38,6 +39,14 @@ impl CancellationRepository for RecordingRepository {
         _: &dyn Clock,
         _: Option<&x_fly_api::domain::cancellation::StaffCancellationActor>,
     ) -> Result<Cancellation, CancellationRepositoryError> {
+        unreachable!()
+    }
+    async fn cancel_booking_for_staff(
+        &self,
+        _: Uuid,
+        _: &dyn Clock,
+        _: &x_fly_api::domain::cancellation::StaffCancellationActor,
+    ) -> Result<BookingDetail, CancellationRepositoryError> {
         unreachable!()
     }
     async fn claim_due_refund(

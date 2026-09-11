@@ -18,13 +18,13 @@ use x_fly_api::{
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
-    infrastructure::database::{prepare_database, SqlxSeatHoldRepository},
+    infrastructure::database::{prepare_test_database, SqlxSeatHoldRepository},
 };
 
 async fn test_pool() -> PgPool {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     pool
 }
 

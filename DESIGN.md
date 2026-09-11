@@ -2986,7 +2986,7 @@ Staff passwords use Argon2id and are provisioned only through the local `staff_a
 
 The `/admin` workspace provides the shared authentication, authorization, navigation, and visual shell for authorized staff modules. Navigation reflects current effective permissions, while each backend module remains independently authoritative for access control. English and Thai use the shared typed locale system.
 
-Company-managed-device access is not proven by application login or browser checks. Real enforcement remains a Branch 27 identity/network control using an auditable mechanism such as managed-device certificates, Zero Trust device posture, MDM identity, or a private/VPN policy.
+Company-managed-device access is not proven by application login or browser checks. Real enforcement remains a Branch 26 identity/network control using an auditable mechanism such as managed-device certificates, Zero Trust device posture, MDM identity, or a private/VPN policy.
 
 ---
 
@@ -3338,6 +3338,7 @@ feat/25-external-rest-api
 
 ## Tasks
 
+- secure external credential/token issuance and storage
 - bearer/API-client authentication
 - scope authorization
 - flights:read
@@ -3350,7 +3351,7 @@ feat/25-external-rest-api
 - rate limiting
 - audit logs
 - API documentation
-- token revocation behavior
+- token revocation, rotation, expiry, and last-used lifecycle
 - contract tests
 
 External clients never receive direct PostgreSQL access.
@@ -3914,7 +3915,7 @@ docker compose build
 docker compose up -d
 ```
 
-CI/CD is optional future work and is not a blocker for the university submission.
+Repository quality CI is now checked in at `.github/workflows/ci.yml` for pull requests and pushes to `main`; local configuration/rehearsal is complete, while remote GitHub Actions execution and branch-protection required checks remain **NOT YET VERIFIED** until an authorized commit/push. Deployment automation remains future work and the initial server deployment workflow remains manual.
 
 ## Tasks
 

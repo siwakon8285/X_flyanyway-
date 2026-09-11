@@ -1,5 +1,6 @@
 mod common;
 
+use async_trait::async_trait;
 use std::{
     sync::{
         atomic::{AtomicI64, Ordering},
@@ -22,10 +23,10 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 use x_fly_api::{
-    application::cancellation::CancellationService,
+    application::cancellation::{CancellationService, RefundDispatcher},
     domain::{
         cancellation::{
-            Clock, ProviderRefund, ProviderRefundStatus, RefundFailure, RefundStatus,
+            Clock, ProviderRefund, ProviderRefundStatus, RefundFailure, RefundJob, RefundStatus,
             StripeRefundEvent, SystemClock,
         },
         entities::{CreateSeatHold, FlightSelection},
@@ -38,14 +39,14 @@ use x_fly_api::{
         },
         repositories::{
             CancellationRepository, ExtraRepository, ManageBookingRepository,
-            ManageBookingRepositoryError, PassengerRepository, PaymentRepository, ReviewRepository,
-            SeatHoldRepository, TicketRepository,
+            ManageBookingRepositoryError, PassengerRepository, PaymentRepository, RefundGateway,
+            ReviewRepository, SeatHoldRepository, TicketRepository,
         },
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
     infrastructure::http::build_router,
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository},
+        database::{prepare_test_database, SqlxSeatHoldRepository},
         manage_booking::access::sign as sign_manage_booking_access,
     },
     state::AppState,
@@ -132,6 +133,18 @@ impl MutableClock {
         self.0.store(now.timestamp(), Ordering::SeqCst);
     }
 }
+
+struct CountingRefundGateway {
+    calls: Arc<AtomicI64>,
+}
+
+#[async_trait]
+impl RefundGateway for CountingRefundGateway {
+    async fn refund(&self, _: &RefundJob) -> Result<ProviderRefund, RefundFailure> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(RefundFailure::Permanent("UNEXPECTED_PROVIDER_CALL"))
+    }
+}
 impl Clock for MutableClock {
     fn now(&self) -> chrono::DateTime<Utc> {
         chrono::DateTime::from_timestamp(self.0.load(Ordering::SeqCst), 0).unwrap()
@@ -141,7 +154,7 @@ impl Clock for MutableClock {
 async fn test_pool() -> PgPool {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     pool
 }
 
@@ -544,6 +557,116 @@ async fn expired_lease_recovers_and_stale_worker_cannot_regress_success() {
 }
 
 #[tokio::test]
+async fn expired_final_refund_lease_is_recovered_without_another_attempt() {
+    let _fixtures = fixture_guard().await;
+    let repository = SqlxSeatHoldRepository::new(test_pool().await);
+    sweep_manage_booking_fixtures(repository.pool()).await;
+    let (ticket_id, _) = issued_booking(&repository).await;
+    let departure: chrono::DateTime<Utc> = sqlx::query_scalar(
+        "SELECT (instance.departure_date + service.departure_time)
+                AT TIME ZONE service.origin_time_zone
+         FROM tickets ticket
+         JOIN payment_attempts attempt ON attempt.id=ticket.payment_attempt_id
+         JOIN seat_holds hold ON hold.id=attempt.seat_hold_id
+         JOIN flight_instances instance ON instance.id=hold.flight_instance_id
+         JOIN flight_services service ON service.id=instance.flight_service_id
+         WHERE ticket.id=$1",
+    )
+    .bind(ticket_id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    let now = departure - Duration::hours(48);
+    repository
+        .cancel_booking(ticket_id, &FixedClock(now), None)
+        .await
+        .unwrap();
+    let cancellation_id: Uuid =
+        sqlx::query_scalar("SELECT id FROM booking_cancellations WHERE ticket_id=$1")
+            .bind(ticket_id)
+            .fetch_one(repository.pool())
+            .await
+            .unwrap();
+    let lease_token = Uuid::new_v4();
+    sqlx::query(
+        "UPDATE booking_cancellations
+         SET refund_status='IN_FLIGHT', attempt_count=6,
+             lease_until=$2, lease_token=$3, last_error_code='PROVIDER_TIMEOUT'
+         WHERE id=$1",
+    )
+    .bind(cancellation_id)
+    .bind(now - Duration::seconds(1))
+    .bind(lease_token)
+    .execute(repository.pool())
+    .await
+    .unwrap();
+
+    let claimed = repository.claim_due_refund(now).await.unwrap();
+    let state: (
+        String,
+        i16,
+        Option<chrono::DateTime<Utc>>,
+        Option<Uuid>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT refund_status,attempt_count,lease_until,lease_token,last_error_code
+             FROM booking_cancellations WHERE id=$1",
+    )
+    .bind(cancellation_id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    assert!(claimed.is_none());
+    assert_eq!(state.0, "REQUIRES_ATTENTION");
+    assert_eq!(state.1, 6);
+    assert!(state.2.is_none());
+    assert!(state.3.is_none());
+    assert_eq!(state.4.as_deref(), Some("PROVIDER_TIMEOUT"));
+
+    let stale_job = RefundJob {
+        id: cancellation_id,
+        payment_attempt_id: Uuid::new_v4(),
+        provider: PaymentProvider::MockBitcoin,
+        provider_payment_id: "stale-provider-payment".to_owned(),
+        provider_refund_id: None,
+        amount: x_fly_api::domain::extras::Money {
+            amount: 1,
+            currency_code: "THB".to_owned(),
+        },
+        attempt_count: 6,
+        lease_token,
+    };
+    repository
+        .mark_refund_retry(
+            &stale_job,
+            now + Duration::minutes(1),
+            &RefundFailure::Transient("STALE_FINAL_LEASE"),
+        )
+        .await
+        .unwrap();
+    let status_after_stale: String =
+        sqlx::query_scalar("SELECT refund_status FROM booking_cancellations WHERE id=$1")
+            .bind(cancellation_id)
+            .fetch_one(repository.pool())
+            .await
+            .unwrap();
+    assert_eq!(status_after_stale, "REQUIRES_ATTENTION");
+
+    let calls = Arc::new(AtomicI64::new(0));
+    let gateway = Arc::new(CountingRefundGateway {
+        calls: calls.clone(),
+    });
+    let dispatcher = RefundDispatcher::new(
+        Arc::new(SqlxSeatHoldRepository::new(repository.pool().clone())),
+        Some(gateway.clone()),
+        gateway,
+    );
+    assert!(!dispatcher.dispatch_once(now).await.unwrap());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    sweep_manage_booking_fixtures(repository.pool()).await;
+}
+
+#[tokio::test]
 async fn cancellation_clock_is_read_after_waiting_for_authoritative_locks() {
     let _fixtures = fixture_guard().await;
     let repository = Arc::new(SqlxSeatHoldRepository::new(test_pool().await));
@@ -676,6 +799,35 @@ async fn stripe_refund_events_validate_authoritative_object_and_never_regress_su
         .unwrap();
     let state:(String,i64)=sqlx::query_as("SELECT refund_status,(SELECT COUNT(*) FROM stripe_refund_events WHERE cancellation_id=$1) FROM booking_cancellations WHERE id=$1").bind(cancellation.id).fetch_one(repository.pool()).await.unwrap();
     assert_eq!(state, ("SUCCEEDED".into(), 3));
+    sqlx::query(
+        "UPDATE booking_cancellations
+         SET refund_status='REQUIRES_ATTENTION', provider_refund_id=NULL,
+             refunded_at=NULL, last_error_code='MANUAL_REVIEW'
+         WHERE id=$1",
+    )
+    .bind(cancellation.id)
+    .execute(repository.pool())
+    .await
+    .unwrap();
+    repository
+        .process_stripe_refund_event(event(
+            "evt_attention_success",
+            ProviderRefundStatus::Succeeded,
+        ))
+        .await
+        .unwrap();
+    let reconciled: (String, Option<String>) = sqlx::query_as(
+        "SELECT refund_status,provider_refund_id
+         FROM booking_cancellations WHERE id=$1",
+    )
+    .bind(cancellation.id)
+    .fetch_one(repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        reconciled,
+        ("SUCCEEDED".into(), Some("re_test_refund".into()))
+    );
     let mut mismatch = event("evt_bad", ProviderRefundStatus::Succeeded);
     mismatch.refund.amount_minor += 1;
     assert!(matches!(

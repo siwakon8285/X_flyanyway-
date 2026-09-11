@@ -13,7 +13,9 @@ use x_fly_api::{
         repositories::{PaymentRepository, PaymentRepositoryError, SeatHoldRepository},
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
-    infrastructure::database::{prepare_database, SqlxFlightRepository, SqlxSeatHoldRepository},
+    infrastructure::database::{
+        prepare_test_database, SqlxFlightRepository, SqlxSeatHoldRepository,
+    },
 };
 
 async fn fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
@@ -30,7 +32,7 @@ async fn test_pool() -> PgPool {
         .connect(&database_url)
         .await
         .unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     sqlx::raw_sql(
         "DELETE FROM flight_management_audit WHERE flight_service_id IN
              (SELECT id FROM flight_services WHERE flight_number IN ('XF 951','XF 954'))

@@ -16,9 +16,10 @@ use x_fly_api::{
     domain::cancellation::SystemClock,
     infrastructure::{
         database::{
-            prepare_database, SqlxAnalyticsRepository, SqlxApiClientRepository,
+            verify_database_ready, SqlxAnalyticsRepository, SqlxApiClientRepository,
             SqlxFlightRepository, SqlxSeatHoldRepository, SqlxStaffAuthRepository,
         },
+        diagnostics::classify_sqlx_error,
         http::build_router,
         password::Argon2PasswordService,
         payment::{
@@ -46,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_connections(10)
         .connect(&config.database_url)
         .await?;
-    prepare_database(&pool).await?;
+    verify_database_ready(&pool).await?;
 
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
     let analytics = Arc::new(SqlxAnalyticsRepository::new(repository.pool().clone()));
@@ -112,7 +113,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let refund_worker = tokio::spawn(async move {
         loop {
             if let Err(error) = refund_dispatcher.dispatch_once(Utc::now()).await {
-                tracing::warn!(error = %error, "refund dispatch attempt failed");
+                tracing::warn!(
+                    component = "refund_worker",
+                    operation = "dispatch",
+                    stage = error.stage(),
+                    refund_job_id = ?error.job_id(),
+                    error_category = %classify_sqlx_error(error.source()),
+                    "refund dispatch attempt failed"
+                );
             }
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         }

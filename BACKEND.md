@@ -69,12 +69,20 @@ HTTP Request → [Handler] → [Use Case] → [Repository Interface] → [Reposi
 - Async Runtime: Tokio
 - Database: PostgreSQL via SQLx (async, compile-time checked)
 - Serialization: Serde (serde_json)
-- Authentication: JWT via `jsonwebtoken` crate
-- Validation: `validator` crate + manual guard clauses
+- Authentication: project-specific; X-Fly uses opaque PostgreSQL-backed staff sessions, not JWT
+- Validation: typed request parsing plus domain/manual guard clauses; add a validation crate only when the project actually uses it
 - Environment: `dotenvy` + typed config struct
 - Error Handling: Custom `AppError` implementing `IntoResponse`
 - Logging: `tracing` + `tracing-subscriber`
-- TLS: `rustls` + `ring` CryptoProvider (ต้อง `install_default()` ใน main)
+- TLS client: `rustls` through the configured HTTP client where external HTTPS is used
+
+### X-Fly Project-Specific Overrides
+
+- Human staff authenticate with a random opaque `x_fly_staff_session` cookie backed by PostgreSQL session state. Passwords use Argon2id. Generic JWT examples elsewhere in this reusable guide do not describe X-Fly staff/customer authentication.
+- `DATABASE_URL` is the restricted `x_fly_runtime` connection used by normal API startup and readiness checks only. Startup does not run migrations or demo seed.
+- `MIGRATION_DATABASE_URL` is the separate `x_fly_migrator` connection used by `db_admin migrate`, explicit guarded demo seed, and the operator-only `staff_admin` CLI.
+- X-Fly does not currently enable PostgreSQL RLS or use a generic service-role model. Least privilege is enforced with explicit schema/table/function grants, and the runtime role owns no application objects.
+- The historical local `x_fly_app` account is an infrastructure/bootstrap administrator for that local cluster only; future production infrastructure may use a differently named administrator.
 
 ### Project Structure
 ```
@@ -95,7 +103,7 @@ backend/
 │   └── infrastructure/
 │       ├── http/
 │       │   ├── handlers/          → Thin handlers (HTTP ↔ Use Case only)
-│       │   ├── middleware/        → JWT auth, Rate limiting, Security headers
+│       │   ├── middleware/        → Authentication/session extraction, Rate limiting, Security headers
 │       │   ├── routers/           → Route definitions (no logic)
 │       │   └── schemas/           → Request/Response structs
 │       ├── database/              → SQLx repository implementations
@@ -113,7 +121,7 @@ backend/
 - **One handler, one job**: extract input → call use case → return response
 - **No business logic in handlers/routes**
 - **Error logging**: ใช้ `tracing::error!` ก่อน return Internal error เสมอ — ห้าม silent fail
-- **Security**: RLS ปกป้องข้อมูล — การเขียนทั้งหมดต้องผ่าน Service Role (Zero-Trust)
+- **Security**: ใช้ least-privilege database role และ explicit grants; ใช้ RLS เฉพาะเมื่อ schema/threat model ของ project กำหนดจริง (X-Fly ปัจจุบันไม่ใช้ RLS/service-role model)
 - **Comment** ทุกบรรทัดอธิบายการทำงานเป็นภาษาไทย
 - เขียน Code ให้อ่านง่าย ไม่ over-engineer ถ้าไม่จำเป็นจริงๆ
 
@@ -140,7 +148,7 @@ let key = std::env::var("SECRET_KEY").unwrap_or_default();
 ### Agent Instructions
 - กำหนด Use Case และ Repository trait ก่อนเขียน implementation เสมอ
 - เพิ่ม env key ใหม่ใน `.env.example` ก่อนใช้เสมอ
-- หลัง change สำคัญ รัน `cargo check` และ `cargo clippy -- -D warnings`
+- หลัง change สำคัญ รัน `cargo fmt --check`, `cargo build --locked`, `cargo clippy --locked --all-targets -- -D warnings` และ tests ที่เกี่ยวข้อง
 - Migration naming: `YYYYMMDDHHMMSS_description.sql`
 - One concern per task — ห้ามผสม schema change + endpoint ใหม่ + refactor ในงานเดียว
 
@@ -297,7 +305,7 @@ if let Some(redis) = &state.redis {
 
 ### A01 🔴 Broken Access Control (รวม SSRF)
 - Deny by default — ไม่มี permission = ห้ามเข้า
-- ดึง `user_id` จาก JWT เสมอ — ห้าม trust จาก request body
+- ดึง actor identity จาก server-verified authentication context เสมอ (JWT claims เฉพาะ project ที่ใช้ JWT; X-Fly ใช้ opaque durable session) — ห้าม trust จาก request body
 - ตรวจ ownership ใน Use Case ทุกครั้งก่อน return resource
 - ใช้ UUID — ห้าม expose predictable internal ID
 - **SSRF**: ใช้ allowlist domain — ห้ามรับ URL arbitrary จาก user, block private/loopback IP
@@ -352,13 +360,14 @@ let quota = Quota::per_minute(NonZeroU32::new(5).unwrap());
 ```
 
 ### A07 🔴 Auth & Session Failures
-- Access token อายุ 15–60 นาที เท่านั้น
-- เก็บ token ใน `HttpOnly Secure cookie` — ห้าม localStorage
-- Refresh token ใช้ได้ครั้งเดียว (rotation)
-- JWT validation ต้องเปิด `validate_exp = true`
+- กำหนดอายุ, revocation และ invalidation ตาม authentication architecture จริง
+- เก็บ browser authentication material ใน `HttpOnly Secure` cookie — ห้าม localStorage/sessionStorage
+- สำหรับ project ที่ใช้ JWT ให้ access token อายุสั้น, validate expiry และ rotate refresh token
+- X-Fly ใช้ PostgreSQL-backed opaque staff session อายุ 60 นาทีและตรวจ revoked/expired state ทุก request; ไม่มี JWT refresh-token flow
 - MFA สำหรับ account ที่มีสิทธิ์สูง (Admin)
 
 ```rust
+// Generic JWT example only — not the current X-Fly session design.
 struct Claims { user_id: Uuid, exp: i64, iat: i64 }
 let exp = Utc::now() + Duration::minutes(15);
 ```
@@ -454,6 +463,8 @@ func TestProcessJob_Success(t *testing.T) {
 ## 🔗 Inter-Service Communication
 > ใช้เมื่อ project มีหลาย service (Microservices / Worker pattern)
 
+ตัวอย่าง URL/JWT/RLS ด้านล่างเป็น reusable template เท่านั้น ไม่ใช่ current X-Fly architecture. X-Fly ใช้ Next.js/same-origin BFF ตาม route ที่เกี่ยวข้อง, opaque staff sessions ที่ backend ตรวจสอบ และ PostgreSQL private connection ผ่าน explicit runtime grants.
+
 ### Service URLs (ตัวอย่าง — ปรับตาม project)
 | Service    | Public URL                        | Internal URL (Render) |
 |------------|-----------------------------------|-----------------------|
@@ -482,22 +493,23 @@ func TestProcessJob_Success(t *testing.T) {
 ---
 
 ## 🚀 CI/CD (Backend)
-```yaml
-# .github/workflows/ci.yml
-name: CI
-on: [push, pull_request]
+Repository มี checked-in workflow ที่ `.github/workflows/ci.yml` สำหรับ `pull_request` และ push ไป `main`. Backend job ใช้ Rust 1.98.0 และ PostgreSQL 18 แบบ ephemeral พร้อม bootstrap administrator เฉพาะ CI จากนั้นสร้าง `x_fly_migrator`/`x_fly_runtime`, รัน migration, reviewed runtime grants, guarded demo seed, focused lifecycle/permission tests และ full backend suite โดยไม่ใช้ DEV/production credential.
 
-jobs:
-  backend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4        # Pin version — ห้าม @latest
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check
-      - run: cargo clippy -- -D warnings
-      - run: cargo test
-      - run: cargo audit
+คำสั่งหลักที่ workflow บังคับใช้:
+
+```bash
+cargo fmt --check
+cargo build --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo tree --locked -e normal,build,dev -i rsa
+cargo tree --locked -e normal,build,dev -i sqlx-mysql
+cargo audit
+cargo test --locked --no-fail-fast
 ```
+
+`cargo audit` มี narrow reachability-based waiver สำหรับ `RUSTSEC-2023-0071` ใน `backend/.cargo/audit.toml` เพราะ `rsa` เป็น lockfile-only และ inactive/unreachable ใน X-Fly PostgreSQL-only dependency graph. CI ต้อง fail หาก `rsa` หรือ `sqlx-mysql` กลายเป็น active; advisory อื่นยัง fail ตามปกติ. ห้ามอ้างว่า advisory นี้ถูก patch.
+
+Workflow ผ่าน local configuration/rehearsal แล้ว แต่ remote GitHub Actions และ branch-protection required checks ยัง **NOT YET VERIFIED** จนกว่าจะมี authorized commit/push และ GitHub-hosted run จริง
 
 ### Branch Strategy
 ```
@@ -530,16 +542,16 @@ main          → Production (ห้าม push ตรง)
 - [ ] Rate limiting/OTP expiry/account lockout บน sensitive endpoint (A06)
 - [ ] Debug mode ปิด, security headers ครบ, ไม่มี default credentials (A02)
 - [ ] `cargo audit` / `npm audit` / `govulncheck` ผ่าน (A03)
-- [ ] JWT expiry + validate_exp, MFA สำหรับ Admin (A07)
+- [ ] Session/token expiry, revocation และ validation ตรงกับ auth architecture จริง; MFA ตาม threat model (A07)
 - [ ] Webhook signature verified, lock files commit (A08)
 - [ ] Log security events, ไม่มี PII ใน log (A09)
 - [ ] ทุก error path มี explicit handler — ไม่มี silent fail/unwrap()/unhandled rejection (A10)
 
 ### Code Quality — Rust
 - [ ] ไม่มี `unwrap()` นอก `#[test]` block
-- [ ] `cargo check` + `cargo clippy -- -D warnings` ผ่าน
-- [ ] `cargo test` ผ่าน 0 failures
-- [ ] `cargo audit` ไม่มี critical
+- [ ] `cargo fmt --check`, `cargo build --locked` และ `cargo clippy --locked --all-targets -- -D warnings` ผ่าน
+- [ ] `cargo test --locked --no-fail-fast` ผ่าน 0 failures
+- [ ] `cargo audit` ผ่าน โดย exception ที่มีต้อง narrow, documented และมี fail-closed reachability guard
 
 ### Code Quality — Go
 - [ ] ตรวจ error ทุกบรรทัดที่ทำ IO

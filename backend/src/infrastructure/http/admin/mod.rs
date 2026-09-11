@@ -554,7 +554,7 @@ fn normalize_ticket_number(value: &str) -> Result<String, AdminApiError> {
 fn parse_ticket_filter(query: TicketListQuery) -> Result<TicketOperationsFilter, AdminApiError> {
     let limit = query.limit.unwrap_or(50);
     let offset = query.offset.unwrap_or(0);
-    if !(1..=50).contains(&limit) || offset < 0 {
+    if !(1..=50).contains(&limit) || offset < 0 || offset.checked_add(limit).is_none() {
         return Err(AdminApiError::ticket_filter_invalid());
     }
     let name = query
@@ -780,7 +780,7 @@ async fn cancel_booking(
             .cancellations
             .as_ref()
             .ok_or_else(AdminApiError::booking_unavailable)?;
-        cancellations
+        let detail = cancellations
             .cancel_for_staff(
                 ticket_id,
                 &StaffCancellationActor {
@@ -790,11 +790,6 @@ async fn cancel_booking(
             )
             .await
             .map_err(AdminApiError::from_cancellation)?;
-        let detail = repository
-            .get_booking_detail(&booking_reference, Utc::now())
-            .await
-            .map_err(AdminApiError::from_booking_repository)?
-            .ok_or_else(AdminApiError::booking_not_found)?;
         Ok::<_, AdminApiError>(Json(detail).into_response())
     }
     .await;
@@ -804,7 +799,7 @@ async fn cancel_booking(
 fn parse_booking_filter(query: BookingListQuery) -> Result<BookingListFilter, AdminApiError> {
     let limit = query.limit.unwrap_or(50);
     let offset = query.offset.unwrap_or(0);
-    if !(1..=50).contains(&limit) || offset < 0 {
+    if !(1..=50).contains(&limit) || offset < 0 || offset.checked_add(limit).is_none() {
         return Err(AdminApiError::booking_filter_invalid());
     }
     let optional_reference = query
@@ -1534,6 +1529,7 @@ impl AdminApiError {
     }
     fn from_ticket_operations(error: TicketOperationsRepositoryError) -> Self {
         match error {
+            TicketOperationsRepositoryError::InvalidPagination => Self::ticket_filter_invalid(),
             TicketOperationsRepositoryError::InconsistentState => Self {
                 status: StatusCode::CONFLICT,
                 code: "TICKET_STATE_CONFLICT",
@@ -1544,6 +1540,7 @@ impl AdminApiError {
     }
     fn from_booking_repository(error: BookingManagementRepositoryError) -> Self {
         match error {
+            BookingManagementRepositoryError::InvalidPagination => Self::booking_filter_invalid(),
             BookingManagementRepositoryError::InconsistentState => Self {
                 status: StatusCode::CONFLICT,
                 code: "BOOKING_STATE_CONFLICT",
@@ -1676,4 +1673,261 @@ fn private_no_store(mut response: Response) -> Response {
         HeaderValue::from_static("no-store, private"),
     );
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use async_trait::async_trait;
+    use axum::{
+        extract::{Path, State},
+        http::{header, HeaderMap, HeaderValue},
+    };
+    use chrono::Utc;
+    use sqlx::postgres::PgPoolOptions;
+    use uuid::Uuid;
+
+    use super::*;
+    use crate::{
+        application::cancellation::CancellationService,
+        domain::{
+            booking_management::{
+                BookingAuditEntry, BookingCancellationSummary, BookingContactSummary,
+                BookingDetail, BookingJourney, BookingListFilter, BookingListPage,
+                BookingPassenger, BookingPaymentSummary, BookingTicketSummary,
+            },
+            cancellation::{
+                Cancellation, Clock, ProviderRefund, RefundFailure, RefundJob,
+                StaffCancellationActor, StripeRefundEvent,
+            },
+            extras::Money,
+            manage_booking::{BookingStatus, CancellationEligibility},
+            passengers::{Gender, PassengerType},
+            payment::{PaymentMethod, PaymentProvider, PaymentStatus},
+            repositories::{
+                BookingManagementRepository, BookingManagementRepositoryError,
+                CancellationRepository, CancellationRepositoryError,
+            },
+            staff::{PermissionCode, StaffPrincipal},
+            ticket::TicketStatus,
+        },
+        infrastructure::database::SqlxSeatHoldRepository,
+        state::AppState,
+    };
+
+    struct ReloadFailsBookingRepository;
+
+    #[async_trait]
+    impl BookingManagementRepository for ReloadFailsBookingRepository {
+        async fn list_bookings(
+            &self,
+            _: &BookingListFilter,
+        ) -> Result<BookingListPage, BookingManagementRepositoryError> {
+            unreachable!()
+        }
+
+        async fn get_booking_detail(
+            &self,
+            _: &str,
+            _: chrono::DateTime<Utc>,
+        ) -> Result<Option<BookingDetail>, BookingManagementRepositoryError> {
+            Err(BookingManagementRepositoryError::Infrastructure(
+                sqlx::Error::Protocol("post-commit detail reload failure".to_owned()),
+            ))
+        }
+
+        async fn ticket_id_for_booking_reference(
+            &self,
+            _: &str,
+        ) -> Result<Option<Uuid>, BookingManagementRepositoryError> {
+            Ok(Some(Uuid::new_v4()))
+        }
+    }
+
+    struct SuccessfulCancellationRepository;
+
+    fn expected_detail() -> BookingDetail {
+        let now = Utc::now();
+        BookingDetail {
+            booking_reference: "XF23456789".to_owned(),
+            booking_status: BookingStatus::Cancelled,
+            created_at: now,
+            journey: BookingJourney {
+                flight_number: "XF 999".to_owned(),
+                origin_code: "SYD".to_owned(),
+                destination_code: "CDG".to_owned(),
+                travel_date: now.date_naive(),
+                departure_at: Some(now),
+                departure_time: Some("10:00".to_owned()),
+                arrival_date: Some(now.date_naive()),
+                arrival_time: Some("19:00".to_owned()),
+                origin_time_zone: Some("Australia/Sydney".to_owned()),
+                aircraft_code: "A350".to_owned(),
+                cabin: "business".to_owned(),
+                flight_status: "SCHEDULED".to_owned(),
+            },
+            passengers: vec![BookingPassenger {
+                ordinal: 1,
+                passenger_type: PassengerType::Adult,
+                display_name: "Test Passenger".to_owned(),
+                gender: Gender::Female,
+            }],
+            seats: vec!["1A".to_owned()],
+            contact: Some(BookingContactSummary {
+                phone_country_code: "+66".to_owned(),
+                phone_number: "800000000".to_owned(),
+            }),
+            payment: BookingPaymentSummary {
+                method: PaymentMethod::Bitcoin,
+                provider: PaymentProvider::MockBitcoin,
+                status: PaymentStatus::Succeeded,
+                amount: Money {
+                    amount: 100,
+                    currency_code: "THB".to_owned(),
+                },
+                succeeded_at: Some(now),
+            },
+            ticket: BookingTicketSummary {
+                ticket_number: "XFTTEST00001".to_owned(),
+                status: TicketStatus::Cancelled,
+                issued_at: now,
+                cancelled_at: Some(now),
+            },
+            cancellation: BookingCancellationSummary {
+                eligibility: CancellationEligibility::Unavailable,
+                cutoff_at: Some(now),
+                cancelled_at: Some(now),
+                refund_status: Some(crate::domain::cancellation::RefundStatus::Pending),
+                refund_amount: Some(Money {
+                    amount: 100,
+                    currency_code: "THB".to_owned(),
+                }),
+                refunded_at: None,
+            },
+            audit: vec![BookingAuditEntry {
+                action: "STAFF_BOOKING_CANCELLED".to_owned(),
+                actor_email: "operator@example.test".to_owned(),
+                created_at: now,
+            }],
+        }
+    }
+
+    #[async_trait]
+    impl CancellationRepository for SuccessfulCancellationRepository {
+        async fn cancel_booking(
+            &self,
+            _: Uuid,
+            _: &dyn Clock,
+            _: Option<&StaffCancellationActor>,
+        ) -> Result<Cancellation, CancellationRepositoryError> {
+            Ok(Cancellation {
+                id: Uuid::new_v4(),
+                refund_status: crate::domain::cancellation::RefundStatus::Pending,
+                refund_amount: crate::domain::extras::Money {
+                    amount: 100,
+                    currency_code: "THB".to_owned(),
+                },
+                cancelled_at: Utc::now(),
+            })
+        }
+
+        async fn cancel_booking_for_staff(
+            &self,
+            _: Uuid,
+            _: &dyn Clock,
+            _: &StaffCancellationActor,
+        ) -> Result<BookingDetail, CancellationRepositoryError> {
+            Ok(expected_detail())
+        }
+
+        async fn claim_due_refund(
+            &self,
+            _: chrono::DateTime<Utc>,
+        ) -> Result<Option<RefundJob>, sqlx::Error> {
+            unreachable!()
+        }
+
+        async fn mark_refund_result(
+            &self,
+            _: &RefundJob,
+            _: &ProviderRefund,
+            _: chrono::DateTime<Utc>,
+        ) -> Result<(), sqlx::Error> {
+            unreachable!()
+        }
+
+        async fn mark_refund_retry(
+            &self,
+            _: &RefundJob,
+            _: chrono::DateTime<Utc>,
+            _: &RefundFailure,
+        ) -> Result<(), sqlx::Error> {
+            unreachable!()
+        }
+
+        async fn mark_refund_attention(
+            &self,
+            _: &RefundJob,
+            _: &RefundFailure,
+        ) -> Result<(), sqlx::Error> {
+            unreachable!()
+        }
+
+        async fn process_stripe_refund_event(
+            &self,
+            _: StripeRefundEvent,
+        ) -> Result<(), CancellationRepositoryError> {
+            unreachable!()
+        }
+    }
+
+    fn test_state() -> AppState {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://localhost/x_fly_test")
+            .expect("lazy test pool configuration");
+        let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
+        AppState::new(
+            repository.clone(),
+            repository.clone(),
+            repository.clone(),
+            repository,
+            Duration::from_secs(600),
+            true,
+            "http://localhost:3000".to_owned(),
+        )
+        .with_cancellations(CancellationService::new(
+            Arc::new(SuccessfulCancellationRepository),
+            Arc::new(crate::domain::cancellation::SystemClock),
+        ))
+        .with_booking_management(Arc::new(ReloadFailsBookingRepository))
+    }
+
+    #[tokio::test]
+    async fn staff_cancellation_does_not_report_failure_after_committed_mutation() {
+        let staff = StaffPrincipal::new(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            "operator@example.test".to_owned(),
+            vec![],
+            vec![PermissionCode::BookingsManage],
+            Utc::now() + chrono::Duration::hours(1),
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://localhost:3000"),
+        );
+        headers.insert("x-x-fly-csrf", HeaderValue::from_static("1"));
+
+        let response = super::cancel_booking(
+            State(test_state()),
+            AuthenticatedStaff(staff),
+            Path("XF23456789".to_owned()),
+            headers,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }

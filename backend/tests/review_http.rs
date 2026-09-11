@@ -14,7 +14,7 @@ use tower::ServiceExt;
 
 use x_fly_api::{
     infrastructure::{
-        database::{prepare_database, SqlxSeatHoldRepository},
+        database::{prepare_test_database, SqlxSeatHoldRepository},
         http::build_router,
     },
     state::AppState,
@@ -23,7 +23,7 @@ use x_fly_api::{
 async fn app() -> (axum::Router, PgPool) {
     let database_url = common::test_database_url();
     let pool = PgPool::connect(&database_url).await.unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));
     (
         build_router(AppState::new(

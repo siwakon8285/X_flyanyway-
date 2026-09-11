@@ -21,7 +21,9 @@
 - Components: Shadcn UI (Radix UI)
 - Icons: Lucide React
 - Validation: Zod
-- Testing: Jest + React Testing Library (unit/component), Playwright (E2E)
+- Package manager: npm only
+- Testing: Jest + React Testing Library (unit/component)
+- E2E: ยังไม่มี Playwright infrastructure ใน repository; อยู่ใน future Branch 29
 
 ## General Principles
 - **No `any`**: ห้ามใช้ `any` type เด็ดขาด — ต้องนิยาม interface หรือ type เสมอ
@@ -68,13 +70,32 @@ worker-repo/             → Go/Node workers (optional)
 
 ## Agent Instructions
 - ตรวจสอบ `.env.example` ก่อนใช้ environment variable ทุกครั้ง
-- หลัง change สำคัญ ให้รัน `npm run build` และ `next lint`
+- หลัง change สำคัญ ให้รัน `npm test`, `npm run lint`, `npm run typecheck`, `npm run build` และ `npm audit --audit-level=high`
 - Wrap async operations (API routes, Server Actions) ใน try-catch + Zod validation เสมอ
 - One concern per task — ห้ามผสม UI change + API integration + refactor ในงานเดียว
 
 ## CSS & UI
 - ใช้ Tailwind CSS ทุกอย่าง — ห้าม inline styles (ยกเว้น dynamic JS value ที่ Tailwind handle ไม่ได้)
 - Mobile-first responsive design เสมอ
+
+## 🖼️ Image & Media Asset Strategy
+
+### Application-Owned Static Assets
+- รูปที่เป็นส่วนหนึ่งของ application และ developer เป็นผู้ดูแล เช่น logo, hero, product, cabin/aircraft, illustration และ background สามารถเก็บใน `public/images/` หรือ static asset directory ที่ framework กำหนดได้
+- จัดโครงสร้าง folder ตามประเภทหรือ feature ให้ชัดเจน และใช้ชื่อไฟล์ที่สื่อความหมาย
+- ก่อน production ให้ resize ใกล้เคียงขนาดที่ render, compress และ prefer WebP/AVIF เมื่อเหมาะสม
+- ใน Next.js ให้ prefer `next/image` เมื่อเหมาะสม เพื่อใช้ responsive sizing, lazy loading และ image optimization ของ framework
+- กำหนด loading/priority ของรูปเหนือ fold หรือ LCP อย่างตั้งใจ และตั้ง caching สำหรับ static assets/CDN ตาม production architecture
+- ห้ามใช้ Base64/Data URL เป็น default สำหรับรูป application ทั่วไป เพราะเพิ่มขนาด HTML/JSON/JS และ memory โดยไม่จำเป็น
+
+### User-Generated / Runtime Media
+- รูปที่เกิดขึ้นตอน runtime เช่น profile picture, user content หรือ admin-uploaded banner ห้ามใช้ repository หรือ `public/` เป็น persistent storage
+- เลือก dedicated image service/object storage เช่น Cloudinary, S3-compatible storage, Cloudflare R2 หรือ equivalent ตามความต้องการของ project; ไม่มี provider ใดเป็นข้อบังคับโดย default
+- Database ควรเก็บ stable reference เช่น object key, asset ID, storage path, URL และ metadata แทน large Base64/Data URL หรือ image blob ใน application record
+- ทำ resize/compress/format conversion และใช้ CDN ตามความเหมาะสมของ infrastructure
+- Backend/upload boundary ต้องตรวจ authorization, ownership, MIME/type, file size และ deletion lifecycle; frontend รับผิดชอบ rendering, dimensions, loading strategy และ upload UX
+
+การ optimize/convert image assets ที่มีอยู่เป็นงาน performance ภายหลัง ไม่ใช่ข้อกำหนดให้แก้ asset ทุกไฟล์ใน branch ปัจจุบัน
 
 ## React Patterns
 - ใช้ `useEffectEvent`, `startTransition`, `useDeferredValue` เมื่อเหมาะสม
@@ -96,47 +117,30 @@ useEffect(() => { fetchData() }, [user?.id])
 - **A02 Security Misconfiguration**: ปิด debug mode/verbose error ใน production, ตั้ง security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy) ใน `next.config`
 - **A04 Cryptographic Failures**: เก็บ token ใน `HttpOnly Secure SameSite=Strict` cookie เท่านั้น — ห้ามใช้ `localStorage` เก็บ token (ยกเว้น short-lived TOTP code)
 - **A05 Injection (XSS)**: Sanitize HTML output ด้วย DOMPurify ก่อน render, ตั้ง Content-Security-Policy header, ห้าม `dangerouslySetInnerHTML` โดยไม่ sanitize
-- **A07 Auth & Session Failures**: Access token อายุ 15–60 นาทีเท่านั้น, ห้าม trust ข้อมูล user จาก client state สำหรับ authorization decision — ต้อง verify ฝั่ง backend เสมอ
+- **A07 Auth & Session Failures**: ห้าม trust ข้อมูล user/role จาก client state สำหรับ authorization decision — ต้อง verify ฝั่ง backend เสมอ; X-Fly ใช้ server-managed HttpOnly cookies และไม่เก็บ authentication material ใน localStorage/sessionStorage
 - **A03 Software Supply Chain**: รัน `npm audit --audit-level=high` ก่อน deploy ทุกครั้ง, pin dependency version ใน `package-lock.json`, เปิด Dependabot
 
 ---
 
 ## 🧪 Testing
-```typescript
-// Unit Test — Utility function
-describe('calculateCartTotal', () => {
-  it('should sum prices correctly', () => {
-    expect(calculateCartTotal([{price: 100, qty: 2}])).toBe(200)
-  })
-})
-
-// E2E — Critical flow (Playwright)
-test('checkout flow', async ({ page }) => {
-  await page.goto('/')
-  await page.click('[data-testid="add-to-cart"]')
-  await expect(page.locator('.cart-count')).toHaveText('1')
-})
+```bash
+npm test
+npm run lint
+npm run typecheck
+npm run build
+npm audit --audit-level=high
 ```
-- ใช้ Jest + React Testing Library สำหรับ unit/component test
-- ใช้ Playwright สำหรับ E2E บน critical flow (checkout, login, payment)
-- `npm test` ต้องผ่านก่อน deploy
+- `npm test` เรียก script `jest --runInBand` ที่อยู่ใน `frontend/package.json`
+- ใช้ Jest + React Testing Library สำหรับ unit/component/behavior tests ปัจจุบัน
+- Playwright/E2E ยังไม่ implemented; critical end-to-end coverage อยู่ใน future Branch 29
+- ใช้ npm เท่านั้น และใช้ `npm ci` สำหรับ deterministic CI installation
 
 ---
 
 ## 🚀 CI/CD (Frontend)
-```yaml
-# .github/workflows/ci.yml
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4        # Pin version — ห้าม @latest
-      - uses: actions/setup-node@v4
-        with: { node-version: '24' }     # Node 24 = Active LTS ปัจจุบัน
-      - run: npm ci
-      - run: npm run build
-      - run: npm run lint
-      - run: npm audit --audit-level=high
-```
+Repository มี checked-in workflow ที่ `.github/workflows/ci.yml` สำหรับ `pull_request` และ push ไป `main`. Frontend job ใช้ Node.js 24.19.0, npm 11.17.0, immutable official action pins และรัน `npm ci` ตามด้วย test, lint, typecheck, build และ `npm audit --audit-level=high`.
+
+Workflow นี้ผ่าน local configuration/rehearsal แล้ว แต่ remote GitHub Actions และ branch-protection required checks ยัง **NOT YET VERIFIED** จนกว่าจะมี authorized commit/push และ GitHub-hosted run จริง
 
 Branch strategy และ deploy rule เดียวกับทุก repo:
 ```
@@ -152,11 +156,12 @@ main          → Production (ห้าม push ตรง)
 
 ## ✅ Checklist ก่อน Complete Task (Frontend)
 - [ ] ไม่มี `any` type ใน TypeScript
-- [ ] `npm run build` / `next lint` ผ่าน
-- [ ] `npm test` ผ่าน
-- [ ] `npm audit --audit-level=high` ไม่มี critical
+- [ ] `npm test`, `npm run lint`, `npm run typecheck` และ `npm run build` ผ่าน
+- [ ] `npm audit --audit-level=high` ไม่มี high/critical advisory
+- [ ] ถ้างานยังไม่ถึง Branch 29 ห้ามอ้างว่า Playwright/E2E ถูก implement แล้ว
 - [ ] useEffect dependency ใช้ primitive value ไม่ใช่ object
 - [ ] Security headers ครบ (HSTS, CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy)
 - [ ] Token เก็บใน HttpOnly Secure cookie — ไม่ใช่ localStorage
 - [ ] `.env` อยู่ใน `.gitignore`, env variables ครบใน `.env.example`
 - [ ] ไม่มี business logic ปนใน component — เรียก backend API/Server Action เท่านั้น
+- [ ] Static images ถูก resize/compress และใช้ WebP/AVIF เมื่อเหมาะสม; runtime/user uploads ไม่ใช้ `public/` เป็น persistent storage

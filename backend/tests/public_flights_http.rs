@@ -18,7 +18,7 @@ use x_fly_api::{
     application::flight::FlightManagement,
     domain::flight::FlightCommand,
     infrastructure::{
-        database::{prepare_database, SqlxFlightRepository, SqlxSeatHoldRepository},
+        database::{prepare_test_database, SqlxFlightRepository, SqlxSeatHoldRepository},
         http::build_router,
     },
     state::AppState,
@@ -38,7 +38,7 @@ async fn pool() -> PgPool {
         .connect(&url)
         .await
         .unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     sqlx::raw_sql(
         "DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 953');
          DELETE FROM flight_service_seat_templates WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 953');

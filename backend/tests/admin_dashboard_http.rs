@@ -27,7 +27,7 @@ use x_fly_api::{
     },
     infrastructure::{
         database::{
-            prepare_database, SqlxAnalyticsRepository, SqlxFlightRepository,
+            prepare_test_database, SqlxAnalyticsRepository, SqlxFlightRepository,
             SqlxSeatHoldRepository, SqlxStaffAuthRepository,
         },
         http::build_router,
@@ -52,7 +52,7 @@ async fn test_pool() -> PgPool {
         .connect(&database_url)
         .await
         .unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     clean_dashboard_fixtures(&pool).await;
     pool
 }

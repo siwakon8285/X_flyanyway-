@@ -24,6 +24,23 @@ pub fn validate_test_database_url(database_url: &str) -> Result<(), &'static str
     Ok(())
 }
 
+#[allow(dead_code)]
+pub fn validate_test_database_pair(setup_url: &str, runtime_url: &str) -> Result<(), &'static str> {
+    validate_test_database_url(setup_url)?;
+    validate_test_database_url(runtime_url)?;
+    let setup = PgConnectOptions::from_str(setup_url)
+        .map_err(|_| "TEST_DATABASE_URL is not a valid PostgreSQL URL")?;
+    let runtime = PgConnectOptions::from_str(runtime_url)
+        .map_err(|_| "TEST_RUNTIME_DATABASE_URL is not a valid PostgreSQL URL")?;
+    if setup.get_host() != runtime.get_host()
+        || setup.get_port() != runtime.get_port()
+        || setup.get_database() != runtime.get_database()
+    {
+        return Err("TEST setup and runtime credentials must target the same database");
+    }
+    Ok(())
+}
+
 pub fn test_database_url() -> String {
     let database_url = match env::var("TEST_DATABASE_URL") {
         Ok(database_url) => database_url,
@@ -40,4 +57,18 @@ pub fn test_database_url() -> String {
     }
 
     database_url
+}
+
+#[allow(dead_code)]
+pub fn test_runtime_database_url() -> String {
+    let setup_url = test_database_url();
+    let runtime_url = env::var("TEST_RUNTIME_DATABASE_URL").unwrap_or_else(|_| {
+        panic!(
+            "Configure TEST_RUNTIME_DATABASE_URL for the restricted runtime role; it must target the same TEST database as TEST_DATABASE_URL"
+        )
+    });
+    if let Err(reason) = validate_test_database_pair(&setup_url, &runtime_url) {
+        panic!("Refusing unsafe TEST runtime configuration: {reason}");
+    }
+    runtime_url
 }

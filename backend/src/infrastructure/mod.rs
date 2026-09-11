@@ -1,4 +1,5 @@
 pub mod database;
+pub mod diagnostics;
 pub mod email;
 pub mod http;
 pub mod manage_booking;

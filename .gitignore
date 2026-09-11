@@ -1,4 +1,7 @@
 .env
+.DS_Store
+__pycache__/
+*.pyc
 *.sqlx.json
 backend/target/
 backups/
@@ -6,4 +9,4 @@ backups/
 *.sql
 !backend/migrations/*.sql
 !backend/seeds/*.sql
-
+!backend/provisioning/*.sql

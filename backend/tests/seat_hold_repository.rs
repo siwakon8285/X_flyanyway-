@@ -11,7 +11,7 @@ use x_fly_api::domain::{
     repositories::{SeatHoldRepository, SeatHoldRepositoryError},
     value_objects::{CabinClass, PassengerCounts, SeatNumber},
 };
-use x_fly_api::infrastructure::database::{prepare_database, SqlxSeatHoldRepository};
+use x_fly_api::infrastructure::database::{prepare_test_database, SqlxSeatHoldRepository};
 
 async fn test_pool() -> PgPool {
     let database_url = common::test_database_url();
@@ -19,7 +19,7 @@ async fn test_pool() -> PgPool {
     let pool = PgPool::connect(&database_url)
         .await
         .expect("connect to isolated test PostgreSQL");
-    prepare_database(&pool)
+    prepare_test_database(&pool)
         .await
         .expect("apply clean migrations and reference inventory");
     pool

@@ -2,6 +2,9 @@ use async_trait::async_trait;
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::{
     application::api_client::{
         ApiClientAuditAction, ApiClientAuditEntry, ApiClientAuditSnapshot, ApiClientDetail,
@@ -17,6 +20,14 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct SqlxApiClientRepository {
     pool: PgPool,
+}
+
+#[cfg(test)]
+static FAIL_NEXT_CLIENT_RELOAD: AtomicBool = AtomicBool::new(false);
+
+#[cfg(test)]
+fn fail_next_client_reload_for_test() {
+    FAIL_NEXT_CLIENT_RELOAD.store(true, Ordering::SeqCst);
 }
 
 impl SqlxApiClientRepository {
@@ -162,14 +173,15 @@ impl ApiClientRepository for SqlxApiClientRepository {
             &snapshot,
         )
         .await?;
+        let response = load_client_in_transaction(&mut transaction, client_id)
+            .await?
+            .map(|value| value.public)
+            .ok_or(ApiClientManagementError::Infrastructure)?;
         transaction
             .commit()
             .await
             .map_err(|_| ApiClientManagementError::Infrastructure)?;
-        load_client(&self.pool, client_id)
-            .await?
-            .map(|value| value.public)
-            .ok_or(ApiClientManagementError::Infrastructure)
+        Ok(response)
     }
 
     async fn update(
@@ -257,14 +269,15 @@ impl ApiClientRepository for SqlxApiClientRepository {
             )
             .await?;
         }
+        let response = load_client_in_transaction(&mut transaction, client_id)
+            .await?
+            .map(|value| value.public)
+            .ok_or(ApiClientManagementError::Infrastructure)?;
         transaction
             .commit()
             .await
             .map_err(|_| ApiClientManagementError::Infrastructure)?;
-        load_client(&self.pool, client_id)
-            .await?
-            .map(|value| value.public)
-            .ok_or(ApiClientManagementError::Infrastructure)
+        Ok(response)
     }
 
     async fn transition(
@@ -317,14 +330,15 @@ impl ApiClientRepository for SqlxApiClientRepository {
             &after,
         )
         .await?;
+        let response = load_client_in_transaction(&mut transaction, client_id)
+            .await?
+            .map(|value| value.public)
+            .ok_or(ApiClientManagementError::Infrastructure)?;
         transaction
             .commit()
             .await
             .map_err(|_| ApiClientManagementError::Infrastructure)?;
-        load_client(&self.pool, client_id)
-            .await?
-            .map(|value| value.public)
-            .ok_or(ApiClientManagementError::Infrastructure)
+        Ok(response)
     }
 }
 
@@ -343,9 +357,26 @@ async fn load_client(
     pool: &PgPool,
     client_id: &str,
 ) -> Result<Option<InternalClient>, ApiClientManagementError> {
+    #[cfg(test)]
+    if FAIL_NEXT_CLIENT_RELOAD.swap(false, Ordering::SeqCst) {
+        return Err(ApiClientManagementError::Infrastructure);
+    }
     sqlx::query_as::<_, ClientRow>(CLIENT_SELECT)
         .bind(client_id)
         .fetch_optional(pool)
+        .await
+        .map_err(|_| ApiClientManagementError::Infrastructure)?
+        .map(ClientRow::internal)
+        .transpose()
+}
+
+async fn load_client_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    client_id: &str,
+) -> Result<Option<InternalClient>, ApiClientManagementError> {
+    sqlx::query_as::<_, ClientRow>(CLIENT_SELECT)
+        .bind(client_id)
+        .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| ApiClientManagementError::Infrastructure)?
         .map(ClientRow::internal)
@@ -520,6 +551,221 @@ impl AuditRow {
                 .map_err(|_| ApiClientManagementError::Infrastructure)?,
             created_at: self.created_at,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{env, path::Path, str::FromStr, sync::OnceLock};
+
+    use sqlx::{
+        postgres::{PgConnectOptions, PgPoolOptions},
+        PgPool,
+    };
+
+    use super::*;
+    use crate::infrastructure::database::prepare_test_database;
+
+    async fn test_guard() -> tokio::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
+    }
+
+    async fn test_pool() -> PgPool {
+        let _ = dotenvy::from_path(Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
+        let database_url = env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL is required");
+        let options = PgConnectOptions::from_str(&database_url).expect("valid TEST URL");
+        assert_eq!(options.get_port(), 5434);
+        assert_eq!(options.get_database(), Some("x_fly_concurrency_test"));
+        let pool = PgPoolOptions::new()
+            .max_connections(3)
+            .connect_with(options)
+            .await
+            .expect("TEST database is reachable");
+        prepare_test_database(&pool)
+            .await
+            .expect("TEST database is prepared");
+        pool
+    }
+
+    async fn cleanup(pool: &PgPool, actor: Uuid) {
+        let client_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM api_clients WHERE created_by_staff_user_id=$1")
+                .bind(actor)
+                .fetch_all(pool)
+                .await
+                .expect("fixture query");
+        for client_id in client_ids {
+            sqlx::query("DELETE FROM api_client_management_audit WHERE api_client_id=$1")
+                .bind(client_id)
+                .execute(pool)
+                .await
+                .expect("audit cleanup");
+            sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id=$1")
+                .bind(client_id)
+                .execute(pool)
+                .await
+                .expect("scope cleanup");
+            sqlx::query("DELETE FROM api_clients WHERE id=$1")
+                .bind(client_id)
+                .execute(pool)
+                .await
+                .expect("client cleanup");
+        }
+        sqlx::query("DELETE FROM staff_users WHERE id=$1")
+            .bind(actor)
+            .execute(pool)
+            .await
+            .expect("actor cleanup");
+    }
+
+    async fn fixture_actor(pool: &PgPool, label: &str) -> Uuid {
+        sqlx::query_scalar(
+            "INSERT INTO staff_users (email,password_hash) VALUES ($1,'hash') RETURNING id",
+        )
+        .bind(format!("{label}-{}@api-client-red.test", Uuid::new_v4()))
+        .fetch_one(pool)
+        .await
+        .expect("actor fixture")
+    }
+
+    #[tokio::test]
+    async fn create_materializes_response_before_commit() {
+        let _guard = test_guard().await;
+        let pool = test_pool().await;
+        let marker = Uuid::new_v4();
+        let actor = fixture_actor(&pool, "f04-create").await;
+        let repository = SqlxApiClientRepository::new(pool.clone());
+        const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let suffix: String = marker
+            .as_bytes()
+            .iter()
+            .map(|byte| ALPHABET[(*byte & 31) as usize] as char)
+            .collect();
+        let client_id = format!("XFC{suffix}");
+        let command = ValidatedCreateApiClient {
+            name: "Response boundary test".to_owned(),
+            description: Some("must not report a committed mutation as failed".to_owned()),
+            status: ApiClientStatus::Active,
+            allowed_scopes: vec![ApiClientScope::AnalyticsRead],
+        };
+
+        fail_next_client_reload_for_test();
+        let result = repository.create(actor, &client_id, &command).await;
+        let persisted_clients: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM api_clients WHERE created_by_staff_user_id=$1",
+        )
+        .bind(actor)
+        .fetch_one(&pool)
+        .await
+        .expect("client count");
+        let persisted_scopes: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM api_client_allowed_scopes scope
+             JOIN api_clients client ON client.id=scope.api_client_id
+             WHERE client.created_by_staff_user_id=$1",
+        )
+        .bind(actor)
+        .fetch_one(&pool)
+        .await
+        .expect("scope count");
+        let persisted_audits: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM api_client_management_audit audit
+             JOIN api_clients client ON client.id=audit.api_client_id
+             WHERE client.created_by_staff_user_id=$1",
+        )
+        .bind(actor)
+        .fetch_one(&pool)
+        .await
+        .expect("audit count");
+        cleanup(&pool, actor).await;
+
+        assert!(result.is_ok());
+        assert_eq!(persisted_clients, 1);
+        assert_eq!(persisted_scopes, 1);
+        assert_eq!(persisted_audits, 1);
+    }
+
+    #[tokio::test]
+    async fn update_materializes_response_before_commit() {
+        let _guard = test_guard().await;
+        let pool = test_pool().await;
+        let actor = fixture_actor(&pool, "f04-update").await;
+        let repository = SqlxApiClientRepository::new(pool.clone());
+        let client_id = {
+            const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            let suffix: String = Uuid::new_v4()
+                .as_bytes()
+                .iter()
+                .map(|byte| ALPHABET[(*byte & 31) as usize] as char)
+                .collect();
+            format!("XFC{suffix}")
+        };
+        let created = repository
+            .create(
+                actor,
+                &client_id,
+                &ValidatedCreateApiClient {
+                    name: "Update boundary test".to_owned(),
+                    description: Some("before".to_owned()),
+                    status: ApiClientStatus::Suspended,
+                    allowed_scopes: vec![ApiClientScope::FlightsRead],
+                },
+            )
+            .await
+            .expect("create fixture");
+        fail_next_client_reload_for_test();
+        let result = repository
+            .update(
+                actor,
+                &client_id,
+                UpdateApiClientCommand {
+                    name: "Updated boundary test".to_owned(),
+                    description: Some("after".to_owned()),
+                    allowed_scopes: vec![ApiClientScope::AnalyticsRead],
+                    version: created.version,
+                },
+            )
+            .await;
+        cleanup(&pool, actor).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn transition_materializes_response_before_commit() {
+        let _guard = test_guard().await;
+        let pool = test_pool().await;
+        let actor = fixture_actor(&pool, "f04-transition").await;
+        let repository = SqlxApiClientRepository::new(pool.clone());
+        let client_id = {
+            const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            let suffix: String = Uuid::new_v4()
+                .as_bytes()
+                .iter()
+                .map(|byte| ALPHABET[(*byte & 31) as usize] as char)
+                .collect();
+            format!("XFC{suffix}")
+        };
+        let created = repository
+            .create(
+                actor,
+                &client_id,
+                &ValidatedCreateApiClient {
+                    name: "Transition boundary test".to_owned(),
+                    description: None,
+                    status: ApiClientStatus::Suspended,
+                    allowed_scopes: vec![ApiClientScope::FlightsRead],
+                },
+            )
+            .await
+            .expect("create fixture");
+        fail_next_client_reload_for_test();
+        let result = repository
+            .transition(actor, &client_id, created.version, ApiClientStatus::Active)
+            .await;
+        cleanup(&pool, actor).await;
+        assert!(result.is_ok());
     }
 }
 

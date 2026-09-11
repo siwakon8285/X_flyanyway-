@@ -104,7 +104,7 @@ docker compose up --build
 
 | ระบบ | Local/Homebrew | Docker host → container |
 | --- | ---: | ---: |
-| PostgreSQL | `5432` | `5433:5432` |
+| PostgreSQL | `5432` | `127.0.0.1:5433:5432` |
 | MySQL | `3306` | `3307:3306` |
 
 ภายใน Docker:
@@ -134,7 +134,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_HOST_PORT:-5433}:5432"
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -279,6 +279,15 @@ DATABASE_URL=mysql://app_user:change_me@db:3306/app_db
 - test suite ควร reset/seed ข้อมูลก่อนแต่ละรอบหรือใช้ transaction rollback เพื่อความ idempotent
 - ห้าม hardcode ให้ test ชี้ไปที่ database เดียวกับ dev/production โดยเด็ดขาด
 
+สำหรับ X-Fly:
+
+- `TEST_DATABASE_URL` เป็น test setup/migration/fixture credential (`x_fly_migrator`)
+- `TEST_RUNTIME_DATABASE_URL` เป็น restricted application credential (`x_fly_runtime`)
+- ทั้งสอง URL ต้อง resolve ไป host, port และ database TEST เดียวกัน และต้องไม่ fallback ไป `DATABASE_URL`
+- Guard ต้อง reject DEV port `5433`, DEV database `x_fly`, missing database name และชื่อที่ไม่ลงท้าย `_test`
+- Canonical local TEST publication คือ `127.0.0.1:${POSTGRES_TEST_HOST_PORT:-5434}:5432`; mutation/reset ทำได้หลังพิสูจน์ TEST identity เท่านั้น
+- Normal X-Fly API ใช้ `DATABASE_URL` สำหรับ readiness/runtime เท่านั้น ส่วน migration, explicit guarded seed และ `staff_admin` ใช้ `MIGRATION_DATABASE_URL`; startup ไม่ migrate หรือ seed อัตโนมัติ
+
 ---
 
 ## 11. Backup และ Restore (Local/Dev)
@@ -373,6 +382,8 @@ PostgreSQL :5432
 - Database connection pooling เป็นหน้าที่ของ application pool / PgBouncer / ProxySQL ตาม architecture
 - Cloudflare Tunnel ห้ามชี้ตรงไป PostgreSQL/MySQL
 - Production secrets ห้ามอยู่ใน `nginx.conf`
+
+X-Fly production connectivity ต้องคงเป็น `backend/container → private Docker network → postgres:5432` (หรือ service name จริง) โดยไม่มี public/LAN database hostname และ frontend/external API consumer ห้ามต่อ PostgreSQL โดยตรง
 
 ---
 
@@ -614,7 +625,7 @@ Agent ต้องรันคำสั่งตามโปรเจกต์�
 - [ ] Database มี persistent named volume
 - [ ] Healthcheck ผ่าน และ app รอ database พร้อม
 - [ ] App ใน container ใช้ `db` และ internal port ถูกต้อง
-- [ ] PostgreSQL Docker ใช้ host `5433` หรือ MySQL ใช้ `3307` (หรือ port ว่างถัดไปถ้าชนกัน)
+- [ ] PostgreSQL Docker host publication เป็น loopback-only เช่น `127.0.0.1:5433:5432`; MySQL ใช้ `3307` ตาม project requirement (หรือ port ว่างถัดไปถ้าชนกัน)
 - [ ] มี `.env.example` และไม่มี secret จริงใน Git
 - [ ] App ไม่ใช้ `postgres`, `root` หรือ superuser
 - [ ] Charset/collation และ timezone (UTC) ตั้งค่าถูกต้อง

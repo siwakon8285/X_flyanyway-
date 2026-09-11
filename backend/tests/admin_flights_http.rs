@@ -19,7 +19,8 @@ use x_fly_api::{
     application::{flight::FlightManagement, staff_auth::StaffAuthService},
     infrastructure::{
         database::{
-            prepare_database, SqlxFlightRepository, SqlxSeatHoldRepository, SqlxStaffAuthRepository,
+            prepare_test_database, SqlxFlightRepository, SqlxSeatHoldRepository,
+            SqlxStaffAuthRepository,
         },
         http::build_router,
         password::Argon2PasswordService,
@@ -41,7 +42,7 @@ async fn test_pool() -> PgPool {
         .connect(&url)
         .await
         .unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     sqlx::raw_sql(
         "DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number = 'XF 952')
              OR actor_staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@flight-http.test');

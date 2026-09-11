@@ -11,7 +11,7 @@ use x_fly_api::{
     domain::api_client::{
         ApiClientScope, ApiClientStatus, CreateApiClientCommand, UpdateApiClientCommand,
     },
-    infrastructure::database::{prepare_database, SqlxApiClientRepository},
+    infrastructure::database::{prepare_test_database, SqlxApiClientRepository},
 };
 
 async fn fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
@@ -27,7 +27,7 @@ async fn test_pool() -> PgPool {
         .connect(&common::test_database_url())
         .await
         .unwrap();
-    prepare_database(&pool).await.unwrap();
+    prepare_test_database(&pool).await.unwrap();
     clean_api_client_fixtures(&pool).await;
     pool
 }
