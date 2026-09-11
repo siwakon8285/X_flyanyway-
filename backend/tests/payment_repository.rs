@@ -40,8 +40,11 @@ async fn test_pool() -> PgPool {
     pool
 }
 
-fn departure_date() -> NaiveDate {
-    Utc::now().date_naive() + ChronoDuration::days(60 + (Uuid::new_v4().as_u128() % 100_000) as i64)
+async fn departure_date() -> NaiveDate {
+    let earliest = Utc::now().date_naive() + ChronoDuration::days(60);
+    common::allocate_test_departure_date("xf-201", earliest, earliest + ChronoDuration::days(730))
+        .await
+        .unwrap()
 }
 
 fn passenger() -> PassengerInput {
@@ -65,7 +68,7 @@ fn passenger() -> PassengerInput {
 }
 
 async fn ready_hold(repository: &SqlxSeatHoldRepository, token: [u8; 32]) -> Uuid {
-    let departure = departure_date();
+    let departure = departure_date().await;
     let hold = repository
         .create_hold(
             CreateSeatHold {

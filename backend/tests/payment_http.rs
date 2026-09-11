@@ -195,9 +195,14 @@ async fn post_webhook(
         .unwrap()
 }
 
-fn departure_date() -> NaiveDate {
-    NaiveDate::from_ymd_opt(2100, 1, 1).unwrap()
-        + ChronoDuration::days((uuid::Uuid::new_v4().as_u128() % 100_000) as i64)
+async fn departure_date() -> NaiveDate {
+    common::allocate_test_departure_date(
+        "xf-201",
+        NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+    )
+    .await
+    .unwrap()
 }
 
 async fn body(response: axum::response::Response) -> Value {
@@ -209,7 +214,7 @@ async fn complete_review(app: &axum::Router) -> (String, String) {
 }
 
 async fn complete_review_with_locale(app: &axum::Router, _locale: &str) -> (String, String) {
-    let departure = departure_date();
+    let departure = departure_date().await;
     let created = app
         .clone()
         .oneshot(
@@ -231,14 +236,37 @@ async fn complete_review_with_locale(app: &axum::Router, _locale: &str) -> (Stri
         )
         .await
         .unwrap();
-    let cookie = created.headers()[header::SET_COOKIE]
+    let (parts, response_body) = created.into_parts();
+    let response_bytes = response_body.collect().await.unwrap().to_bytes();
+    let payload: Value = serde_json::from_slice(&response_bytes).unwrap();
+    let error = &payload["error"];
+    assert_eq!(
+        parts.status,
+        StatusCode::CREATED,
+        "expected successful seat hold for flight=xf-201 departure_date={departure} seat=4A; status={} error_code={} error_message={} conflicting_seats={}",
+        parts.status,
+        error["code"],
+        error["message"],
+        error["conflictingSeats"]
+    );
+    let cookie_header = parts.headers.get(header::SET_COOKIE);
+    assert!(
+        cookie_header.is_some(),
+        "expected successful seat hold to set an authorization cookie for flight=xf-201 departure_date={departure} seat=4A; status={} error_code={} error_message={} conflicting_seats={}",
+        parts.status,
+        error["code"],
+        error["message"],
+        error["conflictingSeats"]
+    );
+    let cookie = cookie_header
+        .unwrap()
         .to_str()
         .unwrap()
         .split(';')
         .next()
         .unwrap()
         .to_owned();
-    let hold_id = body(created).await["id"].as_str().unwrap().to_owned();
+    let hold_id = payload["id"].as_str().unwrap().to_owned();
     let passenger = json!({
         "ordinal": 1,
         "passengerType": "ADULT",

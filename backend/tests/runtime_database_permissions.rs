@@ -6,7 +6,7 @@ use argon2::{
     password_hash::{PasswordHasher, SaltString},
     Algorithm, Argon2, Params, Version,
 };
-use chrono::{Duration as ChronoDuration, NaiveDate};
+use chrono::NaiveDate;
 use sqlx::{PgPool, Row};
 use x_fly_api::{
     application::staff_auth::StaffAuthService,
@@ -139,8 +139,13 @@ async fn runtime_role_has_required_positive_and_negative_permissions() {
     assert!(!function_result);
     transaction.rollback().await.unwrap();
 
-    let departure_date = NaiveDate::from_ymd_opt(2100, 1, 1).unwrap()
-        + ChronoDuration::days((uuid::Uuid::new_v4().as_u128() % 50_000) as i64);
+    let departure_date = common::allocate_test_departure_date(
+        "xf-201",
+        NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
+        NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+    )
+    .await
+    .unwrap();
     let repository = SqlxSeatHoldRepository::new(runtime_pool.clone());
     let hold = repository
         .create_hold(

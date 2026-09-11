@@ -1,9 +1,6 @@
 mod common;
 
-use std::{
-    sync::atomic::{AtomicI64, Ordering},
-    time::Duration,
-};
+use std::time::Duration;
 
 use chrono::{Datelike, Duration as ChronoDuration, NaiveDate, Utc};
 use sqlx::PgPool;
@@ -28,12 +25,6 @@ async fn test_pool() -> PgPool {
     pool
 }
 
-fn test_date() -> NaiveDate {
-    static NEXT_OFFSET: AtomicI64 = AtomicI64::new(0);
-    Utc::now().date_naive()
-        + ChronoDuration::days(1_000 + NEXT_OFFSET.fetch_add(1, Ordering::Relaxed))
-}
-
 async fn complete_hold(
     repository: &SqlxSeatHoldRepository,
     token: [u8; 32],
@@ -44,7 +35,14 @@ async fn complete_hold(
         .execute(repository.pool())
         .await
         .unwrap();
-    let departure = test_date();
+    let earliest = Utc::now().date_naive() + ChronoDuration::days(1_000);
+    let departure = common::allocate_test_departure_date(
+        "xf-201",
+        earliest,
+        earliest + ChronoDuration::days(365),
+    )
+    .await
+    .unwrap();
     let seats = ["3A", "3D", "3G"]
         .iter()
         .take(counts.required_seats())

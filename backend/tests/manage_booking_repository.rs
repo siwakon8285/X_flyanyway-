@@ -187,8 +187,11 @@ async fn issued_booking_for(
     method: PaymentMethod,
 ) -> (Uuid, String) {
     let token = [141; 32];
+    let earliest = Utc::now().date_naive() + Duration::days(60);
     let departure =
-        Utc::now().date_naive() + Duration::days(60 + (Uuid::new_v4().as_u128() % 20_000) as i64);
+        common::allocate_test_departure_date("xf-201", earliest, earliest + Duration::days(730))
+            .await
+            .unwrap();
     let hold = repository
         .create_hold(
             CreateSeatHold {
