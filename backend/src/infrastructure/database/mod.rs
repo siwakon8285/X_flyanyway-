@@ -18,6 +18,7 @@ mod api_client;
 mod booking_confirmation;
 mod booking_management;
 mod cancellation;
+mod external_auth;
 mod extras;
 mod flight;
 mod lifecycle;
@@ -31,6 +32,7 @@ mod ticket_operations;
 
 pub use analytics::SqlxAnalyticsRepository;
 pub use api_client::SqlxApiClientRepository;
+pub use external_auth::{revoke_client_credentials_and_tokens, SqlxExternalAuthRepository};
 pub use flight::SqlxFlightRepository;
 pub use lifecycle::{
     migrate_database, prepare_test_database, seed_demo_database, verify_database_ready,
