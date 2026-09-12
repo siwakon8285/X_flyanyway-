@@ -1063,6 +1063,11 @@ async fn runtime_can_revoke_credential() {
     let (setup_pool, runtime_pool) = permission_pools_only().await;
     let fixture = create_auth_fixture(&setup_pool).await;
     let credential_id = insert_setup_credential(&setup_pool, &fixture).await;
+    let mut runtime_connection = runtime_pool.acquire().await.unwrap();
+    let db_before: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut *runtime_connection)
+        .await
+        .unwrap();
     let revoked_at: chrono::DateTime<Utc> = sqlx::query_scalar(
         "UPDATE api_client_credentials
          SET revoked_at = clock_timestamp(), revoked_by_staff_user_id = $2,
@@ -1072,10 +1077,15 @@ async fn runtime_can_revoke_credential() {
     )
     .bind(credential_id)
     .bind(fixture.staff_id)
-    .fetch_one(&runtime_pool)
+    .fetch_one(&mut *runtime_connection)
     .await
     .unwrap();
-    assert!(revoked_at <= Utc::now());
+    let db_after: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut *runtime_connection)
+        .await
+        .unwrap();
+    assert!(db_before <= revoked_at);
+    assert!(revoked_at <= db_after);
     cleanup_auth_fixture(&setup_pool, &fixture).await;
 }
 
@@ -1085,6 +1095,11 @@ async fn runtime_can_revoke_token() {
     let fixture = create_auth_fixture(&setup_pool).await;
     let credential_id = insert_setup_credential(&setup_pool, &fixture).await;
     let token_id = insert_setup_token(&setup_pool, credential_id).await;
+    let mut runtime_connection = runtime_pool.acquire().await.unwrap();
+    let db_before: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut *runtime_connection)
+        .await
+        .unwrap();
     let revoked_at: chrono::DateTime<Utc> = sqlx::query_scalar(
         "UPDATE external_access_tokens
          SET revoked_at = clock_timestamp()
@@ -1092,10 +1107,15 @@ async fn runtime_can_revoke_token() {
          RETURNING revoked_at",
     )
     .bind(token_id)
-    .fetch_one(&runtime_pool)
+    .fetch_one(&mut *runtime_connection)
     .await
     .unwrap();
-    assert!(revoked_at <= Utc::now());
+    let db_after: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut *runtime_connection)
+        .await
+        .unwrap();
+    assert!(db_before <= revoked_at);
+    assert!(revoked_at <= db_after);
     cleanup_auth_fixture(&setup_pool, &fixture).await;
 }
 
