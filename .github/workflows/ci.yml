@@ -235,19 +235,25 @@ jobs:
             --host 127.0.0.1 --port 5434 \
             --username x_fly_migrator --dbname x_fly_concurrency_test \
             --command "SELECT COUNT(*) FILTER (WHERE success) || '|' || COUNT(*) FROM _sqlx_migrations;")"
-          test "$migration_status" = "26|26"
+          test "$migration_status" = "27|27"
 
-          table_count="$(psql --no-psqlrc --tuples-only --no-align \
+          application_table_count="$(psql --no-psqlrc --tuples-only --no-align \
+            --host 127.0.0.1 --port 5434 \
+            --username x_fly_migrator --dbname x_fly_concurrency_test \
+            --command "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_sqlx_migrations';")"
+          test "$application_table_count" = "35"
+
+          total_public_table_count="$(psql --no-psqlrc --tuples-only --no-align \
             --host 127.0.0.1 --port 5434 \
             --username x_fly_migrator --dbname x_fly_concurrency_test \
             --command "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public';")"
-          test "$table_count" = "34"
+          test "$total_public_table_count" = "36"
 
           owner_count="$(psql --no-psqlrc --tuples-only --no-align \
             --host 127.0.0.1 --port 5434 \
             --username x_fly_migrator --dbname x_fly_concurrency_test \
             --command "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public' AND tableowner = 'x_fly_migrator';")"
-          test "$owner_count" = "34"
+          test "$owner_count" = "36"
 
           function_owner="$(psql --no-psqlrc --tuples-only --no-align \
             --host 127.0.0.1 --port 5434 \

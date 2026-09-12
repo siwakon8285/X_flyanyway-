@@ -13,6 +13,18 @@ REVOKE ALL ON SCHEMA public FROM x_fly_runtime;
 GRANT USAGE ON SCHEMA public TO x_fly_runtime;
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM x_fly_runtime;
 
+-- Table-level and column-level INSERT privileges are cumulative. Remove the
+-- historical broad audit grant before restoring only the approved columns.
+REVOKE ALL PRIVILEGES ON TABLE public.api_client_management_audit
+FROM x_fly_runtime, PUBLIC;
+REVOKE INSERT ON TABLE public.api_client_management_audit
+FROM x_fly_runtime, PUBLIC;
+
+REVOKE ALL PRIVILEGES ON TABLE
+    public.api_client_credentials,
+    public.external_access_tokens
+FROM x_fly_runtime, PUBLIC;
+
 GRANT SELECT ON TABLE
     public._sqlx_migrations,
     public.aircraft_seat_templates,
@@ -69,7 +81,6 @@ TO x_fly_runtime;
 
 GRANT INSERT ON TABLE
     public.api_client_allowed_scopes,
-    public.api_client_management_audit,
     public.booking_operations_audit,
     public.flight_management_audit,
     public.flight_service_seat_templates,
@@ -88,6 +99,72 @@ GRANT DELETE ON TABLE
     public.hold_passengers,
     public.hold_review_pricing,
     public.staff_login_throttles
+TO x_fly_runtime;
+
+GRANT INSERT (
+    api_client_id,
+    actor_staff_user_id,
+    action,
+    before_state,
+    after_state,
+    credential_id,
+    created_at
+)
+ON TABLE public.api_client_management_audit
+TO x_fly_runtime;
+
+GRANT SELECT (
+    id,
+    api_client_id,
+    secret_digest,
+    digest_version,
+    issued_at,
+    revoked_at,
+    revocation_reason
+)
+ON TABLE public.api_client_credentials
+TO x_fly_runtime;
+
+GRANT INSERT (
+    api_client_id,
+    secret_digest,
+    digest_version,
+    issued_at,
+    issued_by_staff_user_id
+)
+ON TABLE public.api_client_credentials
+TO x_fly_runtime;
+
+GRANT UPDATE (
+    revoked_at,
+    revoked_by_staff_user_id,
+    revocation_reason
+)
+ON TABLE public.api_client_credentials
+TO x_fly_runtime;
+
+GRANT SELECT (
+    id,
+    api_client_credential_id,
+    token_hash,
+    issued_at,
+    expires_at,
+    revoked_at
+)
+ON TABLE public.external_access_tokens
+TO x_fly_runtime;
+
+GRANT INSERT (
+    api_client_credential_id,
+    token_hash,
+    issued_at,
+    expires_at
+)
+ON TABLE public.external_access_tokens
+TO x_fly_runtime;
+
+GRANT UPDATE (revoked_at)
+ON TABLE public.external_access_tokens
 TO x_fly_runtime;
 
 REVOKE ALL ON FUNCTION public.has_protected_stripe_card_finalization(uuid) FROM PUBLIC;
