@@ -12,10 +12,16 @@ use tower_http::request_id::RequestId;
 use uuid::Uuid;
 
 use crate::{
-    application::{api_client::validate_client_id, external_auth::ExternalAuthService},
-    domain::external_api::{
-        ExternalAuthenticationError, ExternalPrincipal, ExternalTokenExchangeError,
-        IssuedAccessToken, PlaintextAccessToken, PlaintextClientSecret,
+    application::{
+        api_client::validate_client_id,
+        external_auth::{require_scope, ExternalAuthService, ExternalScopeError},
+    },
+    domain::{
+        api_client::ApiClientScope,
+        external_api::{
+            ExternalAuthenticationError, ExternalPrincipal, ExternalTokenExchangeError,
+            IssuedAccessToken, PlaintextAccessToken, PlaintextClientSecret,
+        },
     },
     state::AppState,
 };
@@ -27,6 +33,10 @@ const EXTERNAL_ERROR_MESSAGE: &str = "The external request is invalid.";
 const CLIENT_AUTH_FAILURE_MESSAGE: &str = "Client authentication failed.";
 const AUTH_FAILURE_MESSAGE: &str = "External authentication failed.";
 const AUTH_UNAVAILABLE_MESSAGE: &str = "External authentication is temporarily unavailable.";
+const SCOPE_DENIED_MESSAGE: &str = "The required external scope is not available.";
+const RESOURCE_NOT_FOUND_MESSAGE: &str = "The external resource was not found.";
+const SERVICE_UNAVAILABLE_MESSAGE: &str = "The external service is temporarily unavailable.";
+const INTERNAL_ERROR_MESSAGE: &str = "The external service encountered an internal error.";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -60,80 +70,99 @@ impl TokenExchangeResponse {
     }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ExternalErrorEnvelope {
-    error: ExternalErrorBody,
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ExternalErrorCode {
+    ExternalAuthenticationFailed,
+    ExternalClientAuthenticationFailed,
+    ExternalScopeDenied,
+    ExternalRequestInvalid,
+    ExternalResourceNotFound,
+    ExternalAuthUnavailable,
+    ExternalServiceUnavailable,
+    ExternalInternalError,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ExternalErrorBody {
-    code: &'static str,
-    message: &'static str,
-    request_id: Uuid,
-}
-
-#[derive(Clone, Copy)]
-enum ExternalErrorKind {
-    RequestInvalid,
-    ClientAuthenticationFailed,
-    AuthenticationFailed,
-    AuthenticationUnavailable,
-}
-
-impl ExternalErrorKind {
+impl ExternalErrorCode {
     const fn status(self) -> StatusCode {
         match self {
-            Self::RequestInvalid => StatusCode::BAD_REQUEST,
-            Self::ClientAuthenticationFailed | Self::AuthenticationFailed => {
+            Self::ExternalRequestInvalid => StatusCode::BAD_REQUEST,
+            Self::ExternalAuthenticationFailed | Self::ExternalClientAuthenticationFailed => {
                 StatusCode::UNAUTHORIZED
             }
-            Self::AuthenticationUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-        }
-    }
-
-    const fn code(self) -> &'static str {
-        match self {
-            Self::RequestInvalid => "EXTERNAL_REQUEST_INVALID",
-            Self::ClientAuthenticationFailed => "EXTERNAL_CLIENT_AUTHENTICATION_FAILED",
-            Self::AuthenticationFailed => "EXTERNAL_AUTHENTICATION_FAILED",
-            Self::AuthenticationUnavailable => "EXTERNAL_AUTH_UNAVAILABLE",
+            Self::ExternalScopeDenied => StatusCode::FORBIDDEN,
+            Self::ExternalResourceNotFound => StatusCode::NOT_FOUND,
+            Self::ExternalAuthUnavailable | Self::ExternalServiceUnavailable => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+            Self::ExternalInternalError => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     const fn message(self) -> &'static str {
         match self {
-            Self::RequestInvalid => EXTERNAL_ERROR_MESSAGE,
-            Self::ClientAuthenticationFailed => CLIENT_AUTH_FAILURE_MESSAGE,
-            Self::AuthenticationFailed => AUTH_FAILURE_MESSAGE,
-            Self::AuthenticationUnavailable => AUTH_UNAVAILABLE_MESSAGE,
+            Self::ExternalRequestInvalid => EXTERNAL_ERROR_MESSAGE,
+            Self::ExternalClientAuthenticationFailed => CLIENT_AUTH_FAILURE_MESSAGE,
+            Self::ExternalAuthenticationFailed => AUTH_FAILURE_MESSAGE,
+            Self::ExternalScopeDenied => SCOPE_DENIED_MESSAGE,
+            Self::ExternalResourceNotFound => RESOURCE_NOT_FOUND_MESSAGE,
+            Self::ExternalAuthUnavailable => AUTH_UNAVAILABLE_MESSAGE,
+            Self::ExternalServiceUnavailable => SERVICE_UNAVAILABLE_MESSAGE,
+            Self::ExternalInternalError => INTERNAL_ERROR_MESSAGE,
         }
     }
 
     const fn challenge(self) -> bool {
-        matches!(self, Self::AuthenticationFailed)
+        matches!(self, Self::ExternalAuthenticationFailed)
     }
 }
 
-fn external_error(kind: ExternalErrorKind, request_id: Uuid) -> Response {
-    let mut response = (
-        kind.status(),
-        Json(ExternalErrorEnvelope {
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalErrorEnvelope {
+    pub error: ExternalErrorBody,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalErrorBody {
+    pub code: ExternalErrorCode,
+    message: &'static str,
+    pub request_id: Uuid,
+}
+
+impl ExternalErrorEnvelope {
+    pub fn new(code: ExternalErrorCode, request_id: Uuid) -> Self {
+        Self {
             error: ExternalErrorBody {
-                code: kind.code(),
-                message: kind.message(),
+                code,
+                message: code.message(),
                 request_id,
             },
-        }),
-    )
-        .into_response();
-    if kind.challenge() {
-        response
-            .headers_mut()
-            .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        }
     }
-    response
+}
+
+impl IntoResponse for ExternalErrorEnvelope {
+    fn into_response(self) -> Response {
+        let challenge = self.error.code.challenge();
+        let mut response = (
+            self.error.code.status(),
+            [(header::CACHE_CONTROL, "no-store, private")],
+            Json(self),
+        )
+            .into_response();
+        if challenge {
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        }
+        response
+    }
+}
+
+fn external_error(code: ExternalErrorCode, request_id: Uuid) -> Response {
+    ExternalErrorEnvelope::new(code, request_id).into_response()
 }
 
 fn request_id_from_extension(request_id: Option<&RequestId>) -> Uuid {
@@ -169,11 +198,11 @@ async fn exchange_token(
     let request_id = request_id_from_extension(request_id.as_ref().map(|extension| &extension.0));
     let request = match payload {
         Ok(Json(request)) if valid_token_exchange_request(&request) => request,
-        _ => return external_error(ExternalErrorKind::RequestInvalid, request_id),
+        _ => return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id),
     };
 
     let Some(service) = state.external_auth.as_ref() else {
-        return external_error(ExternalErrorKind::AuthenticationUnavailable, request_id);
+        return external_error(ExternalErrorCode::ExternalAuthUnavailable, request_id);
     };
     match service
         .exchange(&request.client_id, &request.client_secret, Utc::now())
@@ -191,11 +220,12 @@ async fn exchange_token(
             )
                 .into_response()
         }
-        Err(ExternalTokenExchangeError::InvalidCredential) => {
-            external_error(ExternalErrorKind::ClientAuthenticationFailed, request_id)
-        }
+        Err(ExternalTokenExchangeError::InvalidCredential) => external_error(
+            ExternalErrorCode::ExternalClientAuthenticationFailed,
+            request_id,
+        ),
         Err(ExternalTokenExchangeError::Unavailable) => {
-            external_error(ExternalErrorKind::AuthenticationUnavailable, request_id)
+            external_error(ExternalErrorCode::ExternalAuthUnavailable, request_id)
         }
     }
 }
@@ -241,6 +271,42 @@ impl ExternalBearerAuthLayer {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct ExternalScopeLayer {
+    required: ApiClientScope,
+}
+
+impl ExternalScopeLayer {
+    pub const fn new(required: ApiClientScope) -> Self {
+        Self { required }
+    }
+
+    pub fn layer<S>(self, router: Router<S>) -> Router<S>
+    where
+        S: Clone + Send + Sync + 'static,
+    {
+        let required = self.required;
+        router.route_layer(middleware::from_fn(move |request, next| {
+            external_scope_middleware(request, next, required)
+        }))
+    }
+}
+
+async fn external_scope_middleware(
+    request: Request,
+    next: Next,
+    required: ApiClientScope,
+) -> Response {
+    let request_id = request_id_from_extension(request.extensions().get::<RequestId>());
+    let Some(principal) = request.extensions().get::<ExternalPrincipal>() else {
+        return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
+    };
+    if let Err(ExternalScopeError::Missing) = require_scope(principal, required) {
+        return external_error(ExternalErrorCode::ExternalScopeDenied, request_id);
+    }
+    next.run(request).await
+}
+
 async fn external_bearer_middleware(
     State(state): State<AppState>,
     mut request: Request,
@@ -249,13 +315,13 @@ async fn external_bearer_middleware(
     let request_id = request_id_from_extension(request.extensions().get::<RequestId>());
     let mut values = request.headers().get_all(header::AUTHORIZATION).iter();
     let Some(value) = values.next() else {
-        return external_error(ExternalErrorKind::AuthenticationFailed, request_id);
+        return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     };
     if values.next().is_some() {
-        return external_error(ExternalErrorKind::AuthenticationFailed, request_id);
+        return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     }
     let Ok(value) = value.to_str() else {
-        return external_error(ExternalErrorKind::AuthenticationFailed, request_id);
+        return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     };
     match authenticate_external_request(&state, value, Utc::now()).await {
         Ok(principal) => {
@@ -263,10 +329,10 @@ async fn external_bearer_middleware(
             next.run(request).await
         }
         Err(ExternalAuthenticationError::InvalidToken) => {
-            external_error(ExternalErrorKind::AuthenticationFailed, request_id)
+            external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id)
         }
         Err(ExternalAuthenticationError::Unavailable) => {
-            external_error(ExternalErrorKind::AuthenticationUnavailable, request_id)
+            external_error(ExternalErrorCode::ExternalAuthUnavailable, request_id)
         }
     }
 }

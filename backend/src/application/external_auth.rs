@@ -4,14 +4,33 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use uuid::Uuid;
 
-use crate::domain::external_api::{
-    AccessTokenHash, CredentialAdministrationError, CredentialDigest, CredentialMetadata,
-    CredentialRevocationReason, ExternalAuthenticationError, ExternalPrincipal,
-    ExternalTokenExchangeError, IssuedAccessToken, IssuedCredential, PlaintextAccessToken,
-    PlaintextClientSecret,
+use crate::domain::{
+    api_client::ApiClientScope,
+    external_api::{
+        AccessTokenHash, CredentialAdministrationError, CredentialDigest, CredentialMetadata,
+        CredentialRevocationReason, ExternalAuthenticationError, ExternalPrincipal,
+        ExternalTokenExchangeError, IssuedAccessToken, IssuedCredential, PlaintextAccessToken,
+        PlaintextClientSecret,
+    },
 };
 
 pub use crate::domain::external_api::ACCESS_TOKEN_TTL;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExternalScopeError {
+    Missing,
+}
+
+pub fn require_scope(
+    principal: &ExternalPrincipal,
+    required: ApiClientScope,
+) -> Result<(), ExternalScopeError> {
+    principal
+        .scopes()
+        .contains(&required)
+        .then_some(())
+        .ok_or(ExternalScopeError::Missing)
+}
 
 #[async_trait]
 pub trait ExternalAuthRepository: Send + Sync {
