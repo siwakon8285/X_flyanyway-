@@ -15,7 +15,10 @@ use crate::{
     application::staff_auth::StaffAuthError,
     application::{
         analytics::AnalyticsFilter,
-        api_client::{ApiClientListFilter, ApiClientManagementError},
+        api_client::{
+            validate_client_id, ApiClientListFilter, ApiClientManagementError,
+            CredentialMetadataResponse,
+        },
         flight::FlightListFilter,
     },
     domain::{
@@ -24,6 +27,7 @@ use crate::{
         },
         booking_management::BookingListFilter,
         cancellation::StaffCancellationActor,
+        external_api::{CredentialAdministrationError, CredentialRevocationReason},
         flight::{FlightCommand, FlightManagementError, FlightStatus},
         manage_booking::BookingStatus,
         repositories::{
@@ -92,6 +96,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/admin/api-clients/{client_id}",
             get(api_client_detail).put(update_api_client),
+        )
+        .route(
+            "/api/v1/admin/api-clients/{client_id}/credentials",
+            post(issue_api_client_credential),
+        )
+        .route(
+            "/api/v1/admin/api-clients/{client_id}/credentials/revoke",
+            post(revoke_api_client_credential),
         )
         .route(
             "/api/v1/admin/api-clients/{client_id}/activate",
@@ -209,6 +221,110 @@ async fn api_client_detail(
                     .map_err(AdminApiError::from_api_client)?,
             )
             .into_response(),
+        )
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct IssueCredentialRequest {
+    version: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct RevokeCredentialRequest {
+    version: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CredentialIssuanceResponse {
+    client_id: String,
+    client_secret: String,
+    issued_at: chrono::DateTime<chrono::Utc>,
+}
+
+async fn issue_api_client_credential(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(client_id): Path<String>,
+    headers: HeaderMap,
+    payload: Result<Json<IssueCredentialRequest>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::ApiClientsManage)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_api_client_mutation(&state, &headers)?;
+        let request = payload
+            .map_err(|_| AdminApiError::api_client_validation())?
+            .0;
+        if request.version < 1 {
+            return Err(AdminApiError::api_client_validation());
+        }
+        validate_client_id(&client_id).map_err(AdminApiError::from_api_client)?;
+        let service = state
+            .api_client_credentials
+            .as_ref()
+            .ok_or_else(AdminApiError::api_client_unavailable)?;
+        let issued = service
+            .issue(
+                actor.staff_user_id(),
+                &client_id,
+                request.version,
+                Utc::now(),
+            )
+            .await
+            .map_err(AdminApiError::from_credential)?;
+        let response = CredentialIssuanceResponse {
+            client_id,
+            client_secret: hex::encode(issued.secret.as_bytes()),
+            issued_at: issued.metadata.issued_at,
+        };
+        Ok::<_, AdminApiError>((StatusCode::CREATED, Json(response)).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn revoke_api_client_credential(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path(client_id): Path<String>,
+    headers: HeaderMap,
+    payload: Result<Json<RevokeCredentialRequest>, JsonRejection>,
+) -> Response {
+    let result = async {
+        let actor = staff
+            .require(PermissionCode::ApiClientsManage)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_api_client_mutation(&state, &headers)?;
+        let request = payload
+            .map_err(|_| AdminApiError::api_client_validation())?
+            .0;
+        if request.version < 1 {
+            return Err(AdminApiError::api_client_validation());
+        }
+        validate_client_id(&client_id).map_err(AdminApiError::from_api_client)?;
+        let service = state
+            .api_client_credentials
+            .as_ref()
+            .ok_or_else(AdminApiError::api_client_unavailable)?;
+        let revoked = service
+            .revoke(
+                actor.staff_user_id(),
+                &client_id,
+                request.version,
+                CredentialRevocationReason::AdminRequest,
+                Utc::now(),
+            )
+            .await
+            .map_err(AdminApiError::from_credential)?;
+        Ok::<_, AdminApiError>(
+            Json(CredentialMetadataResponse::from_metadata(Some(&revoked))).into_response(),
         )
     }
     .await;
@@ -1606,6 +1722,36 @@ impl AdminApiError {
             },
             ApiClientManagementError::IdentityGeneration
             | ApiClientManagementError::Infrastructure => Self::api_client_unavailable(),
+        }
+    }
+    fn from_credential(error: CredentialAdministrationError) -> Self {
+        match error {
+            CredentialAdministrationError::NotFound => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "API_CLIENT_NOT_FOUND",
+                message: "The API client was not found.",
+            },
+            CredentialAdministrationError::VersionConflict => Self {
+                status: StatusCode::CONFLICT,
+                code: "API_CLIENT_STALE_VERSION",
+                message: "The API client changed after this view was loaded.",
+            },
+            CredentialAdministrationError::RevokedClient => Self {
+                status: StatusCode::CONFLICT,
+                code: "API_CLIENT_STATUS_CONFLICT",
+                message: "The API client status does not allow this operation.",
+            },
+            CredentialAdministrationError::LiveCredential => Self {
+                status: StatusCode::CONFLICT,
+                code: "API_CLIENT_CREDENTIAL_EXISTS",
+                message: "The API client already has a live credential.",
+            },
+            CredentialAdministrationError::NoLiveCredential => Self {
+                status: StatusCode::CONFLICT,
+                code: "API_CLIENT_CREDENTIAL_NOT_FOUND",
+                message: "The API client has no live credential.",
+            },
+            CredentialAdministrationError::Infrastructure => Self::api_client_unavailable(),
         }
     }
     fn from_flight(error: FlightManagementError) -> Self {

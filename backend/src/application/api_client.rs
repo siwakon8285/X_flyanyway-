@@ -10,6 +10,7 @@ use crate::domain::api_client::{
     ApiClientScope, ApiClientStatus, CreateApiClientCommand, UpdateApiClientCommand,
     ValidatedCreateApiClient,
 };
+use crate::domain::external_api::CredentialMetadata;
 
 const CLIENT_ID_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -87,6 +88,24 @@ impl From<&ApiClientRecord> for ApiClientAuditSnapshot {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialMetadataResponse {
+    pub has_live_credential: bool,
+    pub issued_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+impl CredentialMetadataResponse {
+    pub fn from_metadata(metadata: Option<&CredentialMetadata>) -> Self {
+        metadata.map_or_else(Self::default, |metadata| Self {
+            has_live_credential: metadata.revoked_at.is_none(),
+            issued_at: Some(metadata.issued_at),
+            revoked_at: metadata.revoked_at,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ApiClientAuditAction {
@@ -96,6 +115,8 @@ pub enum ApiClientAuditAction {
     ClientActivated,
     ClientSuspended,
     ClientRevoked,
+    CredentialIssued,
+    CredentialRevoked,
 }
 
 impl ApiClientAuditAction {
@@ -107,6 +128,8 @@ impl ApiClientAuditAction {
             Self::ClientActivated => "CLIENT_ACTIVATED",
             Self::ClientSuspended => "CLIENT_SUSPENDED",
             Self::ClientRevoked => "CLIENT_REVOKED",
+            Self::CredentialIssued => "CREDENTIAL_ISSUED",
+            Self::CredentialRevoked => "CREDENTIAL_REVOKED",
         }
     }
 
@@ -118,6 +141,8 @@ impl ApiClientAuditAction {
             "CLIENT_ACTIVATED" => Some(Self::ClientActivated),
             "CLIENT_SUSPENDED" => Some(Self::ClientSuspended),
             "CLIENT_REVOKED" => Some(Self::ClientRevoked),
+            "CREDENTIAL_ISSUED" => Some(Self::CredentialIssued),
+            "CREDENTIAL_REVOKED" => Some(Self::CredentialRevoked),
             _ => None,
         }
     }
@@ -139,6 +164,7 @@ pub struct ApiClientDetail {
     #[serde(flatten)]
     pub client: ApiClientRecord,
     pub audit: Vec<ApiClientAuditEntry>,
+    pub credential_metadata: CredentialMetadataResponse,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -261,7 +287,7 @@ impl ApiClientManagement {
     }
 }
 
-fn validate_client_id(client_id: &str) -> Result<(), ApiClientManagementError> {
+pub fn validate_client_id(client_id: &str) -> Result<(), ApiClientManagementError> {
     let valid = client_id.len() == 19
         && client_id.starts_with("XFC")
         && client_id[3..]
