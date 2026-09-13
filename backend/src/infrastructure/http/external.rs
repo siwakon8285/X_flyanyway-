@@ -1,12 +1,12 @@
 use axum::{
-    extract::{Extension, Json, Request, State},
+    extract::{Extension, Json, Path, Query, Request, State},
     http::{header, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::post,
+    routing::{get, post},
     Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use tower_http::request_id::RequestId;
 use uuid::Uuid;
@@ -15,6 +15,8 @@ use crate::{
     application::{
         api_client::validate_client_id,
         external_auth::{require_scope, ExternalAuthService, ExternalScopeError},
+        external_flights::ExternalFlightService,
+        flight::PublicFlightFilter,
     },
     domain::{
         api_client::ApiClientScope,
@@ -22,6 +24,8 @@ use crate::{
             ExternalAuthenticationError, ExternalPrincipal, ExternalTokenExchangeError,
             IssuedAccessToken, PlaintextAccessToken, PlaintextClientSecret,
         },
+        flight::FlightManagementError,
+        value_objects::CabinClass,
     },
     state::AppState,
 };
@@ -185,9 +189,110 @@ fn valid_token_exchange_request(request: &TokenExchangeRequest) -> bool {
 }
 
 pub fn external_router(state: AppState) -> Router {
+    let protected: Router<AppState> = Router::new()
+        .route("/api/v1/external/flights", get(search_external_flights))
+        .route(
+            "/api/v1/external/flights/{flight_public_id}",
+            get(detail_external_flight),
+        );
+    let protected = ExternalScopeLayer::new(ApiClientScope::FlightsRead).layer(protected);
+    let protected = ExternalBearerAuthLayer::new(state.clone()).layer(protected);
     Router::new()
         .route("/api/v1/external/token", post(exchange_token))
+        .merge(protected)
         .with_state(state)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalFlightQuery {
+    origin: String,
+    destination: String,
+    departure: NaiveDate,
+    cabin: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalFlightDetailQuery {
+    departure: NaiveDate,
+    cabin: String,
+}
+
+fn external_flight_filter(query: ExternalFlightQuery) -> Result<PublicFlightFilter, ()> {
+    let origin = query.origin.trim().to_uppercase();
+    let destination = query.destination.trim().to_uppercase();
+    if origin.len() != 3
+        || destination.len() != 3
+        || origin == destination
+        || !origin.bytes().all(|byte| byte.is_ascii_uppercase())
+        || !destination.bytes().all(|byte| byte.is_ascii_uppercase())
+    {
+        return Err(());
+    }
+    let cabin = CabinClass::parse_customer_booking(&query.cabin).map_err(|_| ())?;
+    Ok(PublicFlightFilter {
+        origin,
+        destination,
+        departure: query.departure,
+        cabin,
+    })
+}
+
+fn external_flight_service(state: &AppState) -> Result<&ExternalFlightService, ExternalErrorCode> {
+    state
+        .external_flights
+        .as_ref()
+        .ok_or(ExternalErrorCode::ExternalServiceUnavailable)
+}
+
+async fn search_external_flights(
+    State(state): State<AppState>,
+    request_id: Option<Extension<RequestId>>,
+    query: Result<Query<ExternalFlightQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let request_id = request_id_from_extension(request_id.as_ref().map(|extension| &extension.0));
+    let Ok(Query(query)) = query else {
+        return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id);
+    };
+    let Ok(filter) = external_flight_filter(query) else {
+        return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id);
+    };
+    let Ok(service) = external_flight_service(&state) else {
+        return external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id);
+    };
+    match service.search(filter).await {
+        Ok(page) => Json(page).into_response(),
+        Err(_) => external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id),
+    }
+}
+
+async fn detail_external_flight(
+    State(state): State<AppState>,
+    request_id: Option<Extension<RequestId>>,
+    Path(flight_public_id): Path<String>,
+    query: Result<Query<ExternalFlightDetailQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let request_id = request_id_from_extension(request_id.as_ref().map(|extension| &extension.0));
+    let Ok(Query(query)) = query else {
+        return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id);
+    };
+    let Ok(cabin) = CabinClass::parse_customer_booking(&query.cabin) else {
+        return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id);
+    };
+    let Ok(service) = external_flight_service(&state) else {
+        return external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id);
+    };
+    match service
+        .detail(&flight_public_id, query.departure, cabin)
+        .await
+    {
+        Ok(flight) => Json(flight).into_response(),
+        Err(FlightManagementError::NotFound) => {
+            external_error(ExternalErrorCode::ExternalResourceNotFound, request_id)
+        }
+        Err(_) => external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id),
+    }
 }
 
 async fn exchange_token(

@@ -9,6 +9,7 @@ use x_fly_api::{
         api_client::ApiClientManagement,
         cancellation::{CancellationService, RefundDispatcher},
         external_auth::{ApiClientCredentialService, ExternalAuthService},
+        external_flights::ExternalFlightService,
         flight::FlightManagement,
         staff_auth::StaffAuthService,
         use_cases::PaymentApplication,
@@ -113,7 +114,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = state
         .with_staff_auth(staff_auth)
         .with_analytics(analytics)
-        .with_flights(flights)
+        .with_flights(flights.clone())
+        .with_external_flights(ExternalFlightService::new(flights))
         .with_booking_management(repository.clone())
         .with_ticket_operations(repository.clone())
         .with_api_clients(ApiClientManagement::new(Arc::new(

@@ -6,6 +6,7 @@ use crate::{
     application::booking_confirmation::BookingConfirmationEmailService,
     application::cancellation::CancellationService,
     application::external_auth::{ApiClientCredentialService, ExternalAuthService},
+    application::external_flights::ExternalFlightService,
     application::flight::FlightManagement,
     application::staff_auth::StaffAuthService,
     application::use_cases::{
@@ -41,6 +42,7 @@ pub struct AppState {
     pub api_clients: Option<ApiClientManagement>,
     pub api_client_credentials: Option<ApiClientCredentialService>,
     pub external_auth: Option<ExternalAuthService>,
+    pub external_flights: Option<ExternalFlightService>,
 }
 
 impl AppState {
@@ -75,6 +77,7 @@ impl AppState {
             api_clients: None,
             api_client_credentials: None,
             external_auth: None,
+            external_flights: None,
         }
     }
 
@@ -160,6 +163,11 @@ impl AppState {
     ) -> Self {
         self.api_client_credentials = Some(api_client_credentials);
         self.external_auth = Some(external_auth);
+        self
+    }
+
+    pub fn with_external_flights(mut self, service: ExternalFlightService) -> Self {
+        self.external_flights = Some(service);
         self
     }
 }
