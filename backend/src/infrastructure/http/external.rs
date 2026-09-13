@@ -14,6 +14,9 @@ use uuid::Uuid;
 use crate::{
     application::{
         api_client::validate_client_id,
+        external_analytics::{
+            ExternalAnalyticsFilter, ExternalAnalyticsFilterError, ExternalAnalyticsService,
+        },
         external_auth::{require_scope, ExternalAuthService, ExternalScopeError},
         external_flights::ExternalFlightService,
         flight::PublicFlightFilter,
@@ -197,9 +200,16 @@ pub fn external_router(state: AppState) -> Router {
         );
     let protected = ExternalScopeLayer::new(ApiClientScope::FlightsRead).layer(protected);
     let protected = ExternalBearerAuthLayer::new(state.clone()).layer(protected);
+    let analytics: Router<AppState> = Router::new().route(
+        "/api/v1/external/analytics/summary",
+        get(external_analytics_summary),
+    );
+    let analytics = ExternalScopeLayer::new(ApiClientScope::AnalyticsRead).layer(analytics);
+    let analytics = ExternalBearerAuthLayer::new(state.clone()).layer(analytics);
     Router::new()
         .route("/api/v1/external/token", post(exchange_token))
         .merge(protected)
+        .merge(analytics)
         .with_state(state)
 }
 
@@ -244,6 +254,64 @@ fn external_flight_service(state: &AppState) -> Result<&ExternalFlightService, E
         .external_flights
         .as_ref()
         .ok_or(ExternalErrorCode::ExternalServiceUnavailable)
+}
+
+fn external_analytics_service(
+    state: &AppState,
+) -> Result<&ExternalAnalyticsService, ExternalErrorCode> {
+    state
+        .external_analytics
+        .as_ref()
+        .ok_or(ExternalErrorCode::ExternalServiceUnavailable)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExternalAnalyticsQuery {
+    from: Option<String>,
+    to: Option<String>,
+    route: Option<String>,
+    cabin: Option<String>,
+}
+
+async fn external_analytics_summary(
+    State(state): State<AppState>,
+    request_id: Option<Extension<RequestId>>,
+    query: Result<Query<ExternalAnalyticsQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let request_id = request_id_from_extension(request_id.as_ref().map(|extension| &extension.0));
+    let Ok(Query(query)) = query else {
+        return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id);
+    };
+    let filter = match ExternalAnalyticsFilter::parse(
+        query.from.as_deref(),
+        query.to.as_deref(),
+        query.route.as_deref(),
+        query.cabin.as_deref(),
+        Utc::now(),
+    ) {
+        Ok(filter) => filter,
+        Err(
+            ExternalAnalyticsFilterError::InvalidDate
+            | ExternalAnalyticsFilterError::InvalidRange
+            | ExternalAnalyticsFilterError::InvalidRoute
+            | ExternalAnalyticsFilterError::InvalidCabin,
+        ) => return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id),
+    };
+    let Ok(service) = external_analytics_service(&state) else {
+        return external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id);
+    };
+    match service.summary(filter, Utc::now()).await {
+        Ok(summary) => Json(summary).into_response(),
+        Err(
+            crate::application::external_analytics::ExternalAnalyticsRepositoryError::Infrastructure(
+                _,
+            ),
+        ) => external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id),
+        Err(crate::application::external_analytics::ExternalAnalyticsRepositoryError::InconsistentAggregate) => {
+            external_error(ExternalErrorCode::ExternalInternalError, request_id)
+        }
+    }
 }
 
 async fn search_external_flights(

@@ -8,6 +8,7 @@ use x_fly_api::{
     application::{
         api_client::ApiClientManagement,
         cancellation::{CancellationService, RefundDispatcher},
+        external_analytics::ExternalAnalyticsService,
         external_auth::{ApiClientCredentialService, ExternalAuthService},
         external_flights::ExternalFlightService,
         flight::FlightManagement,
@@ -19,8 +20,8 @@ use x_fly_api::{
     infrastructure::{
         database::{
             verify_database_ready, SqlxAnalyticsRepository, SqlxApiClientRepository,
-            SqlxExternalAuthRepository, SqlxFlightRepository, SqlxSeatHoldRepository,
-            SqlxStaffAuthRepository,
+            SqlxExternalAnalyticsRepository, SqlxExternalAuthRepository, SqlxFlightRepository,
+            SqlxSeatHoldRepository, SqlxStaffAuthRepository,
         },
         diagnostics::classify_sqlx_error,
         external_auth_crypto::HmacExternalCredentialCrypto,
@@ -55,6 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
     let analytics = Arc::new(SqlxAnalyticsRepository::new(repository.pool().clone()));
+    let external_analytics = ExternalAnalyticsService::new(Arc::new(
+        SqlxExternalAnalyticsRepository::new(repository.pool().clone()),
+    ));
     let staff_auth = StaffAuthService::new(
         Arc::new(SqlxStaffAuthRepository::new(repository.pool().clone())),
         Argon2PasswordService::default(),
@@ -114,6 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = state
         .with_staff_auth(staff_auth)
         .with_analytics(analytics)
+        .with_external_analytics(external_analytics)
         .with_flights(flights.clone())
         .with_external_flights(ExternalFlightService::new(flights))
         .with_booking_management(repository.clone())

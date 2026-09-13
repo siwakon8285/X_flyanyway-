@@ -2,6 +2,7 @@ pub mod analytics;
 pub mod api_client;
 pub mod booking_confirmation;
 pub mod cancellation;
+pub mod external_analytics;
 pub mod external_auth;
 pub mod external_flights;
 pub mod flight;
