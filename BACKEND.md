@@ -69,20 +69,21 @@ HTTP Request → [Handler] → [Use Case] → [Repository Interface] → [Reposi
 - Async Runtime: Tokio
 - Database: PostgreSQL via SQLx (async, compile-time checked)
 - Serialization: Serde (serde_json)
-- Authentication: project-specific; X-Fly uses opaque PostgreSQL-backed staff sessions, not JWT
+- Authentication: project-specific — follow the current project threat model and architecture; do not assume JWT, cookies, or any auth scheme by default
 - Validation: typed request parsing plus domain/manual guard clauses; add a validation crate only when the project actually uses it
 - Environment: `dotenvy` + typed config struct
 - Error Handling: Custom `AppError` implementing `IntoResponse`
 - Logging: `tracing` + `tracing-subscriber`
 - TLS client: `rustls` through the configured HTTP client where external HTTPS is used
 
-### X-Fly Project-Specific Overrides
+### Project-Specific Overrides
 
-- Human staff authenticate with a random opaque `x_fly_staff_session` cookie backed by PostgreSQL session state. Passwords use Argon2id. Generic JWT examples elsewhere in this reusable guide do not describe X-Fly staff/customer authentication.
-- `DATABASE_URL` is the restricted `x_fly_runtime` connection used by normal API startup and readiness checks only. Startup does not run migrations or demo seed.
-- `MIGRATION_DATABASE_URL` is the separate `x_fly_migrator` connection used by `db_admin migrate`, explicit guarded demo seed, and the operator-only `staff_admin` CLI.
-- X-Fly does not currently enable PostgreSQL RLS or use a generic service-role model. Least privilege is enforced with explicit schema/table/function grants, and the runtime role owns no application objects.
-- The historical local `x_fly_app` account is an infrastructure/bootstrap administrator for that local cluster only; future production infrastructure may use a differently named administrator.
+- ก่อนลงมือ ให้ Agent อ่าน architecture/auth/database/deployment docs ของ **current project** แล้วถือ project-specific decision เป็น source of truth เหนือ generic examples ในไฟล์นี้
+- Authentication ต้องใช้ architecture ที่ project กำหนดจริง เช่น opaque session, bearer token, JWT, API key, mTLS หรือรูปแบบอื่น — ห้ามเปลี่ยน auth model เพียงเพราะตัวอย่างใน guide ใช้เทคโนโลยีต่างกัน
+- `DATABASE_URL` ควรเป็น runtime connection ที่มี least privilege เท่าที่ application ต้องใช้จริง; ถ้า project แยก migration/operator role ให้ใช้ connection แยกและห้ามให้ runtime ถือ DDL/ownership privilege โดยไม่จำเป็น
+- Normal application startup ไม่ควรรัน destructive migration/demo seed อัตโนมัติ เว้นแต่ project ระบุและ review ไว้อย่างชัดเจน
+- ใช้ PostgreSQL RLS, service-role model, schema ownership หรือ explicit grants ตาม threat model/schema ของ project จริง — ห้ามเปิดใช้แบบ generic โดยไม่ออกแบบ
+- Bootstrap/admin/database-owner account เป็น infrastructure concern; ห้าม reuse เป็น normal application runtime identity
 
 ### Project Structure
 ```
@@ -121,7 +122,7 @@ backend/
 - **One handler, one job**: extract input → call use case → return response
 - **No business logic in handlers/routes**
 - **Error logging**: ใช้ `tracing::error!` ก่อน return Internal error เสมอ — ห้าม silent fail
-- **Security**: ใช้ least-privilege database role และ explicit grants; ใช้ RLS เฉพาะเมื่อ schema/threat model ของ project กำหนดจริง (X-Fly ปัจจุบันไม่ใช้ RLS/service-role model)
+- **Security**: ใช้ least-privilege database role และ explicit grants; ใช้ RLS/service-role model เฉพาะเมื่อ schema/threat model ของ current project กำหนดจริง
 - **Comment** ทุกบรรทัดอธิบายการทำงานเป็นภาษาไทย
 - เขียน Code ให้อ่านง่าย ไม่ over-engineer ถ้าไม่จำเป็นจริงๆ
 
@@ -305,7 +306,7 @@ if let Some(redis) = &state.redis {
 
 ### A01 🔴 Broken Access Control (รวม SSRF)
 - Deny by default — ไม่มี permission = ห้ามเข้า
-- ดึง actor identity จาก server-verified authentication context เสมอ (JWT claims เฉพาะ project ที่ใช้ JWT; X-Fly ใช้ opaque durable session) — ห้าม trust จาก request body
+- ดึง actor identity จาก server-verified authentication context เสมอ (เช่น verified session, bearer principal, JWT claims เฉพาะ project ที่ใช้ JWT) — ห้าม trust จาก request body
 - ตรวจ ownership ใน Use Case ทุกครั้งก่อน return resource
 - ใช้ UUID — ห้าม expose predictable internal ID
 - **SSRF**: ใช้ allowlist domain — ห้ามรับ URL arbitrary จาก user, block private/loopback IP
@@ -363,11 +364,11 @@ let quota = Quota::per_minute(NonZeroU32::new(5).unwrap());
 - กำหนดอายุ, revocation และ invalidation ตาม authentication architecture จริง
 - เก็บ browser authentication material ใน `HttpOnly Secure` cookie — ห้าม localStorage/sessionStorage
 - สำหรับ project ที่ใช้ JWT ให้ access token อายุสั้น, validate expiry และ rotate refresh token
-- X-Fly ใช้ PostgreSQL-backed opaque staff session อายุ 60 นาทีและตรวจ revoked/expired state ทุก request; ไม่มี JWT refresh-token flow
+- อายุ session/token, revocation, refresh และ re-authentication ต้องยึด architecture ของ current project; อย่านำ JWT/session rule ของ project อื่นมาใช้โดยอัตโนมัติ
 - MFA สำหรับ account ที่มีสิทธิ์สูง (Admin)
 
 ```rust
-// Generic JWT example only — not the current X-Fly session design.
+// Generic JWT example only — use only when the current project actually uses JWT.
 struct Claims { user_id: Uuid, exp: i64, iat: i64 }
 let exp = Utc::now() + Duration::minutes(15);
 ```
@@ -415,9 +416,11 @@ let value = risky_operation().map_err(|e| {
 
 ## 🧪 Testing (Backend)
 ```
-Unit Tests       → Use Cases (business logic) — ไม่ต้องมี DB จริง
-Integration Tests → Repository implementations — ต้องมี DB จริง (test DB)
-E2E Tests        → Critical user flows — ใช้ Playwright / TestSprite
+Unit Tests        → Use Cases / business logic — ไม่ต้องมี DB จริง
+Integration Tests → Repository / database behavior — ใช้ TEST DB
+Bruno API Tests   → HTTP black-box / contract / auth / regression
+E2E Tests         → Critical browser/user flows — ใช้ Playwright / TestSprite
+Load Tests        → Concurrency / throughput / latency — ใช้ k6 เมื่อเหมาะสม
 ```
 
 ### Rust
@@ -451,10 +454,134 @@ func TestProcessJob_Success(t *testing.T) {
 ```
 - `go test ./...` ต้องผ่านก่อน deploy, ใช้ `testify` สำหรับ assertions
 
+### API Testing / Black-box Regression — Bruno
+
+ใช้ **Bruno** เป็น API client และ black-box API regression tool แบบ repository-friendly โดยเฉพาะ workflow ที่ทำงานร่วมกับ AI Agent / Codex / CLI เพราะ collection และ test สามารถเก็บเป็นไฟล์ใน Git และรันจาก terminal ได้
+
+> Bruno เป็น test layer เพิ่มเติมสำหรับ HTTP/API contract — **ไม่แทน** Unit Test, Integration Test, Repository/Database Test หรือ browser E2E
+
+#### ใช้ Bruno สำหรับ
+- REST API smoke test
+- HTTP contract verification
+- status code / JSON body / response header verification
+- authentication และ authorization flow
+- invalid-input / not-found / error-contract regression
+- externally consumed API
+- security-sensitive endpoint regression
+- manual/exploratory API testing
+- CI-compatible black-box API tests เมื่อ project เหมาะสม
+
+ตัวอย่าง endpoint ที่เหมาะ:
+```text
+GET  /health
+POST /api/v1/auth/login
+GET  /api/v1/products
+POST /api/v1/orders
+POST /api/v1/integrations/token
+GET  /api/v1/integrations/resources
+```
+
+#### แบ่งหน้าที่ของ Test Layer ให้ชัด
+```text
+Backend Unit Tests
+→ business/domain/application logic
+
+Backend Integration Tests
+→ repository/database behavior
+
+Bruno
+→ HTTP/API black-box + contract + auth regression
+
+Playwright
+→ browser/user E2E
+
+k6
+→ load/concurrency/performance
+```
+
+#### Agent Rules
+เมื่อสร้างหรือแก้ API endpoint อย่างมีนัยสำคัญ Agent ต้องพิจารณาว่าควรเพิ่ม/แก้ Bruno regression test หรือไม่ โดยเฉพาะ externally consumed หรือ security-sensitive API
+
+อย่างน้อยให้พิจารณาเคส:
+- success response
+- invalid input
+- authentication failure
+- authorization failure
+- not-found behavior
+- important response headers
+- response-field minimization / ห้าม field อ่อนไหวหลุด
+
+ห้ามสร้าง Bruno test ซ้ำ implementation detail ทุกจุดโดยไม่จำเป็น — Bruno ควรทดสอบจากมุมมอง HTTP client ภายนอก
+
+#### Repository Convention
+ถ้า project ใช้ Bruno ให้ prefer โครงสร้างประมาณนี้:
+```text
+api-tests/
+└── bruno/
+    ├── bruno.json
+    ├── environments/
+    ├── health/
+    ├── auth/
+    ├── external/
+    └── admin/
+```
+
+ปรับ folder ตาม module/API จริงของ project ได้
+
+#### CLI
+รัน collection:
+```bash
+bru run
+```
+
+รัน request/folder ที่ระบุ:
+```bash
+bru run path/to/request.bru
+```
+
+Agent สามารถใช้ Bruno CLI เป็น verification gate เมื่อ backend/test environment พร้อม
+
+#### Secrets / Environment Safety
+**NEVER commit**:
+- passwords
+- API secrets
+- access tokens
+- refresh tokens
+- session tokens
+- production credentials
+- private keys
+
+เก็บ secret ไว้ใน local/gitignored Bruno environment หรือ inject ตอน runtime เท่านั้น
+
+checked-in environment เก็บได้เฉพาะ non-sensitive config เช่น:
+```text
+baseUrl=http://127.0.0.1:8080
+```
+
+ก่อนรัน API test ที่ mutate data:
+- verify target environment ทุกครั้ง
+- verify host/port/database ที่เกี่ยวข้อง
+- destructive scenario ต้องใช้ TEST data / TEST environment
+- อย่าคิดว่า `localhost` = disposable โดยอัตโนมัติ
+- ห้ามรัน destructive regression test กับ production
+- ห้ามใช้ Bruno เป็นข้ออ้างในการ reset/drop database โดยไม่ผ่าน safety rule ของ project
+
+#### Completion Rule
+API feature **ห้ามถือว่า verified เพียงเพราะ Bruno ผ่าน**
+
+ต้องผ่าน quality gates ที่เกี่ยวข้องด้วย เช่น:
+- Unit/Integration tests
+- database/repository tests
+- static checks/lint
+- security checks
+- project-specific CI gates
+
 ### กฎรวม
 - ห้ามใช้ production DB ใน test — ใช้ test database แยก หรือ in-memory
 - ห้าม commit test ที่ `t.Skip()` โดยไม่มีเหตุผล
 - Test ต้องรันได้โดยไม่ต้องมี environment พิเศษ (ยกเว้น integration test)
+- Bruno tests ต้องใช้ environment ที่ชัดเจนและไม่ commit secret
+- Security-sensitive API ควรมี black-box regression test เมื่อเหมาะสม
 
 (Testing ฝั่ง Frontend/TypeScript ดูใน `FRONTEND.md`)
 
@@ -463,7 +590,7 @@ func TestProcessJob_Success(t *testing.T) {
 ## 🔗 Inter-Service Communication
 > ใช้เมื่อ project มีหลาย service (Microservices / Worker pattern)
 
-ตัวอย่าง URL/JWT/RLS ด้านล่างเป็น reusable template เท่านั้น ไม่ใช่ current X-Fly architecture. X-Fly ใช้ Next.js/same-origin BFF ตาม route ที่เกี่ยวข้อง, opaque staff sessions ที่ backend ตรวจสอบ และ PostgreSQL private connection ผ่าน explicit runtime grants.
+ตัวอย่างด้านล่างเป็น reusable template เท่านั้น — ให้ยึด architecture, authentication, network topology และ deployment platform ของ **current project** เป็น source of truth เสมอ.
 
 ### Service URLs (ตัวอย่าง — ปรับตาม project)
 | Service    | Public URL                        | Internal URL (Render) |
@@ -473,43 +600,48 @@ func TestProcessJob_Success(t *testing.T) {
 | Node.js    | https://node-svc.onrender.com     | http://node-svc:3000  |
 
 ### Communication Rules
-| จาก → ไป              | วิธี                        | Auth                   |
-|-----------------------|-----------------------------|------------------------|
-| Next.js → Rust        | HTTPS REST                  | JWT (RS256, issued by Rust API) |
-| Rust → Go Worker      | PostgreSQL jobs table       | shared DB                       |
-| Node → Rust           | HTTP internal REST          | X-Internal-Secret               |
-| Go → Frontend         | PostgreSQL LISTEN/NOTIFY หรือ SSE | RLS                       |
+| จาก → ไป | วิธี | Auth / Trust Boundary |
+|----------|------|-----------------------|
+| Frontend/BFF → API | HTTPS REST / GraphQL ตาม project | project-defined verified session/bearer/cookie |
+| API → Worker | Queue / jobs table / message broker | private service identity + least privilege |
+| Service → Service | private HTTP/gRPC/message bus | project-defined service credential, mTLS, signed request หรือ private identity |
+| Backend → Frontend realtime | SSE / WebSocket / polling | authorization ต้อง verify ฝั่ง server |
 
 ### Internal Endpoint Rules
-- Internal routes ขึ้นต้นด้วย `/internal/` เสมอ
-- ทุก internal call ต้องมี `X-Internal-Secret` header
-- ใช้ Render internal URL เสมอ — ห้ามใช้ public URL คุยกันระหว่าง service
+- ถ้า project มี internal-only routes ให้ใช้ namespace ที่ชัดเจน เช่น `/internal/` หรือ route group ที่ project กำหนด
+- ทุก internal call ต้องมี service-to-service authentication/authorization ที่ออกแบบไว้จริง; ห้ามเชื่อแค่ว่าอยู่ private network แล้วปลอดภัย
+- ใช้ private/internal service discovery ของ deployment platform เมื่อมี และหลีกเลี่ยง public hop ที่ไม่จำเป็น
+- ห้าม hard-code shared secret หรือ internal URL ลง source code; ใช้ typed config / secret manager
 
 ### Job Queue Rules
-- ใช้ `SELECT FOR UPDATE SKIP LOCKED` ทุกครั้ง
-- ทุก job มี `max_attempts = 3`
-- Failed jobs ต้อง log ไว้ใน `failed_jobs` table แยก
+- สำหรับ PostgreSQL job queue ให้พิจารณา `SELECT ... FOR UPDATE SKIP LOCKED` เมื่อมี concurrent workers และ semantics เหมาะสม
+- กำหนด `max_attempts`, backoff, lease/visibility timeout และ idempotency ตามงานจริง — ห้าม fix ค่าเดียวใช้ทุก project
+- Failed/dead-letter jobs ต้องมี durable state หรือ observability ที่ตรวจสอบย้อนหลังได้
 
 ---
 
 ## 🚀 CI/CD (Backend)
-Repository มี checked-in workflow ที่ `.github/workflows/ci.yml` สำหรับ `pull_request` และ push ไป `main`. Backend job ใช้ Rust 1.98.0 และ PostgreSQL 18 แบบ ephemeral พร้อม bootstrap administrator เฉพาะ CI จากนั้นสร้าง `x_fly_migrator`/`x_fly_runtime`, รัน migration, reviewed runtime grants, guarded demo seed, focused lifecycle/permission tests และ full backend suite โดยไม่ใช้ DEV/production credential.
 
-คำสั่งหลักที่ workflow บังคับใช้:
+Repository ควรมี checked-in CI workflow สำหรับ `pull_request` และ protected/default branch ตาม workflow ของ project โดยใช้ **pinned toolchain/action versions**, ephemeral test dependencies เมื่อเหมาะสม และ credentials ที่สร้างเฉพาะ CI — ห้ามใช้ DEV/production credentials ใน CI.
+
+ตัวอย่าง quality gates สำหรับ Rust backend (ปรับตาม stack/project จริง):
 
 ```bash
 cargo fmt --check
 cargo build --locked
 cargo clippy --locked --all-targets -- -D warnings
-cargo tree --locked -e normal,build,dev -i rsa
-cargo tree --locked -e normal,build,dev -i sqlx-mysql
 cargo audit
 cargo test --locked --no-fail-fast
 ```
 
-`cargo audit` มี narrow reachability-based waiver สำหรับ `RUSTSEC-2023-0071` ใน `backend/.cargo/audit.toml` เพราะ `rsa` เป็น lockfile-only และ inactive/unreachable ใน X-Fly PostgreSQL-only dependency graph. CI ต้อง fail หาก `rsa` หรือ `sqlx-mysql` กลายเป็น active; advisory อื่นยัง fail ตามปกติ. ห้ามอ้างว่า advisory นี้ถูก patch.
+ถ้า project มี dependency advisory waiver/ignore:
+- ต้อง narrow และอธิบายเหตุผล
+- ต้องพิสูจน์ว่า dependency/path ที่ยกเว้นไม่เพิ่ม attack surface ตามที่อ้าง
+- เพิ่ม fail-closed guard/reachability check เมื่อทำได้
+- review/expire waiver ตามรอบที่เหมาะสม
+- ห้ามอ้างว่า vulnerability ถูก patch ถ้ายังเป็นเพียง accepted/guarded exception
 
-Workflow ผ่าน local configuration/rehearsal แล้ว แต่ remote GitHub Actions และ branch-protection required checks ยัง **NOT YET VERIFIED** จนกว่าจะมี authorized commit/push และ GitHub-hosted run จริง
+ห้ามบอกว่า remote CI, branch protection หรือ required checks “verified” จนกว่าจะมี run จริงบน hosting provider ของ project และมีหลักฐานผลลัพธ์.
 
 ### Branch Strategy
 ```
@@ -562,6 +694,13 @@ main          → Production (ห้าม push ตรง)
 - [ ] ไม่มี `any` type ใน TypeScript
 - [ ] `tsc --noEmit` / `eslint` ผ่าน
 - [ ] `npm audit --audit-level=high` ไม่มี critical
+
+### API / Bruno Verification (เมื่อ project ใช้ Bruno)
+- [ ] Endpoint ที่เพิ่ม/แก้มี Bruno black-box regression test เมื่อเหมาะสม
+- [ ] Success / invalid input / auth failure / authorization failure / headers สำคัญถูกตรวจ
+- [ ] Bruno environment ไม่มี committed secret/token/password
+- [ ] ตรวจ target environment ก่อน mutation test และไม่ยิง destructive test ใส่ production
+- [ ] Bruno ผ่านร่วมกับ Unit/Integration/DB/static/security gates — ไม่ใช้ Bruno แทน test layer อื่น
 
 ### Caching (ถ้ามี Redis)
 - [ ] Cache key ตาม convention `{resource}:{identifier}`
