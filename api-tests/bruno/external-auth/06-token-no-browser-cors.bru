@@ -1,0 +1,57 @@
+meta {
+  name: Token exchange - no browser CORS allowance
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/v1/external/token
+  body: json
+}
+
+headers {
+  content-type: application/json
+  accept: application/json
+  origin: https://example.test
+}
+
+body:json {
+  {
+    "clientId": "XFCABCDEFGHJKLMNP22",
+    "clientSecret": "0000000000000000000000000000000000000000000000000000000000000000",
+    "scope": "flights:read"
+  }
+}
+
+tests {
+  test("returns the expected non-minting status", function() {
+    expect(res.getStatus(), "CORS probe must remain structurally invalid").to.equal(400);
+  });
+
+  test("returns an external request-invalid envelope", function() {
+    const body = res.getBody() || {};
+    const error = body.error && typeof body.error === "object" ? body.error : {};
+    const fields = body !== null && typeof body === "object" && !Array.isArray(body)
+      ? Object.keys(body).sort()
+      : [];
+    expect(fields, "error envelope fields").to.eql(["error"]);
+    expect(Object.keys(error).sort(), "error fields").to.eql(["code", "message", "requestId"]);
+    expect(error.code, "error code").to.equal("EXTERNAL_REQUEST_INVALID");
+    expect(typeof error.requestId === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(error.requestId),
+      "requestId must be a UUID").to.equal(true);
+  });
+
+  test("does not emit browser CORS allowance", function() {
+    const corsHeaders = [
+      "access-control-allow-origin",
+      "access-control-allow-credentials",
+      "access-control-allow-headers",
+      "access-control-allow-methods"
+    ];
+    const absent = corsHeaders.every(function(header) {
+      return res.getHeader(header) === undefined;
+    });
+    expect(absent, "external routes must not allow browser CORS").to.equal(true);
+  });
+}

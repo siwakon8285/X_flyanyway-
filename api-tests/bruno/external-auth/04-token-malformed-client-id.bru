@@ -1,0 +1,50 @@
+meta {
+  name: Token exchange - malformed client id
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/external/token
+  body: json
+}
+
+headers {
+  content-type: application/json
+  accept: application/json
+}
+
+body:json {
+  {
+    "clientId": "not-a-canonical-client-id",
+    "clientSecret": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}
+
+tests {
+  test("returns HTTP 400", function() {
+    expect(res.getStatus(), "malformed clientId must be rejected").to.equal(400);
+  });
+
+  test("returns the external request-invalid envelope", function() {
+    const body = res.getBody();
+    const isObject = body !== null && typeof body === "object" && !Array.isArray(body);
+    const error = isObject && body.error && typeof body.error === "object" ? body.error : {};
+    const fields = isObject ? Object.keys(body).sort() : [];
+    expect(fields, "error envelope fields").to.eql(["error"]);
+    expect(Object.keys(error).sort(), "error fields").to.eql(["code", "message", "requestId"]);
+    expect(error.code, "error code").to.equal("EXTERNAL_REQUEST_INVALID");
+    expect(typeof error.message === "string" && error.message.length > 0,
+      "error message must be non-empty").to.equal(true);
+    expect(typeof error.requestId === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(error.requestId),
+      "requestId must be a UUID").to.equal(true);
+  });
+
+  test("does not echo invalid input or authentication material", function() {
+    const serialized = JSON.stringify(res.getBody() || {});
+    const safe = !serialized.includes("not-a-canonical-client-id") &&
+      !serialized.includes("clientSecret") && !serialized.includes("accessToken");
+    expect(safe, "error must not echo request credentials").to.equal(true);
+  });
+}

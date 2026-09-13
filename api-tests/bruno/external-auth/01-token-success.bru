@@ -1,0 +1,69 @@
+meta {
+  name: Token exchange - success
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/external/token
+  body: json
+}
+
+headers {
+  content-type: application/json
+  accept: application/json
+}
+
+body:json {
+  {
+    "clientId": "{{clientId}}",
+    "clientSecret": "{{clientSecret}}"
+  }
+}
+
+tests {
+  test("returns HTTP 200", function() {
+    expect(res.getStatus(), "token exchange status").to.equal(200);
+  });
+
+  test("returns exactly the public token fields", function() {
+    const body = res.getBody();
+    const isObject = body !== null && typeof body === "object" && !Array.isArray(body);
+    expect(isObject, "response body must be a JSON object").to.equal(true);
+    const fields = isObject ? Object.keys(body).sort() : [];
+    expect(fields, "response fields").to.eql(["accessToken", "expiresIn", "tokenType"]);
+  });
+
+  test("returns canonical token metadata", function() {
+    const body = res.getBody() || {};
+    expect(body.tokenType, "token type").to.equal("Bearer");
+    expect(body.expiresIn, "token lifetime").to.equal(900);
+    const canonical = typeof body.accessToken === "string" &&
+      /^xfa_v1_[0-9a-f]{64}$/.test(body.accessToken);
+    expect(canonical, "accessToken must use the canonical format").to.equal(true);
+  });
+
+  test("does not expose non-contract fields", function() {
+    const body = res.getBody();
+    const isObject = body !== null && typeof body === "object" && !Array.isArray(body);
+    const forbidden = [
+      "scopes",
+      "clientId",
+      "credentialId",
+      "tokenHash",
+      "secretDigest",
+      "expiresAt"
+    ];
+    const absent = isObject && forbidden.every(function(field) {
+      return !Object.prototype.hasOwnProperty.call(body, field);
+    });
+    expect(absent, "response must not expose internal or scope fields").to.equal(true);
+  });
+
+  test("sets sensitive-response cache headers", function() {
+    const cacheControl = res.getHeader("cache-control") || "";
+    expect(cacheControl.includes("no-store"), "cache-control must include no-store").to.equal(true);
+    expect(cacheControl.includes("private"), "cache-control must include private").to.equal(true);
+    expect(res.getHeader("pragma"), "pragma must disable caching").to.equal("no-cache");
+  });
+}
