@@ -26,6 +26,7 @@ const flightsClient: ApiClientRecord = { ...client, clientId:"XFCFLIGHTDATA23456
 const bothClient: ApiClientRecord = { ...client, clientId:"XFCBOTHSCOPES23456", name:"Both Scopes", status:"ACTIVE", allowedScopes:["analytics:read", "flights:read"] };
 const detail: ApiClientDetail = {
   ...client,
+  credentialMetadata:{ hasLiveCredential:false, issuedAt:null, revokedAt:null },
   audit:[{ actorEmail:"api@x.test", action:"CLIENT_CREATED", before:null,
     after:{ name:client.name, description:client.description, status:client.status, allowedScopes:client.allowedScopes },
     createdAt:client.createdAt }],
@@ -195,6 +196,7 @@ describe("API Client Management", () => {
     };
     const synchronized: ApiClientDetail = {
       ...saved,
+      credentialMetadata:detail.credentialMetadata,
       audit:[...detail.audit, auditEntry("CLIENT_SCOPES_UPDATED", saved)],
     };
     global.fetch = jest.fn()
@@ -236,9 +238,9 @@ describe("API Client Management", () => {
   it("synchronizes suspend and activate state, audit, controls, and version without a reload", async () => {
     const activeDetail: ApiClientDetail = { ...detail, status:"ACTIVE", allowedScopes:["analytics:read"] };
     const suspended: ApiClientRecord = { ...client, status:"SUSPENDED", version:2, updatedAt:"2026-09-09T03:00:00Z", updatedBy:"lifecycle@x.test" };
-    const suspendedDetail: ApiClientDetail = { ...suspended, audit:[...detail.audit, auditEntry("CLIENT_SUSPENDED", suspended)] };
+    const suspendedDetail: ApiClientDetail = { ...suspended, credentialMetadata:detail.credentialMetadata, audit:[...detail.audit, auditEntry("CLIENT_SUSPENDED", suspended)] };
     const activated: ApiClientRecord = { ...suspended, status:"ACTIVE", version:3, updatedAt:"2026-09-09T04:00:00Z" };
-    const activatedDetail: ApiClientDetail = { ...activated, audit:[...suspendedDetail.audit, auditEntry("CLIENT_ACTIVATED", activated)] };
+    const activatedDetail: ApiClientDetail = { ...activated, credentialMetadata:detail.credentialMetadata, audit:[...suspendedDetail.audit, auditEntry("CLIENT_ACTIVATED", activated)] };
     global.fetch = jest.fn()
       .mockResolvedValueOnce(response(scopes))
       .mockResolvedValueOnce(response(activeDetail))
@@ -282,7 +284,7 @@ describe("API Client Management", () => {
 
   it("requires an accessible confirmation and synchronizes terminal revocation", async () => {
     const revoked: ApiClientRecord = { ...client, status:"REVOKED", version:2, updatedAt:"2026-09-09T03:00:00Z", updatedBy:"revoker@x.test" };
-    const revokedDetail: ApiClientDetail = { ...revoked, audit:[...detail.audit, auditEntry("CLIENT_REVOKED", revoked, "revoker@x.test")] };
+    const revokedDetail: ApiClientDetail = { ...revoked, credentialMetadata:detail.credentialMetadata, audit:[...detail.audit, auditEntry("CLIENT_REVOKED", revoked, "revoker@x.test")] };
     global.fetch = jest.fn()
       .mockResolvedValueOnce(response(scopes))
       .mockResolvedValueOnce(response(detail))

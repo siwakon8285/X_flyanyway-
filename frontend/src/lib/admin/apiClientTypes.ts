@@ -25,7 +25,9 @@ type ApiClientAuditAction =
   | "CLIENT_SCOPES_UPDATED"
   | "CLIENT_ACTIVATED"
   | "CLIENT_SUSPENDED"
-  | "CLIENT_REVOKED";
+  | "CLIENT_REVOKED"
+  | "CREDENTIAL_ISSUED"
+  | "CREDENTIAL_REVOKED";
 type ApiClientAuditEntry = {
   actorEmail: string;
   action: ApiClientAuditAction;
@@ -33,7 +35,20 @@ type ApiClientAuditEntry = {
   after: ApiClientAuditSnapshot;
   createdAt: string;
 };
-type ApiClientDetail = ApiClientRecord & { audit: ApiClientAuditEntry[] };
+type ApiClientCredentialMetadata = {
+  hasLiveCredential: boolean;
+  issuedAt: string | null;
+  revokedAt: string | null;
+};
+type IssuedCredentialResponse = {
+  clientId: string;
+  clientSecret: string;
+  issuedAt: string;
+};
+type ApiClientDetail = ApiClientRecord & {
+  audit: ApiClientAuditEntry[];
+  credentialMetadata: ApiClientCredentialMetadata;
+};
 type ApiScopeDefinition = { code: ApiClientScope; description: string };
 
 export { API_CLIENT_SCOPES, API_CLIENT_STATUSES };
@@ -41,10 +56,12 @@ export type {
   ApiClientAuditAction,
   ApiClientAuditEntry,
   ApiClientAuditSnapshot,
+  ApiClientCredentialMetadata,
   ApiClientDetail,
   ApiClientPage,
   ApiClientRecord,
   ApiClientScope,
   ApiClientStatus,
   ApiScopeDefinition,
+  IssuedCredentialResponse,
 };

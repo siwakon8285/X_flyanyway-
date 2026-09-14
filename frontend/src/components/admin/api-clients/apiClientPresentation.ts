@@ -21,6 +21,13 @@ const auditActionKey: Record<ApiClientAuditAction, TranslationKey> = {
   CLIENT_ACTIVATED:"apiClientManagement.audit.activated",
   CLIENT_SUSPENDED:"apiClientManagement.audit.suspended",
   CLIENT_REVOKED:"apiClientManagement.audit.revoked",
+  CREDENTIAL_ISSUED:"apiClientManagement.audit.credentialIssued",
+  CREDENTIAL_REVOKED:"apiClientManagement.audit.credentialRevoked",
 };
 
-export { auditActionKey, scopeDescriptionKey, scopeTitleKey, statusKey };
+const safeAuditActionKey = (action:string):TranslationKey => {
+  if (Object.prototype.hasOwnProperty.call(auditActionKey, action)) return auditActionKey[action as ApiClientAuditAction];
+  return "apiClientManagement.audit.unknown";
+};
+
+export { auditActionKey, safeAuditActionKey, scopeDescriptionKey, scopeTitleKey, statusKey };
