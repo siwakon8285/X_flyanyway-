@@ -1,662 +1,905 @@
 # DATABASE.md
-
-> ส่งไฟล์นี้ให้ AI Agent เช่น Codex หรือ Claude อ่านก่อนเริ่มงาน Database / Data Layer
-> Agent ต้องตรวจสอบเทคโนโลยีและโครงสร้างจริงของโปรเจกต์ก่อนแก้ไขเสมอ และสำหรับ self-hosted deployment ให้ยึด `SERVER.md` ซึ่งกำหนด **Nginx เป็น Reverse Proxy / Web Edge หลัก**
-
----
-
-## 1. บทบาทของ Agent
-
-คุณคือ Senior Backend & Database Engineer มีหน้าที่ออกแบบ ติดตั้ง เชื่อมต่อ และตรวจสอบฐานข้อมูลให้พร้อมสำหรับการพัฒนาแบบทีม โดยยึดหลักต่อไปนี้:
-
-- Security-first และห้ามเปิดเผย secret
-- ใช้ Docker Compose เพื่อให้ทีมใช้ environment ใกล้เคียงกัน
-- ใช้ migration แชร์ schema และ seed แชร์ข้อมูลเริ่มต้น
-- ตรวจ stack เดิมก่อนเลือกเครื่องมือ ห้ามเปลี่ยน framework, ORM หรือฐานข้อมูลโดยพลการ
-- วางแผนก่อนแก้ไข และรักษาโค้ดเดิมที่ไม่เกี่ยวข้อง
-- หลังแก้ไขต้องรันตรวจสอบจริง ห้ามสรุปว่าสำเร็จจากการอ่านไฟล์เท่านั้น
+> ส่งไฟล์นี้ให้ AI Agent อ่านก่อนเริ่มงาน Database / Data Layer / Persistence Architecture
+>
+> เอกสารนี้เป็น **generic production database setup guide** สำหรับหลายระดับระบบ ไม่ผูกกับ database เดียว และ **อนุญาต Polyglot Persistence** เมื่อมีเหตุผลทาง architecture ชัดเจน
 
 ---
 
-## 2. ตรวจสอบโปรเจกต์ก่อนลงมือ
+## 1. Role & Identity
 
-ตรวจสอบอย่างน้อย:
+คุณคือ Senior Database / Data Platform / Backend Engineer มีหน้าที่ออกแบบ data architecture ให้ตอบ requirement จริงทั้ง:
 
-1. ภาษาและ framework ของ application
-2. ORM หรือ driver เช่น Prisma, Drizzle, SQLx, Diesel, TypeORM, Sequelize, Django ORM หรือ Eloquent
-3. มี `Dockerfile`, `compose.yaml`, `.env.example`, migration หรือ seed อยู่แล้วหรือไม่
-4. โปรเจกต์กำหนด PostgreSQL, MySQL หรือ Supabase ไว้แล้วหรือไม่
-5. port ที่ใช้งานอยู่
-6. คำสั่ง build, test, migration และ seed จาก config/README
+- correctness / consistency
+- transaction / concurrency
+- performance / query latency
+- security / least privilege
+- backup / recovery
+- scalability / capacity
+- observability
+- migration safety
+- maintainability
+- compliance / data lifecycle
 
-ถ้ามีเทคโนโลยีเดิม ให้ใช้ของเดิมเป็นหลักและห้ามสร้างระบบซ้ำ หากยังไม่ระบุฐานข้อมูลและการเลือกกระทบ architecture ให้เสนอทางเลือกและถามผู้ใช้ก่อนลงมือ
+ก่อนแก้ database ทุกครั้ง: **Plan First** — ตรวจ current stack/schema/migrations/queries/deployment ก่อน แล้วสรุป data model, invariants, migration plan, compatibility และ verification plan ให้ผู้ใช้ confirm
 
----
-
-## 3. เลือกฐานข้อมูลเพียงแนวทางเดียว
-
-### A — Supabase
-
-เหมาะกับ MVP หรือโปรเจกต์ที่ต้องการ Auth, Storage และ PostgreSQL แบบ managed
-
-- ใช้ Supabase Auth ตามระบบเดิม
-- เปิด RLS สำหรับตารางที่ client เข้าถึงผ่าน Supabase API
-- เขียน policy ตามสิทธิ์ user/tenant ห้ามเปิดกว้างโดยไม่จำเป็น
-- `service_role` ใช้เฉพาะ backend และห้ามส่งไป frontend
-- เก็บ secret ใน environment/secret manager
-- ใช้ Supabase CLI migrations หรือ migration tool เดิม
-
-```sql
-ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "users_can_read_own_orders"
-ON orders FOR SELECT
-USING (auth.uid() = user_id);
-```
-
-### B — PostgreSQL ใน Docker
-
-- ใช้ official PostgreSQL image และ pin เวอร์ชัน
-- ห้าม application เชื่อมด้วย superuser `postgres`
-- สร้าง app user ที่มีสิทธิ์เท่าที่จำเป็น
-- ใช้ parameterized queries หรือ ORM เสมอ
-- ใช้ RLS เมื่อ threat model หรือ multi-tenant architecture ต้องการ ไม่บังคับผิดบริบท
-- รหัสผ่านผู้ใช้ระบบต้อง hash ด้วย Argon2id หรือกลไกที่ framework แนะนำ
-- ตั้ง timezone ของ database เป็น `UTC` เสมอ และแปลงเป็น local timezone ที่ชั้น application/frontend เท่านั้น
-- ใช้ encoding `UTF8` (default ของ PostgreSQL รองรับภาษาไทยและ emoji อยู่แล้ว) ตรวจสอบด้วย `SHOW server_encoding;`
-
-### C — MySQL ใน Docker
-
-- ใช้ official MySQL image และ pin เวอร์ชัน
-- ห้าม application เชื่อมด้วย `root`
-- ใช้ `MYSQL_USER` สำหรับ application และจำกัดสิทธิ์
-- ใช้ parameterized queries หรือ ORM เสมอ
-- ห้ามนำคำสั่ง PostgreSQL เช่น RLS, `pgcrypto` หรือ `pg_isready` มาใช้
-- รหัสผ่านผู้ใช้ระบบต้อง hash ด้วย Argon2id หรือกลไกที่ framework แนะนำ
-- ตั้ง character set เป็น `utf8mb4` และ collation เป็น `utf8mb4_unicode_ci` (หรือ `utf8mb4_0900_ai_ci` สำหรับ MySQL 8+) เสมอ เพื่อรองรับภาษาไทยและ emoji ป้องกันปัญหาอักขระขาดหาย
-- ตั้ง timezone ของ database เป็น `UTC` เสมอ และแปลงเป็น local timezone ที่ชั้น application/frontend เท่านั้น
-
-เลือกเพียงหนึ่งแนวทางต่อหนึ่งโปรเจกต์ ห้ามผสมโดยไม่มีเหตุผลทางสถาปัตยกรรมชัดเจน
+ห้ามเปลี่ยน database/ORM/storage เพราะ trend หรือความง่ายอย่างเดียว
 
 ---
 
-## 4. Local Development ด้วย Docker Compose
+## 2. Data Criticality Gate
 
-เป้าหมายคือให้สมาชิกทีม clone repository แล้วเริ่มระบบได้ด้วย:
+จัดประเภท workload ก่อนเลือก datastore:
 
-```bash
-cp .env.example .env
-docker compose up --build
-```
+| ระดับ | ตัวอย่าง | เน้น |
+|---|---|---|
+| **Simple / Local** | CLI, desktop local app, prototype | simplicity, portability |
+| **Business OLTP** | ecommerce, booking, CRM | transactions, constraints, backups |
+| **Enterprise OLTP** | payment, inventory, multi-tenant | isolation, HA, observability, migration safety |
+| **Performance-Critical** | high-volume transaction/read workloads | query plans, pool, indexing, partitioning, replicas |
+| **Analytics / OLAP** | event analytics, BI, telemetry | columnar storage, aggregation throughput |
+| **Search / Discovery** | full-text, faceting, relevance | inverted index/search engine |
+| **AI / Vector** | embeddings/RAG/semantic search | vector index + source-of-truth strategy |
+| **Realtime / Ephemeral** | cache, rate limit, coordination | TTL, failure semantics, durability needs |
 
-ให้ Agent:
+---
 
-- สร้างหรือปรับ `Dockerfile` และ `compose.yaml` ตาม stack จริง
-- ให้ app และ database อยู่ Compose network เดียวกัน
-- app ใน container ใช้ hostname ตามชื่อ service เช่น `db` ไม่ใช่ `localhost`
-- เพิ่ม named volume ให้ database
-- เพิ่ม database healthcheck และให้ app รอจน database healthy
-- ใช้ environment variables สำหรับ credentials/connection string
-- ห้าม hardcode secret ใน Compose, Dockerfile หรือ source
-- ถ้ามี Compose เดิม ให้แก้ไฟล์เดิม ห้ามสร้างไฟล์ซ้ำ
+## 3. Database / Datastore Selection Gate
 
-### Port มาตรฐานสำหรับเครื่องนี้
+เลือกจาก access pattern และ consistency requirement
 
-| ระบบ | Local/Homebrew | Docker host → container |
-| --- | ---: | ---: |
-| PostgreSQL | `5432` | `127.0.0.1:5433:5432` |
-| MySQL | `3306` | `3307:3306` |
+| Need | พิจารณา |
+|---|---|
+| General-purpose relational OLTP | **PostgreSQL** |
+| Existing MySQL ecosystem / compatibility | **MySQL** |
+| Embedded/local/single-process | **SQLite** |
+| Document-first flexible aggregate model | **MongoDB** |
+| Cache / ephemeral coordination / counters | **Redis** |
+| Full-text / faceted search | **OpenSearch / Elasticsearch** |
+| High-volume OLAP / event analytics | **ClickHouse / warehouse** |
+| Vector search ที่ relational data อยู่ Postgres | **pgvector** ก่อนเพิ่ม specialized vector DB |
+| Dedicated vector workload ใหญ่มาก | vector database ตาม requirement |
+| Time-series | PostgreSQL/Timescale หรือ specialized TSDB ตาม scale |
+| Object/blob/media | **S3-compatible object storage / R2 / cloud object storage** |
 
-ภายใน Docker:
+### Default Recommendation
+
+ถ้ายังไม่มีเหตุผลเฉพาะทางและระบบเป็น business OLTP: **PostgreSQL เป็น strong default**
+
+แต่ default ไม่ใช่ mandate
+
+---
+
+## 4. Polyglot Persistence — ใช้หลาย Database ได้
+
+**อนุญาตให้ใช้หลาย datastore ในระบบเดียว** หากแต่ละตัวมีหน้าที่ชัดเจนและลดข้อจำกัดจริง
+
+ตัวอย่างที่ดี:
 
 ```text
-PostgreSQL: db:5432
-MySQL:      db:3306
+PostgreSQL
+→ source of truth: users / booking / payment / inventory
+
+Redis
+→ cache / rate-limit / ephemeral coordination
+
+OpenSearch
+→ search index
+
+ClickHouse
+→ analytics/event aggregates
+
+S3/R2
+→ media/blob
 ```
 
-`5433` และ `3307` ใช้สำหรับ pgAdmin, Workbench หรือ app ที่รันบน host เท่านั้น
+หรือ:
 
-หากเครื่องนี้มีหลายโปรเจกต์รัน Docker Compose พร้อมกันและ `5433`/`3307` ถูกใช้งานแล้ว ให้ Agent ตรวจสอบ port ว่างก่อนด้วย `lsof -i :<port>` หรือ `docker ps` แล้วเลือก host port ถัดไปที่ว่าง (เช่น `5434`, `3308`) ผ่านตัวแปร `POSTGRES_HOST_PORT` / `MYSQL_HOST_PORT` ใน `.env` ห้ามแก้ internal container port (`5432`/`3306`)
+```text
+PostgreSQL
+→ transaction core
+
+MongoDB
+→ document-heavy bounded context ที่ model/query pattern เหมาะจริง
+```
+
+### Multi-Database Rules
+
+- ทุก dataset ต้องมี **authoritative source of truth** ชัดเจน
+- ห้าม dual-write หลาย DB โดยไม่มี transaction/outbox/reconciliation strategy
+- secondary index/search/cache ถือว่า rebuildable เมื่อ architecture กำหนดเช่นนั้น
+- data ownership ระหว่าง service/datastore ต้อง explicit
+- consistency expectation ต้องระบุ: strong / eventual / stale tolerance
+- failure/recovery path ต้องออกแบบก่อน production
+
+### Important: PostgreSQL + MySQL
+
+ใช้ทั้งสองได้ **เมื่อมีเหตุผลเฉพาะ** เช่น:
+
+- legacy system/integration
+- acquired product
+- service boundary ที่แยก ownership ชัด
+- vendor requirement
+
+แต่ **อย่าใช้ PostgreSQL + MySQL เพียงเพราะระบบใหญ่** เพราะทั้งคู่เป็น relational OLTP และมักเพิ่ม operational complexity โดยไม่ได้แก้ bottleneck โดยตรง
+
+สำหรับ scale ให้พิจารณา query/index/pool/read replica/partitioning/service boundary ก่อนเพิ่ม relational database ซ้ำชนิด
 
 ---
 
-## 5. ตัวอย่าง Compose — PostgreSQL
+## 5. Architecture Selection
 
-ปรับ image, ชื่อ database/user และคำสั่ง app ตามโปรเจกต์จริง เวอร์ชัน image ด้านล่างเป็นเพียงตัวอย่าง Agent ต้องตรวจสอบเวอร์ชัน stable ล่าสุดที่ใช้งานจริง ณ เวลาที่ทำงาน แทนการ copy ตามเอกสารนี้เสมอ:
+เลือกรูปแบบตาม workload:
+
+```text
+Single primary database
+→ default สำหรับระบบส่วนใหญ่
+
+Primary DB + cache
+→ read-heavy / expensive repeated query
+
+Primary DB + search index
+→ full-text/relevance/faceting
+
+Primary DB + analytics warehouse
+→ OLTP แยกจาก OLAP
+
+Database-per-service
+→ microservices ที่ data ownership ชัด
+
+Sharding
+→ ใช้เมื่อ scale/evidence บังคับ ไม่ใช่เริ่มต้น
+```
+
+**YAGNI:** ระบบใหญ่ไม่ได้แปลว่าต้อง microservices, shard หรือหลาย DB ตั้งแต่วันแรก
+
+---
+
+## 6. Project Inspection Before Change
+
+ตรวจอย่างน้อย:
+
+1. language/framework
+2. database driver/ORM/query builder
+3. migrations และ migration history
+4. current DB engine/version/extensions
+5. schemas/tables/indexes/constraints
+6. runtime DB role และ migration/admin role
+7. connection pool config
+8. test/dev/prod separation
+9. Docker/managed/self-hosted topology
+10. backup/PITR/replication status
+11. query hot paths / slow queries
+12. data classification/PII/compliance
+13. existing ownership/service boundaries
+
+ถ้ามี architecture เดิม ให้ preserve เป็นหลักจนกว่าจะมี approved migration plan
+
+---
+
+## 7. PostgreSQL Guidelines
+
+- use official/pinned supported version
+- runtime app user ห้ามเป็น superuser/owner โดยไม่จำเป็น
+- migration/owner role แยกจาก runtime เมื่อเหมาะสม
+- parameterized queries เท่านั้น
+- use FK/UNIQUE/CHECK/NOT NULL เพื่อ enforce invariant ที่ DB รู้ได้
+- RLS ใช้เมื่อ threat model/multi-tenant architecture ต้องการจริง
+- encoding UTF8
+- instant timestamps prefer `timestamptz`
+- inspect `EXPLAIN (ANALYZE, BUFFERS)` สำหรับ hot query ใน production-like/test environment อย่างระมัดระวัง
+- monitor vacuum/analyze/bloat/locks/connections
+
+---
+
+## 8. MySQL Guidelines
+
+- runtime app user ห้ามใช้ root
+- use `utf8mb4`
+- เลือก collation ตาม language/search semantics
+- parameterized query/ORM
+- understand InnoDB transaction/locking/isolation semantics
+- inspect `EXPLAIN ANALYZE`/optimizer plan ตาม version
+- อย่านำ PostgreSQL-specific RLS/extensions/syntax มาใช้
+
+---
+
+## 9. SQLite Guidelines
+
+เหมาะกับ:
+
+- local app
+- embedded
+- tests บางประเภท
+- small single-node workload
+
+ระวัง:
+
+- concurrency/write model แตกต่างจาก PostgreSQL/MySQL
+- SQLite test ไม่ใช่หลักฐานแทน production DB locking/isolation semantics
+- migration/type behavior อาจต่าง
+
+critical integration tests ต้องใช้ engine เดียวกับ production เมื่อ semantics สำคัญ
+
+---
+
+## 10. MongoDB Guidelines
+
+เลือกเมื่อ document model/query pattern ได้ประโยชน์จริง เช่น aggregate document เปลี่ยน schema บ่อยและ transaction join ไม่ใช่แกนหลัก
+
+กฎ:
+
+- schema validation ยังควรมี
+- design document boundary จาก query/update pattern
+- ห้าม embed ทุกอย่างจน document โตไม่มีขอบเขต
+- indexes ตาม query จริง
+- multi-document transactions ใช้ได้ แต่ถ้าระบบพึ่ง relational joins/constraints/transactions หนัก PostgreSQL อาจเหมาะกว่า
+- `_id`/public ID exposure ตาม threat model
+- backup/restore/PITR ตาม deployment
+
+---
+
+## 11. Redis Guidelines
+
+Redis ไม่ใช่ relational database replacement โดย default
+
+แยก failure semantics ตามบทบาท:
+
+### Cache-only
+
+- cache-aside ใช้ได้
+- fallback DB อาจเหมาะ
+- stale/TTL/invalidation ต้องออกแบบ
+
+### Security / Rate Limit State
+
+- ห้าม fail-open อัตโนมัติเมื่อ Redis ล่ม
+- failure behavior ต้อง explicit ตาม threat model
+
+### Distributed Coordination / Lock
+
+- ห้าม assume lock success เมื่อ backend unavailable
+- ต้องเข้าใจ lease/expiry/fencing/idempotency semantics
+
+### Queue / Stream
+
+- delivery semantics, retry, dead-letter, idempotency ต้องชัด
+
+---
+
+## 12. Search / Analytics / Vector Datastores
+
+### OpenSearch / Elasticsearch
+
+- ใช้เป็น search index ไม่ใช่ source of truth ของ transaction โดย default
+- sync ผ่าน outbox/event/reindex strategy
+- index mapping/analyzer/versioning ต้อง managed
+
+### ClickHouse / Warehouse
+
+- ใช้สำหรับ analytical scans/aggregations
+- อย่าเอา OLTP booking/payment mutation ไปอยู่ columnar analytics DB โดยไม่มีเหตุผล
+- define ingestion latency และ reconciliation
+
+### Vector Search
+
+- ถ้า data source อยู่ PostgreSQL และ scale ยังไม่มาก ให้พิจารณา pgvector ก่อน
+- specialized vector DB ใช้เมื่อ scale/query/latency/feature ต้องการจริง
+- original document/source of truth แยกจาก embedding index
+- re-embedding/version/model metadata ต้อง traceable
+
+---
+
+## 13. Object Storage
+
+media/blob/large file ไม่ควรเก็บใน application table เป็น Base64 โดย default
+
+ใช้:
+
+- S3-compatible storage
+- Cloudflare R2
+- cloud object storage
+- dedicated media service
+
+DB เก็บ stable key/metadata/checksum/ownership/lifecycle state
+
+private data ใช้ ACL/signed URL ตาม threat model
+
+---
+
+## 14. Schema Design Principles
+
+- model invariant ก่อน table shape
+- normalize เป็น baseline; denormalize เมื่อมี evidence/read workload ชัด
+- primary key เลือก UUID/ULID/bigint ตาม distributed/public/ordering requirement
+- internal ID ไม่จำเป็นต้องเป็น public ID
+- FK ใช้เมื่อ ownership/consistency อยู่ DB เดียวกันและ semantics เหมาะ
+- CHECK constraints สำหรับ state/range invariant ที่ DB enforce ได้
+- nullable ต้องมี business meaning
+- money ใช้ integer minor unit หรือ fixed decimal ตาม currency/domain; ห้าม binary float
+- counters/versions ใช้ type ที่ไม่ overflow ง่าย
+
+### Timestamps
+
+ไม่บังคับทุก table ต้องมี `created_at`/`updated_at`
+
+ใช้เมื่อ semantic/audit/query มีประโยชน์
+
+- mutable entity มักมี created/updated
+- immutable ledger/event อาจมีเพียง occurred/created timestamp
+- join table อาจไม่ต้อง updated_at
+
+---
+
+## 15. Time / Timezone Rules
+
+แยก concept:
+
+1. **Instant in time** → UTC / `timestamptz`
+2. **Business local date/time** → local date/time + IANA timezone เมื่อ semantics ต้องรักษา
+3. **Recurring local schedule** → wall-clock + timezone/rule
+
+ห้าม assume ว่า “เก็บ UTC อย่างเดียว” แก้ทุก business timezone problem
+
+ตัวอย่าง:
+
+- payment created_at → instant UTC
+- flight departure 09:00 Tokyo → schedule + `Asia/Tokyo`
+- hotel check-in date → business/local date semantics
+
+DST/boundary test ต้องมีเมื่อ region/timezone เกี่ยวข้อง
+
+---
+
+## 16. Transaction & Concurrency Design
+
+สำหรับ booking/inventory/payment/financial flows ต้องออกแบบ invariant ก่อน code
+
+พิจารณา:
+
+- ACID transaction boundary
+- isolation level
+- optimistic locking/version
+- `SELECT ... FOR UPDATE`
+- `SKIP LOCKED` สำหรับ worker queue เมื่อเหมาะ
+- unique constraint เป็น final race guard
+- idempotency key
+- deadlock retry
+- serialization failure retry
+- lease/visibility timeout
+
+### Golden Rule
+
+**ตรวจ availability แล้ว update แยก transaction เป็น race condition ได้**
+
+อย่าพึ่ง application `if` อย่างเดียว ถ้า DB constraint/lock enforce ได้
+
+---
+
+## 17. Isolation Level
+
+Agent ต้องเข้าใจ engine จริง:
+
+- Read Committed
+- Repeatable Read
+- Serializable
+
+อย่าเลือก Serializable ทุก transaction เพื่อ “ปลอดภัยที่สุด” โดยไม่วัด contention/retry
+
+critical transaction ต้องมี concurrency integration test บน production-equivalent DB
+
+---
+
+## 18. Idempotency
+
+สำคัญกับ:
+
+- payment
+- booking creation
+- webhook
+- external API mutation
+- queue consumer
+
+ออกแบบ:
+
+```text
+idempotency key
++ actor/operation scope
++ request fingerprint เมื่อเหมาะ
++ stored result/status
++ expiry/lifecycle
+```
+
+ห้าม auto-retry non-idempotent mutation โดยไม่มีกลไก
+
+---
+
+## 19. Outbox / Cross-System Consistency
+
+เมื่อ transaction DB ต้องส่ง event ไป Kafka/search/analytics/อีก DB:
+
+**หลีกเลี่ยง dual write:**
+
+```text
+DB commit
+then publish
+```
+
+ที่ไม่มี recovery
+
+พิจารณา Transactional Outbox:
+
+```text
+business mutation + outbox row
+→ same DB transaction
+→ publisher/worker
+→ broker/search/secondary DB
+→ idempotent consumer
+```
+
+ต้องมี retry/dead-letter/reconciliation ตาม criticality
+
+---
+
+## 20. Indexing Strategy
+
+index ตาม query จริง ไม่ใช่ทุก column
+
+พิจารณา:
+
+- B-tree baseline
+- composite index order
+- partial index
+- covering/include index
+- GIN/GiST/BRIN ตาม data/query
+- unique index เพื่อ invariant
+
+ตรวจ:
+
+- selectivity/cardinality
+- scan type
+- rows estimated vs actual
+- sort/hash memory
+- index write amplification
+
+ห้าม optimize จาก intuition อย่างเดียว
+
+---
+
+## 21. Query Plan & Performance
+
+สำหรับ hot query:
+
+```text
+query latency
+p50/p95/p99
+rows scanned
+buffer hit/read
+CPU
+lock wait
+pool wait
+DB connections
+```
+
+ใช้ `EXPLAIN` / engine profiling tools
+
+ระวัง `EXPLAIN ANALYZE` บน destructive/expensive production query เพราะมัน execute query จริง
+
+N+1 ต้องตรวจที่ ORM/data layer ไม่ใช่แค่ database
+
+---
+
+## 22. Connection Pooling
+
+pool size ต้อง tune ร่วมกับ DB capacity ไม่ใช่ request concurrency ตรง ๆ
+
+คิดจาก:
+
+- DB max connections
+- number of app instances
+- transaction/query latency
+- worker/background connections
+- admin/maintenance reserve
+
+ใช้ PgBouncer/ProxySQL/managed pooler เมื่อ architecture ได้ประโยชน์
+
+serverless ที่ instance burst สูงต้องระวัง connection storm
+
+---
+
+## 23. Migration Safety
+
+### Rules
+
+- migration immutable หลัง shared/applied; สร้าง migration ใหม่
+- migration reproducible จาก empty DB
+- migration checksum/history ต้องรักษา
+- schema change ต้อง compatible กับ running app ตาม rollout model
+- destructive migration ต้อง backup/approval/rollback strategy
+
+### Zero-Downtime Pattern
+
+```text
+EXPAND
+→ เพิ่ม nullable/new structure ที่ backward-compatible
+
+DEPLOY/BACKFILL
+→ code รองรับทั้งเก่าและใหม่ + backfill แบบ bounded
+
+SWITCH
+→ เปลี่ยน read/write path
+
+CONTRACT
+→ ลบ legacy หลัง verify
+```
+
+ระวัง:
+
+- table rewrite
+- long exclusive lock
+- large backfill transaction
+- index creation locking
+- NOT NULL เพิ่มทันทีบน table ใหญ่
+
+ใช้ online/concurrent mechanism ตาม engine/version เมื่อเหมาะ
+
+---
+
+## 24. Seed / Fixtures
+
+- seed demo/reference data ต้องแยกจาก migration เมื่อ semantics ต่างกัน
+- seed ต้อง idempotent หรือ explicit guarded reset ตาม environment
+- normal production startup ไม่ควร seed demo data อัตโนมัติ
+- integration test fixture ต้อง unique/scoped และ cleanup เฉพาะ ownership ของตัวเอง
+- ห้าม global DELETE/TRUNCATE บน shared DEV
+
+---
+
+## 25. Environment Separation
+
+แยกอย่างน้อย:
+
+```text
+DEV
+TEST
+STAGING (ถ้ามี)
+PRODUCTION
+```
+
+กฎ:
+
+- test DB ต้องไม่ fallback ไป DEV
+- destructive test มี guard ตรวจ host/port/database/environment
+- production credentials ห้ามอยู่ local test config/CI log
+- localhost ไม่ได้แปลว่า disposable
+- migration role กับ runtime role แยกเมื่อ project รองรับ
+
+---
+
+## 26. Least-Privilege Database Roles
+
+แนะนำ conceptual roles:
+
+```text
+bootstrap/owner
+→ infrastructure only
+
+migrator
+→ schema/migration ownership
+
+runtime
+→ SELECT/INSERT/UPDATE/DELETE เท่าที่ app ต้องใช้
+
+read-only/reporting
+→ scoped read
+```
+
+runtime ไม่ควรมี:
+
+- SUPERUSER
+- CREATEDB
+- CREATEROLE
+- schema ownership
+- arbitrary DDL
+- migration-ledger mutation
+
+ใช้ column-level grants เมื่อข้อมูล/security critical และคุ้ม complexity
+
+---
+
+## 27. Secrets / TLS
+
+- `.env` ไม่ commit
+- `.env.example` ไม่มี real secret
+- production ใช้ secret manager/platform env
+- DB connection ผ่าน TLS เมื่อ network boundary ต้องการ
+- cert verification ห้ามปิดเพียงเพื่อแก้ connection ง่าย ๆ
+- connection string/password/token ห้าม log
+- credential rotation plan ตาม environment criticality
+
+---
+
+## 28. Docker Local Development
+
+Docker Compose เป็นตัวเลือกที่ดีเพื่อ reproducibility แต่ไม่ใช่ข้อบังคับทุก project
+
+ถ้าใช้:
+
+- pin supported image version
+- DB host publication local ควร bind loopback เช่น `127.0.0.1`
+- app container ใช้ service hostname/internal port
+- healthcheck
+- named volume สำหรับ DEV persistent data
+- TEST สามารถใช้ tmpfs/disposable volume เมื่อเหมาะ
+- ห้าม hardcode secret
+
+ตัวอย่าง PostgreSQL:
 
 ```yaml
 services:
   db:
-    image: postgres:18
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    image: postgres:<supported-version>
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
-  app:
-    build: .
-    env_file:
-      - .env
-    depends_on:
-      db:
-        condition: service_healthy
-
-volumes:
-  postgres_data:
 ```
 
-```env
-DATABASE_URL=postgresql://app_user:change_me@db:5432/app_db
-```
-
-`depends_on: condition: service_healthy` ช่วยให้ container เริ่มตามลำดับ แต่ไม่รับประกันว่า database พร้อมรับ connection 100% ของทุก framework ควรเพิ่ม retry/backoff logic ที่ชั้น application (เช่น retry เชื่อมต่อ 5-10 ครั้ง ห่างกัน 2-3 วินาที) โดยเฉพาะ ORM ที่ไม่มี built-in retry
+ห้ามใช้ `docker compose down -v` กับ valuable DEV volume โดยไม่ตั้งใจ/อนุมัติ
 
 ---
 
-## 6. ตัวอย่าง Compose — MySQL
+## 29. Database Must Not Be Public by Default
 
-```yaml
-services:
-  db:
-    image: mysql:9
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-    ports:
-      - "${MYSQL_HOST_PORT:-3307}:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 20s
-
-  app:
-    build: .
-    env_file:
-      - .env
-    depends_on:
-      db:
-        condition: service_healthy
-
-volumes:
-  mysql_data:
-```
-
-```env
-DATABASE_URL=mysql://app_user:change_me@db:3306/app_db
-```
-
-ตรวจ syntax ของ password/URL encoding ตาม driver และห้ามใช้ค่าตัวอย่างเป็น secret จริง
-
----
-
-## 7. Environment และ Secret
-
-ต้องมี `.env.example` ซึ่งใช้ค่าตัวอย่างที่ไม่ใช่ secret และต้องตรวจว่า `.env` ถูก ignore ใน Git
-
-PostgreSQL:
-
-```env
-POSTGRES_DB=app_db
-POSTGRES_USER=app_user
-POSTGRES_PASSWORD=change_me
-POSTGRES_HOST_PORT=5433
-DATABASE_URL=postgresql://app_user:change_me@db:5432/app_db
-```
-
-MySQL:
-
-```env
-MYSQL_ROOT_PASSWORD=change_root_password
-MYSQL_DATABASE=app_db
-MYSQL_USER=app_user
-MYSQL_PASSWORD=change_me
-MYSQL_HOST_PORT=3307
-DATABASE_URL=mysql://app_user:change_me@db:3306/app_db
-```
-
-กฎบังคับ:
-
-- Commit: `.env.example`, Compose, Dockerfile, migrations, seed และ README
-- ห้าม Commit: `.env`, credential, private key, token หรือ database dump ที่มีข้อมูลจริง
-- ถ้าพบ secret ในไฟล์ที่ track/Git history ให้หยุดและแจ้งผู้ใช้โดยไม่แสดง secret ซ้ำ
-- production ต้องใช้ secret manager หรือ environment ของ deployment platform
-
----
-
-## 8. Migration และ Seed
-
-- ใช้ migration system ของ ORM/framework เดิม
-- Rust + SQLx ใช้ `sqlx migrate`; Supabase ใช้ Supabase CLI
-- Prisma, Drizzle, Django, Laravel หรือเครื่องมืออื่น ใช้คำสั่ง native
-- ห้ามแก้ migration ที่ merge หรือใช้ร่วมกันแล้ว ให้สร้าง migration ใหม่
-- migration ต้อง reproducible และทำงานกับ database ว่าง
-- rollback/down ให้ทำตามแนวทางของเครื่องมือ และเตือนก่อนการลบข้อมูล
-- seed ควร idempotent และต้องไม่มีข้อมูลจริงหรือ secret
-- schema แชร์ผ่าน migration; ตัวอย่างข้อมูลแชร์ผ่าน seed; runtime data/volume ไม่แชร์ผ่าน Git
-
----
-
-## 9. Naming Convention
-
-เพื่อให้ schema อ่านง่ายและสอดคล้องกันทั้งทีม ใช้แนวทางนี้เมื่อโปรเจกต์ยังไม่มี convention เดิม:
-
-- ชื่อตารางและคอลัมน์ใช้ `snake_case` เช่น `order_items`, `created_at`
-- ชื่อตารางเป็นพหูพจน์ เช่น `users`, `orders`
-- Primary key ชื่อ `id`, Foreign key ชื่อ `<table_singular>_id` เช่น `user_id`
-- ทุกตารางควรมี `created_at` และ `updated_at` (timestamp, UTC) เป็นมาตรฐาน
-- ถ้าใช้ soft delete ให้ใช้คอลัมน์ `deleted_at` (nullable timestamp) แทนการลบจริง และ index คอลัมน์นี้ถ้า query บ่อย
-- ชื่อ index/constraint ให้สื่อความหมาย เช่น `idx_orders_user_id`, `fk_orders_user_id`
-
-หากโปรเจกต์เดิมมี convention อยู่แล้ว ให้ยึดตามของเดิม ห้ามเปลี่ยนกลางทาง
-
----
-
-## 10. Test Database แยกจาก Dev Database
-
-ป้องกันไม่ให้การรัน test ไปทับหรือลบข้อมูล dev โดยไม่ตั้งใจ:
-
-- ใช้ database คนละชื่อสำหรับ test เช่น `app_db_test` (แยกจาก `app_db`) หรือใช้ schema/service แยกใน Compose
-- กำหนด `DATABASE_URL` สำหรับ test ผ่าน environment variable แยก เช่น `TEST_DATABASE_URL` ใน `.env.example`
-- migration ที่รันกับ dev ต้องรันกับ test database ได้เหมือนกัน (reproducible)
-- test suite ควร reset/seed ข้อมูลก่อนแต่ละรอบหรือใช้ transaction rollback เพื่อความ idempotent
-- ห้าม hardcode ให้ test ชี้ไปที่ database เดียวกับ dev/production โดยเด็ดขาด
-
-สำหรับ X-Fly:
-
-- `TEST_DATABASE_URL` เป็น test setup/migration/fixture credential (`x_fly_migrator`)
-- `TEST_RUNTIME_DATABASE_URL` เป็น restricted application credential (`x_fly_runtime`)
-- ทั้งสอง URL ต้อง resolve ไป host, port และ database TEST เดียวกัน และต้องไม่ fallback ไป `DATABASE_URL`
-- Guard ต้อง reject DEV port `5433`, DEV database `x_fly`, missing database name และชื่อที่ไม่ลงท้าย `_test`
-- Canonical local TEST publication คือ `127.0.0.1:${POSTGRES_TEST_HOST_PORT:-5434}:5432`; mutation/reset ทำได้หลังพิสูจน์ TEST identity เท่านั้น
-- Normal X-Fly API ใช้ `DATABASE_URL` สำหรับ readiness/runtime เท่านั้น ส่วน migration, explicit guarded seed และ `staff_admin` ใช้ `MIGRATION_DATABASE_URL`; startup ไม่ migrate หรือ seed อัตโนมัติ
-
----
-
-## 11. Backup และ Restore (Local/Dev)
-
-แม้เป็น environment สำหรับ dev ก็ควรมีแนวทางสำรองข้อมูลเบื้องต้น เผื่อ volume เสียหายหรือ migration ผิดพลาด:
-
-### PostgreSQL
-
-```bash
-# Backup
-docker compose exec db pg_dump -U ${POSTGRES_USER} -d ${POSTGRES_DB} > backup.sql
-
-# Restore
-cat backup.sql | docker compose exec -T db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB}
-```
-
-### MySQL
-
-```bash
-# Backup
-docker compose exec db mysqldump -u ${MYSQL_USER} -p${MYSQL_PASSWORD} ${MYSQL_DATABASE} > backup.sql
-
-# Restore
-cat backup.sql | docker compose exec -T db mysql -u ${MYSQL_USER} -p${MYSQL_PASSWORD} ${MYSQL_DATABASE}
-```
-
-กฎ:
-
-- ไฟล์ backup (`*.sql`, `*.dump`) ห้าม commit เข้า Git เพราะอาจมีข้อมูลจริงปนอยู่ ให้เพิ่มใน `.gitignore`
-- สำหรับ production/self-hosted ต้องใช้ scheduled backup job ตาม `SERVER.md` และทำ manual backup ก่อน migration/release สำคัญ; managed service จึงค่อยใช้ provider backup/PITR ตาม platform
-- ทดสอบ restore เป็นระยะเพื่อให้มั่นใจว่า backup ใช้งานได้จริง
-
----
-
-## 12. Connection Pooling และ TLS
-
-- Dev/local: connection pool ที่ ORM มีให้ในตัว (เช่น Prisma, SQLx pool) เพียงพอ ไม่จำเป็นต้องตั้ง PgBouncer เพิ่ม
-- Production หรือ serverless ที่มี concurrent connection สูง: พิจารณาใช้ connection pooler เช่น PgBouncer (PostgreSQL) หรือ ProxySQL (MySQL) เพื่อไม่ให้ database connection limit เต็ม
-- Production ต้องเปิดใช้ TLS/SSL สำหรับการเชื่อมต่อ database เสมอ (เช่น `sslmode=require` ใน PostgreSQL connection string, หรือ `ssl-mode=REQUIRED` ใน MySQL) ยกเว้น local Docker ที่อยู่ใน network ปิดของเครื่องเดียวกัน
-- Managed service อย่าง Supabase เปิด TLS ให้อัตโนมัติอยู่แล้ว ไม่ต้องตั้งค่าเพิ่ม
-
----
-
-
-## 12A. Nginx / Application Gateway Boundary
-
-สำหรับ Self-Hosted deployment ให้ใช้ **Nginx เป็น Web Edge / Reverse Proxy หลัก** ของ application traffic
-
-Nginx สามารถทำหน้าที่:
-
-1. Reverse Proxy
-2. Load Balancer
-3. Web Server
-4. TLS termination
-5. Serve static files
-6. Gateway หน้า backend หลาย service
-
-Flow ที่ถูกต้อง:
+Production database:
 
 ```text
 Internet
-   |
-Cloudflare Tunnel
-   |
-Nginx
-   |
-Backend / API
-   |
-Private Docker Network
-   |
-PostgreSQL / MySQL
-```
-
-Database **ห้าม** ถูกเปิดผ่าน Nginx โดยตรง
-
-```text
-Internet
-   |
-Nginx
    X
-   |
-PostgreSQL :5432
+Database port
 ```
 
-กฎสำหรับ Agent:
+application access:
 
-- Nginx route เฉพาะ HTTP/HTTPS application traffic
-- PostgreSQL / MySQL ต้องอยู่ loopback หรือ private Docker network
-- pgAdmin Production ใช้ SSH Tunnel ไม่ผ่าน Nginx
-- ห้ามใช้ Nginx `stream` เพื่อเปิด database สู่ public Internet
-- Backend หลาย instance สามารถใช้ Nginx load balancing ได้
-- Database connection pooling เป็นหน้าที่ของ application pool / PgBouncer / ProxySQL ตาม architecture
-- Cloudflare Tunnel ห้ามชี้ตรงไป PostgreSQL/MySQL
-- Production secrets ห้ามอยู่ใน `nginx.conf`
+```text
+Web Edge / Load Balancer
+        ↓
+Application services
+        ↓ private network / TLS
+Database
+```
 
-X-Fly production connectivity ต้องคงเป็น `backend/container → private Docker network → postgres:5432` (หรือ service name จริง) โดยไม่มี public/LAN database hostname และ frontend/external API consumer ห้ามต่อ PostgreSQL โดยตรง
+admin access ใช้ private network/VPN/SSH tunnel/bastion/provider console ตาม architecture
+
+รายละเอียด reverse proxy/server topology ให้อยู่ใน `SERVER.md`
 
 ---
 
-## 13. เชื่อมต่อ GUI และตรวจสอบข้อมูลด้วย pgAdmin
+## 30. Backup / Restore / PITR
 
-> ส่วนนี้เป็น **template กลางสำหรับทุกโปรเจกต์** ไม่ผูกกับชื่อ Product ใดโดยเฉพาะ
-> ให้ Agent แทน `<project-name>`, `<project_database>` และชื่อ connection ด้วยชื่อจริงของโปรเจกต์ที่กำลังทำ
+Backup ที่ restore ไม่ได้ = ไม่มี backup
 
-สำหรับโปรเจกต์ที่ใช้ PostgreSQL ต้องออกแบบให้ผู้ใช้สามารถตรวจสอบ schema และ runtime data ผ่าน **pgAdmin บน Mac** ได้ทั้ง Local และ Production โดยแยก connection ชัดเจน.
+กำหนด:
 
-### 13.1 Local — pgAdmin → PostgreSQL Docker
+- retention
+- encryption
+- off-host/off-site copy
+- backup frequency
+- PITR/WAL/binlog ตาม engine
+- restore procedure
+- restore drill
 
-Local development architecture:
+### RPO / RTO
 
-```text
-Mac
-├── Backend (Rust + Axum)
-├── pgAdmin
-└── Docker
-    └── PostgreSQL
-```
+- **RPO**: ยอมเสียข้อมูลย้อนหลังได้เท่าไร
+- **RTO**: ยอม downtime ได้นานเท่าไร
 
-Backend ที่รันบน Mac และ pgAdmin ต้องเชื่อม PostgreSQL local instance ตัวเดียวกันผ่าน host port.
+ระดับ production/enterprise ต้องระบุ target ไม่ใช่แค่ “มี backup”
 
-แนะนำตั้งชื่อ connection:
+---
 
-```text
-Project - LOCAL
-```
+## 31. Replication / HA / Failover
 
-ตัวอย่าง: หากชื่อ Product คือ `Acme Shop` สามารถใช้ `Acme Shop - LOCAL` ได้
+เพิ่มเมื่อ SLA/traffic/availability ต้องการจริง
 
-ตัวอย่างค่า:
+พิจารณา:
 
-```text
-Host: localhost หรือ 127.0.0.1
-Port: POSTGRES_HOST_PORT
-      ค่า default สำหรับเครื่องนี้ = 5433
-Database: POSTGRES_DB
-Username: POSTGRES_USER
-Password: POSTGRES_PASSWORD จาก local .env
-```
+- primary/replica
+- synchronous/asynchronous replication
+- read replica lag
+- automated failover
+- split-brain prevention
+- connection routing
+- failback/recovery drill
 
-ตัวอย่าง backend connection เมื่อ backend รันบน host:
+ห้ามส่ง read-after-write query ไป replica ที่ lag หาก workflow ต้อง strong consistency
 
-```env
-DATABASE_URL=postgresql://<app_user>:<password>@localhost:${POSTGRES_HOST_PORT}/<database>
-```
+---
 
-หาก backend รันใน Docker network เดียวกับ PostgreSQL ให้ใช้ Docker service hostname และ internal port แทน เช่น:
+## 32. Partitioning / Sharding
 
-```text
-db:5432
-```
+### Partitioning
 
-เป้าหมายของ Local pgAdmin:
+ใช้เมื่อ table size/query/retention pattern มี evidence เช่น time-range pruning
 
-- ตรวจ tables / columns / indexes / constraints
-- ตรวจผล migration
-- ตรวจ seed data
-- ตรวจ runtime records ที่ backend เขียนจริง เช่น users / orders / bookings / inventory / payments ตาม domain ของโปรเจกต์
-- query/debug ระหว่าง development
-- ยืนยันว่า backend และ pgAdmin กำลังดู database instance ตัวเดียวกัน
+### Sharding
 
-### 13.2 Production / Self-Hosted — pgAdmin ผ่าน SSH Tunnel
+ใช้เมื่อ single primary architecture ไม่ตอบ scale จริงหลัง optimize แล้ว
 
-Production PostgreSQL **ห้ามเปิด public Internet เพื่อให้ pgAdmin ต่อได้**.
+ต้องมี:
 
-สำหรับโปรเจกต์ที่ deploy บน self-hosted server ให้ใช้ pgAdmin บน Mac ผ่าน SSH Tunnel:
+- shard key
+- routing
+- rebalance
+- cross-shard query/transaction semantics
+- operational tooling
 
-```text
-pgAdmin on Mac
-      ↓
-SSH Tunnel
-      ↓
-Ubuntu Server
-      ↓
-127.0.0.1:5432
-      ↓
-PostgreSQL Container
-```
+**ห้าม shard ตั้งแต่เริ่มเพราะคาดว่า “อนาคตระบบใหญ่”**
 
-แนะนำตั้งชื่อ connection:
+---
 
-```text
-Project - PRODUCTION
-```
+## 33. Data Lifecycle / Privacy
 
-ตัวอย่าง: หากชื่อ Product คือ `Acme Shop` สามารถใช้ `Acme Shop - PRODUCTION` ได้
+กำหนด:
 
-หลักการ connection:
+- retention period
+- deletion/anonymization
+- legal/audit retention
+- PII classification
+- encryption at rest/in transit
+- backup deletion implications
+- tenant isolation
+- access auditing
 
-```text
-SSH Host / Alias:
-safe-host
+soft delete ไม่ใช่คำตอบทุกกรณี และไม่ได้เท่ากับ privacy deletion
 
-SSH Authentication:
-existing SSH key
+---
 
-Database Host หลังผ่าน tunnel:
-127.0.0.1
+## 34. Observability
 
-Database Port:
-5432
+monitor อย่างน้อยตาม criticality:
 
-Database:
-<project-production-database>
+- connections / pool utilization
+- query latency
+- slow queries
+- lock waits / deadlocks
+- transaction duration
+- CPU / memory
+- disk / IOPS / space growth
+- cache hit ratio
+- replication lag
+- vacuum/analyze/bloat (PostgreSQL)
+- error/timeout rate
+- backup success
 
-Username / Password:
-production DB credentials จาก server environment
-```
+alert ต้อง actionable ไม่ใช่เก็บ metric อย่างเดียว
 
-ข้อบังคับ:
+---
 
-- Production PostgreSQL ต้องยัง bind เฉพาะ loopback / private Docker network ตาม `SERVER.md`
-- ห้ามเปลี่ยนเป็น `0.0.0.0:5432` เพียงเพื่อให้ pgAdmin เข้าได้
-- ห้ามเปิด UFW / router / Cloudflare public route สำหรับ PostgreSQL
-- pgAdmin เป็นเครื่องมือ admin/inspection เท่านั้น ไม่ใช่ application dependency
-- Backend production ต้องเชื่อม DB ผ่าน Docker internal hostname เช่น `postgres:5432` หรือ service name จริง ไม่ผ่าน pgAdmin/SSH tunnel
+## 35. Test Strategy
 
-### 13.3 Local และ Production เป็นคนละข้อมูล
+### Unit
 
-ใน pgAdmin ควรเห็นประมาณ:
+business logic ไม่ต้อง DB จริง
 
-```text
-Servers
-├── Project - LOCAL
-│   └── <project_database>
-└── Project - PRODUCTION
-    └── <project_database>
-```
+### Repository / Integration
 
-แม้ชื่อ database จะเหมือนกัน แต่เป็นคนละ PostgreSQL instance.
+ใช้ production-equivalent engine สำหรับ:
 
-```text
-LOCAL
-- development data
-- test/demo records
-- migration experiments
+- constraints
+- transaction
+- locking
+- isolation
+- SQL behavior
+- migrations
 
-PRODUCTION
-- deployed/demo data บน Ubuntu Server
-- data ที่เกิดจาก public application
-```
+### Concurrency Tests
+
+booking/payment/inventory/lease ต้องมี deterministic concurrency test
+
+- barrier/lock coordination
+- ห้าม arbitrary sleep เป็นหลักฐาน
+- test both linearization orderings เมื่อ invariant ต้องการ
+
+### Migration Tests
+
+- empty DB migration
+- upgrade from realistic prior version เมื่อ critical
+- permission/ownership tests
+
+---
+
+## 36. ORM / Driver Selection
+
+ใช้ของ project เป็นหลัก
+
+ตัวอย่าง:
+
+- Rust: SQLx / Diesel
+- Java: JDBC/JdbcClient/jOOQ/JPA-Hibernate
+- C#: Npgsql / EF Core / Dapper
+- TypeScript: Prisma / Drizzle / Kysely / node-postgres
+- Python: SQLAlchemy / psycopg
+- Go: pgx / database/sql / sqlc
 
 กฎ:
 
-- schema ส่งต่อผ่าน migrations
-- controlled fixture/demo data ส่งต่อผ่าน seed
-- runtime data ไม่ sync อัตโนมัติ
-- ห้าม copy local database ทั้งก้อนขึ้น production โดยไม่มี reviewed migration/restore plan
-- ก่อนใช้ Query Tool หรือแก้ข้อมูล ให้ตรวจชื่อ connection ว่า LOCAL หรือ PRODUCTION ทุกครั้ง
+- ORM productivity ไม่แทน SQL understanding
+- critical query ต้อง inspect generated SQL
+- N+1 / lazy loading / implicit transaction ต้อง review
+- raw SQL ใช้ parameterized statement
 
-### 13.4 MySQL Workbench → MySQL Docker
+---
 
-สำหรับโปรเจกต์อื่นที่เลือก MySQL:
+## 37. API / Data Access Security
+
+- backend authorization ก่อน query sensitive resource
+- multi-tenant query ต้อง enforce tenant boundary server-side/DB policy ตาม architecture
+- parameterized query
+- generic client error; raw DB errorsไม่ออก client
+- log ห้ามมี password/token/connection string/PII เกินจำเป็น
+- RLS ใช้เมื่อเหมาะและต้อง test policy จริง
+- service/admin credential ไม่ส่ง frontend
+
+---
+
+## 38. CI Database Gates
+
+ตาม project criticality CI ควรทำ:
 
 ```text
-Hostname: 127.0.0.1
-Port: 3307
-Username: MYSQL_USER
-Password: MYSQL_PASSWORD จาก .env ของผู้ใช้
+start ephemeral TEST database
+→ provision roles
+→ run migrations
+→ verify schema/ownership/ACL
+→ run repository/integration tests
+→ run concurrency/security tests
+→ teardown disposable TEST environment
 ```
 
-อย่าใช้ `5432` หรือ `3306` สำหรับ Docker local บนเครื่องนี้ถ้า port ดังกล่าวถูกใช้งานอยู่แล้ว.
+ห้ามใช้ DEV/production DB ใน CI
+
+migration count/schema count ใช้เฉพาะเมื่อ project มี reason; อย่าฮาร์ดโค้ด generic count ใน guide
 
 ---
 
-## 14. API และ Data Access Security
+## 39. Production Readiness Checklist
 
-- ใช้ route versioning ตาม convention เดิม เช่น `/api/v1/`
-- validate input ก่อนส่งเข้า database
-- ทุก query ต้อง parameterized หรือผ่าน ORM
-- ใช้ transaction กับงานที่ต้องสำเร็จ/ล้มเหลวพร้อมกัน
-- บังคับ authorization ที่ backend ห้ามเชื่อ user/role จาก frontend โดยตรง
-- ให้สิทธิ์ database user ต่ำที่สุดที่ app ต้องใช้
-- log error โดยไม่เผย password, token, connection string หรือข้อมูลอ่อนไหว
-- เพิ่ม index ตาม query จริงและตรวจ query plan ก่อน optimization ซับซ้อน
-
-ถ้าโปรเจกต์ยังไม่มี response convention:
-
-```json
-{ "data": {} }
-```
-
-```json
-{ "error": "message", "code": "ERROR_CODE" }
-```
-
----
-
-## 15. ตรวจสอบก่อนส่งงาน
-
-Agent ต้องรันคำสั่งตามโปรเจกต์จริงและรายงานผล/error:
-
-1. ตรวจ Compose:
-
-   ```bash
-   docker compose config
-   ```
-
-2. Build และเริ่ม container:
-
-   ```bash
-   docker compose up --build -d
-   ```
-
-3. ตรวจ health:
-
-   ```bash
-   docker compose ps
-   ```
-
-4. ตรวจ log โดยไม่เผย secret:
-
-   ```bash
-   docker compose logs --no-color --tail=200
-   ```
-
-5. รัน migration ด้วยคำสั่งของ ORM/framework
-6. รัน seed (ถ้ามี)
-7. ทดสอบว่า app เชื่อม DB และ query ได้อย่างน้อยหนึ่งรายการ
-8. รัน test/lint/type-check ที่เกี่ยวข้อง โดยตรวจว่าชี้ไปที่ test database แยกจาก dev
-9. ตรวจว่า `.env` ไม่ถูก track และไม่มี secret ใหม่ใน diff
-10. ตรวจว่าไฟล์ backup (ถ้ามีจากการทดสอบ) ไม่ถูก track ใน Git
-11. สำหรับ PostgreSQL Local ให้ยืนยันว่า pgAdmin `<Project> - LOCAL` เชื่อมและเห็น schema/data ได้
-12. สำหรับ Self-Hosted Production ให้ยืนยันแนวทาง pgAdmin `<Project> - PRODUCTION` ผ่าน SSH Tunnel โดยไม่เปิด PostgreSQL public
-13. ถ้าเป็น Self-Hosted deployment ให้ตรวจว่า Nginx route ไป application ได้ และ Database ไม่ถูก expose ผ่าน Nginx
-14. สรุปไฟล์ที่แก้ คำสั่ง ผลตรวจ และค่าที่ผู้ใช้ต้องตั้งเอง
-
-หาก Docker daemon ไม่ทำงาน, dependency ขาด, port ถูกใช้ หรือ permission ไม่พอ ให้รายงาน blocker ตามจริง ห้ามอ้างว่าพร้อมใช้งาน
+- [ ] datastore แต่ละตัวมี responsibility/source of truth ชัด
+- [ ] multi-database sync/consistency strategy ชัดเจน
+- [ ] transaction/concurrency invariants ถูก enforce และ test
+- [ ] constraints/indexes ตรง query/business rules
+- [ ] hot query มี query-plan evidence
+- [ ] connection pool มี sizing rationale
+- [ ] migrations backward-compatible/rollout-safe ตาม criticality
+- [ ] test DB แยกจาก DEV/PROD และมี guard
+- [ ] runtime DB role least privilege
+- [ ] DB ไม่ expose public โดยไม่จำเป็น
+- [ ] secrets/TLS ถูกต้อง
+- [ ] backup + restore drill ผ่าน
+- [ ] RPO/RTO ถูกกำหนดเมื่อ production critical
+- [ ] PITR/replication/failover ตาม SLA
+- [ ] monitoring/alerts พร้อม
+- [ ] data retention/privacy lifecycle ชัด
+- [ ] CI migration/integration/security gates ผ่าน
+- [ ] ไม่มี dump/secret/debug artifacts ใน Git
 
 ---
 
-## 16. Definition of Done
+## 40. Agent Completion Report
 
-- [ ] เลือกฐานข้อมูลตรง requirement และ stack เดิม
-- [ ] App และ database รันผ่าน Docker Compose
-- [ ] Database มี persistent named volume
-- [ ] Healthcheck ผ่าน และ app รอ database พร้อม
-- [ ] App ใน container ใช้ `db` และ internal port ถูกต้อง
-- [ ] PostgreSQL Docker host publication เป็น loopback-only เช่น `127.0.0.1:5433:5432`; MySQL ใช้ `3307` ตาม project requirement (หรือ port ว่างถัดไปถ้าชนกัน)
-- [ ] มี `.env.example` และไม่มี secret จริงใน Git
-- [ ] App ไม่ใช้ `postgres`, `root` หรือ superuser
-- [ ] Charset/collation และ timezone (UTC) ตั้งค่าถูกต้อง
-- [ ] Migration ทำงานกับ database ว่าง
-- [ ] Seed ทำงานและไม่มีข้อมูลจริง
-- [ ] Test database แยกจาก dev database อย่างชัดเจน
-- [ ] มีขั้นตอน backup/restore ที่ทดสอบแล้วอย่างน้อยหนึ่งครั้ง
-- [ ] Production มี TLS/SSL และ connection pooling ตามความเหมาะสม
-- [ ] Naming convention ของตาราง/คอลัมน์สอดคล้องกันทั้ง schema
-- [ ] pgAdmin Local เชื่อม PostgreSQL ผ่าน host port ที่กำหนดได้
-- [ ] pgAdmin Production ใช้ SSH Tunnel เท่านั้นเมื่อเป็น self-hosted server
-- [ ] Production PostgreSQL ไม่ถูก expose สู่ public Internet
-- [ ] Nginx เป็น Web Edge หลักของ Self-Hosted deployment และไม่ได้ proxy database ออก public
-- [ ] Local / Production connections ถูกตั้งชื่อและแยกข้อมูลชัดเจน
-- [ ] Migration ทำให้ schema สอดคล้องกันโดยไม่ทำให้ runtime data auto-sync
-- [ ] Query ปลอดภัยจาก SQL injection
-- [ ] Tests/checks ผ่าน หรือรายงานข้อผิดพลาดตามจริง
-- [ ] README อธิบายขั้นตอนสำหรับสมาชิกทีมใหม่
+ตอบเป็นภาษาไทยแบบกระชับโดยระบุ:
 
----
+1. datastore(s) ที่เลือกและเหตุผล
+2. source of truth และ consistency model
+3. schema/migrations/indexes ที่เปลี่ยน
+4. transaction/concurrency strategy
+5. permissions/security boundary
+6. migration/seed commands
+7. backup/restore impact
+8. query/performance evidence
+9. test/integration/concurrency results
+10. DEV/TEST/PROD safety
+11. files changed
+12. blockers/deviations และสิ่งที่ยังไม่ได้ verify จริง
 
-## 17. รูปแบบรายงานกลับผู้ใช้
-
-ตอบเป็นภาษาไทยแบบกระชับ โดยระบุ:
-
-1. ฐานข้อมูลที่เลือกและเหตุผล
-2. ไฟล์ที่สร้างหรือแก้
-3. คำสั่งเริ่มระบบ
-4. คำสั่ง migration และ seed
-5. วิธีเชื่อม pgAdmin Local และ (ถ้ามี self-hosted deployment) Production ผ่าน SSH Tunnel / วิธีเชื่อม MySQL Workbench
-6. ผล build, healthcheck, migration, seed และ tests
-7. blocker หรือค่าที่ผู้ใช้ต้องกำหนดเอง
-
-ห้ามแสดงรหัสผ่านหรือ secret จริงในรายงาน
+ห้ามแสดง secret จริง
