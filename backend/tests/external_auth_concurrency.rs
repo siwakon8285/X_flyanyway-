@@ -15,8 +15,8 @@ use x_fly_api::{
         api_client::ApiClientScope,
         external_api::{
             AccessTokenHash, CredentialAdministrationError, CredentialDigest,
-            CredentialRevocationReason, ExternalApiCredentialPepper, ExternalTokenExchangeError,
-            PlaintextClientSecret,
+            CredentialRevocationReason, ExternalApiCredentialPepper, ExternalAuthenticationError,
+            ExternalTokenExchangeError, PlaintextClientSecret,
         },
     },
     infrastructure::{
@@ -131,6 +131,32 @@ async fn wait_for_runtime_lock_wait(
         .expect("runtime operation did not reach the expected PostgreSQL lock wait");
 }
 
+async fn active_runtime_backend_pid(setup: &PgPool, application_name: &str) -> i32 {
+    let observation = async {
+        loop {
+            let pid: Option<i32> = sqlx::query_scalar(
+                "SELECT pid
+                 FROM pg_stat_activity
+                 WHERE datname=current_database()
+                   AND application_name=$1
+                 ORDER BY pid
+                 LIMIT 1",
+            )
+            .bind(application_name)
+            .fetch_optional(setup)
+            .await
+            .expect("inspect TEST runtime backend");
+            if let Some(pid) = pid {
+                return pid;
+            }
+            tokio::task::yield_now().await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), observation)
+        .await
+        .expect("runtime exchange did not expose an active TEST backend")
+}
+
 async fn hold_client_lock(setup: &PgPool, client_pk: Uuid) -> (Transaction<'_, Postgres>, i32) {
     let mut transaction = setup
         .begin()
@@ -145,6 +171,26 @@ async fn hold_client_lock(setup: &PgPool, client_pk: Uuid) -> (Transaction<'_, P
         .execute(&mut *transaction)
         .await
         .expect("controller acquires api_clients lock");
+    (transaction, backend_pid)
+}
+
+async fn hold_credential_lock(
+    setup: &PgPool,
+    credential_id: Uuid,
+) -> (Transaction<'_, Postgres>, i32) {
+    let mut transaction = setup
+        .begin()
+        .await
+        .expect("begin TEST credential controller transaction");
+    let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *transaction)
+        .await
+        .expect("credential controller identifies its TEST backend");
+    sqlx::query("SELECT id FROM api_client_credentials WHERE id=$1 FOR UPDATE")
+        .bind(credential_id)
+        .execute(&mut *transaction)
+        .await
+        .expect("credential controller acquires credential lock");
     (transaction, backend_pid)
 }
 
@@ -575,6 +621,275 @@ async fn token_issue_serializes_after_credential_revoke() {
 }
 
 #[tokio::test]
+async fn token_exchange_first_then_suspend_revokes_committed_token() {
+    let TestPools {
+        setup,
+        runtime,
+        runtime_application_name: _,
+    } = pools().await;
+    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
+    let crypto = HmacExternalCredentialCrypto::from_pepper(pepper());
+    let repository = SqlxExternalAuthRepository::new(runtime.clone());
+    let (digest, credential_id) = issue_initial(&repository, &fixture, &crypto, 0x81).await;
+    let (controller, controller_pid) = hold_credential_lock(&setup, credential_id).await;
+
+    let exchange_application_name = format!("b25t10-es-{}", Uuid::new_v4());
+    let exchange_runtime = runtime_pool_with_application_name(&exchange_application_name).await;
+    let exchange_repository = SqlxExternalAuthRepository::new(exchange_runtime);
+    let token = crypto.generate_access_token();
+    let token_hash = crypto.access_token_hash(&token);
+    let issued_at = Utc::now();
+    let exchange_client_id = fixture.client_id.clone();
+    let exchange_digest = digest.clone();
+    let exchange_hash = token_hash.clone();
+    let exchange = tokio::spawn(async move {
+        exchange_repository
+            .issue_access_token(
+                &exchange_client_id,
+                &exchange_digest,
+                &exchange_hash,
+                issued_at,
+                issued_at + ChronoDuration::minutes(15),
+            )
+            .await
+    });
+    wait_for_runtime_lock_wait(&setup, &exchange_application_name, controller_pid, 1).await;
+    let exchange_pid = active_runtime_backend_pid(&setup, &exchange_application_name).await;
+
+    let suspend_application_name = format!("b25t10-s-{}", Uuid::new_v4());
+    let suspend_runtime = runtime_pool_with_application_name(&suspend_application_name).await;
+    let suspend = tokio::spawn(lifecycle_update(
+        suspend_runtime,
+        fixture.client_pk,
+        fixture.actor_id,
+        "SUSPENDED",
+        CredentialRevocationReason::ClientSuspended,
+        None,
+    ));
+    wait_for_runtime_lock_wait(&setup, &suspend_application_name, exchange_pid, 1).await;
+
+    controller.commit().await.unwrap();
+    assert!(exchange.await.unwrap().is_ok());
+    suspend.await.unwrap();
+
+    let repository = SqlxExternalAuthRepository::new(runtime.clone());
+    let authenticated = repository
+        .authenticate_access_token(&token_hash, issued_at + ChronoDuration::seconds(1))
+        .await;
+    assert!(matches!(
+        authenticated,
+        Err(ExternalAuthenticationError::InvalidToken)
+    ));
+    let retry_token = crypto.generate_access_token();
+    let retry_hash = crypto.access_token_hash(&retry_token);
+    assert_eq!(
+        repository
+            .issue_access_token(
+                &fixture.client_id,
+                &digest,
+                &retry_hash,
+                Utc::now(),
+                Utc::now() + ChronoDuration::minutes(15),
+            )
+            .await,
+        Err(ExternalTokenExchangeError::InvalidCredential)
+    );
+    cleanup(&setup, &fixture).await;
+}
+
+#[tokio::test]
+async fn token_exchange_first_then_terminal_client_revoke_revokes_committed_token() {
+    let TestPools {
+        setup,
+        runtime,
+        runtime_application_name: _,
+    } = pools().await;
+    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
+    let crypto = HmacExternalCredentialCrypto::from_pepper(pepper());
+    let repository = SqlxExternalAuthRepository::new(runtime.clone());
+    let (digest, credential_id) = issue_initial(&repository, &fixture, &crypto, 0x91).await;
+    let (controller, controller_pid) = hold_credential_lock(&setup, credential_id).await;
+
+    let exchange_application_name = format!("b25t10-ec-{}", Uuid::new_v4());
+    let exchange_runtime = runtime_pool_with_application_name(&exchange_application_name).await;
+    let exchange_repository = SqlxExternalAuthRepository::new(exchange_runtime);
+    let token = crypto.generate_access_token();
+    let token_hash = crypto.access_token_hash(&token);
+    let issued_at = Utc::now();
+    let exchange_client_id = fixture.client_id.clone();
+    let exchange_digest = digest.clone();
+    let exchange_hash = token_hash.clone();
+    let exchange = tokio::spawn(async move {
+        exchange_repository
+            .issue_access_token(
+                &exchange_client_id,
+                &exchange_digest,
+                &exchange_hash,
+                issued_at,
+                issued_at + ChronoDuration::minutes(15),
+            )
+            .await
+    });
+    wait_for_runtime_lock_wait(&setup, &exchange_application_name, controller_pid, 1).await;
+    let exchange_pid = active_runtime_backend_pid(&setup, &exchange_application_name).await;
+
+    let revoke_application_name = format!("b25t10-r-{}", Uuid::new_v4());
+    let revoke_runtime = runtime_pool_with_application_name(&revoke_application_name).await;
+    let revoke = tokio::spawn(lifecycle_update(
+        revoke_runtime,
+        fixture.client_pk,
+        fixture.actor_id,
+        "REVOKED",
+        CredentialRevocationReason::ClientRevoked,
+        None,
+    ));
+    wait_for_runtime_lock_wait(&setup, &revoke_application_name, exchange_pid, 1).await;
+
+    controller.commit().await.unwrap();
+    assert!(exchange.await.unwrap().is_ok());
+    revoke.await.unwrap();
+
+    let status: String = sqlx::query_scalar("SELECT status FROM api_clients WHERE id=$1")
+        .bind(fixture.client_pk)
+        .fetch_one(&setup)
+        .await
+        .unwrap();
+    assert_eq!(status, "REVOKED");
+    let repository = SqlxExternalAuthRepository::new(runtime.clone());
+    let authenticated = repository
+        .authenticate_access_token(&token_hash, issued_at + ChronoDuration::seconds(1))
+        .await;
+    assert!(matches!(
+        authenticated,
+        Err(ExternalAuthenticationError::InvalidToken)
+    ));
+    let retry_token = crypto.generate_access_token();
+    let retry_hash = crypto.access_token_hash(&retry_token);
+    assert_eq!(
+        repository
+            .issue_access_token(
+                &fixture.client_id,
+                &digest,
+                &retry_hash,
+                Utc::now(),
+                Utc::now() + ChronoDuration::minutes(15),
+            )
+            .await,
+        Err(ExternalTokenExchangeError::InvalidCredential)
+    );
+    let version: i64 = sqlx::query_scalar("SELECT version FROM api_clients WHERE id=$1")
+        .bind(fixture.client_pk)
+        .fetch_one(&setup)
+        .await
+        .unwrap();
+    let replacement_secret = PlaintextClientSecret::parse_hex(&hex::encode([0x92; 32])).unwrap();
+    let replacement_digest = crypto.credential_digest(&fixture.client_id, &replacement_secret);
+    assert!(matches!(
+        repository
+            .issue_credential(
+                &fixture.client_id,
+                fixture.actor_id,
+                version,
+                &replacement_digest,
+                Utc::now(),
+            )
+            .await,
+        Err(CredentialAdministrationError::RevokedClient)
+    ));
+    cleanup(&setup, &fixture).await;
+}
+
+#[tokio::test]
+async fn token_exchange_first_then_credential_revoke_revokes_committed_token() {
+    let TestPools {
+        setup,
+        runtime,
+        runtime_application_name: _,
+    } = pools().await;
+    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
+    let crypto = HmacExternalCredentialCrypto::from_pepper(pepper());
+    let repository = SqlxExternalAuthRepository::new(runtime.clone());
+    let (digest, credential_id) = issue_initial(&repository, &fixture, &crypto, 0xa1).await;
+    let (controller, controller_pid) = hold_credential_lock(&setup, credential_id).await;
+
+    let exchange_application_name = format!("b25t10-eq-{}", Uuid::new_v4());
+    let exchange_runtime = runtime_pool_with_application_name(&exchange_application_name).await;
+    let exchange_repository = SqlxExternalAuthRepository::new(exchange_runtime);
+    let token = crypto.generate_access_token();
+    let token_hash = crypto.access_token_hash(&token);
+    let issued_at = Utc::now();
+    let exchange_client_id = fixture.client_id.clone();
+    let exchange_digest = digest.clone();
+    let exchange_hash = token_hash.clone();
+    let exchange = tokio::spawn(async move {
+        exchange_repository
+            .issue_access_token(
+                &exchange_client_id,
+                &exchange_digest,
+                &exchange_hash,
+                issued_at,
+                issued_at + ChronoDuration::minutes(15),
+            )
+            .await
+    });
+    wait_for_runtime_lock_wait(&setup, &exchange_application_name, controller_pid, 1).await;
+    let exchange_pid = active_runtime_backend_pid(&setup, &exchange_application_name).await;
+
+    let revoke_application_name = format!("b25t10-q-{}", Uuid::new_v4());
+    let revoke_runtime = runtime_pool_with_application_name(&revoke_application_name).await;
+    let revoke_repository = SqlxExternalAuthRepository::new(revoke_runtime);
+    let revoke_client_id = fixture.client_id.clone();
+    let revoke = tokio::spawn(async move {
+        revoke_repository
+            .revoke_credential(
+                &revoke_client_id,
+                fixture.actor_id,
+                2,
+                CredentialRevocationReason::AdminRequest,
+                Utc::now(),
+            )
+            .await
+    });
+    wait_for_runtime_lock_wait(&setup, &revoke_application_name, exchange_pid, 1).await;
+
+    controller.commit().await.unwrap();
+    assert!(exchange.await.unwrap().is_ok());
+    revoke.await.unwrap().unwrap();
+
+    let repository = SqlxExternalAuthRepository::new(runtime.clone());
+    let authenticated = repository
+        .authenticate_access_token(&token_hash, issued_at + ChronoDuration::seconds(1))
+        .await;
+    assert!(matches!(
+        authenticated,
+        Err(ExternalAuthenticationError::InvalidToken)
+    ));
+    let retry_token = crypto.generate_access_token();
+    let retry_hash = crypto.access_token_hash(&retry_token);
+    assert_eq!(
+        repository
+            .issue_access_token(
+                &fixture.client_id,
+                &digest,
+                &retry_hash,
+                Utc::now(),
+                Utc::now() + ChronoDuration::minutes(15),
+            )
+            .await,
+        Err(ExternalTokenExchangeError::InvalidCredential)
+    );
+    let live: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM api_client_credentials WHERE api_client_id=$1 AND revoked_at IS NULL",
+    )
+    .bind(fixture.client_pk)
+    .fetch_one(&setup)
+    .await
+    .unwrap();
+    assert_eq!(live, 0);
+    cleanup(&setup, &fixture).await;
+}
+
+#[tokio::test]
 async fn credential_issue_vs_suspend_has_one_final_credential_and_no_usable_token() {
     let TestPools {
         setup,
@@ -901,7 +1216,7 @@ async fn credential_issue_vs_credential_revoke_allows_replacement_after_revoke()
 }
 
 #[tokio::test]
-async fn scope_removal_before_auth_is_denied() {
+async fn scope_removal_barrier_has_both_permitted_outcomes_before_auth() {
     let TestPools {
         setup,
         runtime,
@@ -927,7 +1242,7 @@ async fn scope_removal_before_auth_is_denied() {
 }
 
 #[tokio::test]
-async fn scope_removal_after_guard_allows_in_flight() {
+async fn scope_removal_barrier_has_both_permitted_outcomes_after_guard() {
     let TestPools {
         setup,
         runtime,
@@ -959,6 +1274,110 @@ async fn scope_removal_after_guard_allows_in_flight() {
     finish_tx.send(()).unwrap();
     let principal = in_flight.await.unwrap();
     assert!(principal.scopes().contains(&ApiClientScope::FlightsRead));
+    cleanup(&setup, &fixture).await;
+}
+
+#[tokio::test]
+async fn suspend_commit_invalidates_the_next_authenticated_request() {
+    let TestPools {
+        setup,
+        runtime,
+        runtime_application_name: _,
+    } = pools().await;
+    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
+    let crypto = HmacExternalCredentialCrypto::from_pepper(pepper());
+    let repository = SqlxExternalAuthRepository::new(runtime.clone());
+    let (digest, _) = issue_initial(&repository, &fixture, &crypto, 0x51).await;
+    let (token_hash, issued_at) = issue_token(&repository, &fixture, &digest, &crypto).await;
+
+    lifecycle_update(
+        runtime,
+        fixture.client_pk,
+        fixture.actor_id,
+        "SUSPENDED",
+        CredentialRevocationReason::ClientSuspended,
+        None,
+    )
+    .await;
+
+    let result = repository
+        .authenticate_access_token(&token_hash, issued_at + ChronoDuration::seconds(1))
+        .await;
+    assert!(matches!(
+        result,
+        Err(ExternalAuthenticationError::InvalidToken)
+    ));
+    cleanup(&setup, &fixture).await;
+}
+
+#[tokio::test]
+async fn terminal_client_revoke_invalidates_the_next_authenticated_request() {
+    let TestPools {
+        setup,
+        runtime,
+        runtime_application_name: _,
+    } = pools().await;
+    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
+    let crypto = HmacExternalCredentialCrypto::from_pepper(pepper());
+    let repository = SqlxExternalAuthRepository::new(runtime.clone());
+    let (digest, _) = issue_initial(&repository, &fixture, &crypto, 0x61).await;
+    let (token_hash, issued_at) = issue_token(&repository, &fixture, &digest, &crypto).await;
+
+    lifecycle_update(
+        runtime,
+        fixture.client_pk,
+        fixture.actor_id,
+        "REVOKED",
+        CredentialRevocationReason::ClientRevoked,
+        None,
+    )
+    .await;
+
+    let result = repository
+        .authenticate_access_token(&token_hash, issued_at + ChronoDuration::seconds(1))
+        .await;
+    assert!(matches!(
+        result,
+        Err(ExternalAuthenticationError::InvalidToken)
+    ));
+    cleanup(&setup, &fixture).await;
+}
+
+#[tokio::test]
+async fn expired_token_rows_are_not_authorized() {
+    let TestPools {
+        setup,
+        runtime,
+        runtime_application_name: _,
+    } = pools().await;
+    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
+    let crypto = HmacExternalCredentialCrypto::from_pepper(pepper());
+    let repository = SqlxExternalAuthRepository::new(runtime);
+    let (_digest, credential_id) = issue_initial(&repository, &fixture, &crypto, 0x71).await;
+    let token = crypto.generate_access_token();
+    let token_hash = crypto.access_token_hash(&token);
+    let issued_at = Utc::now() - ChronoDuration::hours(2);
+    let expires_at = Utc::now() - ChronoDuration::hours(1);
+    sqlx::query(
+        "INSERT INTO external_access_tokens
+         (api_client_credential_id,token_hash,issued_at,expires_at)
+         VALUES ($1,$2,$3,$4)",
+    )
+    .bind(credential_id)
+    .bind(token_hash.as_bytes().as_slice())
+    .bind(issued_at)
+    .bind(expires_at)
+    .execute(&setup)
+    .await
+    .unwrap();
+
+    let result = repository
+        .authenticate_access_token(&token_hash, Utc::now())
+        .await;
+    assert!(matches!(
+        result,
+        Err(ExternalAuthenticationError::InvalidToken)
+    ));
     cleanup(&setup, &fixture).await;
 }
 

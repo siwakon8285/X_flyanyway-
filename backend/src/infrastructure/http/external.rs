@@ -9,6 +9,7 @@ use axum::{
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use tower_http::request_id::RequestId;
+use tracing::Span;
 use uuid::Uuid;
 
 use crate::{
@@ -17,7 +18,10 @@ use crate::{
         external_analytics::{
             ExternalAnalyticsFilter, ExternalAnalyticsFilterError, ExternalAnalyticsService,
         },
-        external_auth::{require_scope, ExternalAuthService, ExternalScopeError},
+        external_auth::{
+            record_external_auth_diagnostic, require_scope, ExternalAuthDiagnostic,
+            ExternalAuthService, ExternalScopeError,
+        },
         external_flights::ExternalFlightService,
         flight::PublicFlightFilter,
     },
@@ -170,6 +174,10 @@ impl IntoResponse for ExternalErrorEnvelope {
 
 fn external_error(code: ExternalErrorCode, request_id: Uuid) -> Response {
     ExternalErrorEnvelope::new(code, request_id).into_response()
+}
+
+fn record_auth_diagnostic(diagnostic: ExternalAuthDiagnostic) {
+    record_external_auth_diagnostic(&Span::current(), diagnostic);
 }
 
 fn request_id_from_extension(request_id: Option<&RequestId>) -> Uuid {
@@ -409,13 +417,19 @@ pub async fn authenticate_external_request(
     now: DateTime<Utc>,
 ) -> Result<ExternalPrincipal, ExternalAuthenticationError> {
     if authorization_header.len() > MAX_AUTHORIZATION_LENGTH || !authorization_header.is_ascii() {
+        record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
         return Err(ExternalAuthenticationError::InvalidToken);
     }
     let token_text = authorization_header
         .strip_prefix("Bearer ")
-        .ok_or(ExternalAuthenticationError::InvalidToken)?;
-    PlaintextAccessToken::parse_bearer_text(token_text)
-        .map_err(|_| ExternalAuthenticationError::InvalidToken)?;
+        .ok_or_else(|| {
+            record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
+            ExternalAuthenticationError::InvalidToken
+        })?;
+    PlaintextAccessToken::parse_bearer_text(token_text).map_err(|_| {
+        record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
+        ExternalAuthenticationError::InvalidToken
+    })?;
     let service: &ExternalAuthService = state
         .external_auth
         .as_ref()
@@ -475,6 +489,7 @@ async fn external_scope_middleware(
         return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     };
     if let Err(ExternalScopeError::Missing) = require_scope(principal, required) {
+        record_auth_diagnostic(ExternalAuthDiagnostic::ScopeDenied);
         return external_error(ExternalErrorCode::ExternalScopeDenied, request_id);
     }
     next.run(request).await
@@ -488,12 +503,15 @@ async fn external_bearer_middleware(
     let request_id = request_id_from_extension(request.extensions().get::<RequestId>());
     let mut values = request.headers().get_all(header::AUTHORIZATION).iter();
     let Some(value) = values.next() else {
+        record_auth_diagnostic(ExternalAuthDiagnostic::Missing);
         return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     };
     if values.next().is_some() {
+        record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
         return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     }
     let Ok(value) = value.to_str() else {
+        record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
         return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     };
     match authenticate_external_request(&state, value, Utc::now()).await {

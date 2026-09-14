@@ -1131,7 +1131,7 @@ async fn runtime_cannot_update_credential_identity_fields() {
 }
 
 #[tokio::test]
-async fn runtime_cannot_update_credential_verifier_fields() {
+async fn runtime_cannot_update_immutable_verifier_fields() {
     let (_setup_pool, runtime_pool) = permission_pools_only().await;
     for statement in [
         "UPDATE api_client_credentials SET secret_digest = secret_digest",
@@ -1186,7 +1186,7 @@ async fn runtime_cannot_update_token_issuance_fields() {
 }
 
 #[tokio::test]
-async fn runtime_cannot_delete_or_truncate_auth_history() {
+async fn runtime_cannot_delete_auth_history() {
     let (_setup_pool, runtime_pool) = permission_pools_only().await;
     for statement in [
         "DELETE FROM api_client_credentials",
@@ -1202,12 +1202,52 @@ async fn runtime_cannot_delete_or_truncate_auth_history() {
 async fn runtime_cannot_alter_or_transfer_auth_tables() {
     let (_setup_pool, runtime_pool) = permission_pools_only().await;
     for table in ["api_client_credentials", "external_access_tokens"] {
-        let statement = format!("ALTER TABLE {table} OWNER TO x_fly_runtime");
-        assert!(sqlx::query(&statement)
-            .execute(&runtime_pool)
-            .await
-            .is_err());
+        for statement in [
+            format!("ALTER TABLE {table} OWNER TO x_fly_runtime"),
+            format!("DROP TABLE {table}"),
+        ] {
+            assert!(sqlx::query(&statement)
+                .execute(&runtime_pool)
+                .await
+                .is_err());
+        }
     }
+}
+
+#[tokio::test]
+async fn runtime_schema_and_function_privileges_are_narrow() {
+    let (_setup_pool, runtime_pool) = permission_pools_only().await;
+    let schema_usage: bool =
+        sqlx::query_scalar("SELECT has_schema_privilege('x_fly_runtime', 'public', 'USAGE')")
+            .fetch_one(&runtime_pool)
+            .await
+            .unwrap();
+    let schema_create: bool =
+        sqlx::query_scalar("SELECT has_schema_privilege('x_fly_runtime', 'public', 'CREATE')")
+            .fetch_one(&runtime_pool)
+            .await
+            .unwrap();
+    assert!(schema_usage);
+    assert!(!schema_create);
+
+    let public_execute: bool = sqlx::query_scalar(
+        "SELECT has_function_privilege(
+             'public', 'public.has_protected_stripe_card_finalization(uuid)', 'EXECUTE'
+         )",
+    )
+    .fetch_one(&runtime_pool)
+    .await
+    .unwrap();
+    let runtime_execute: bool = sqlx::query_scalar(
+        "SELECT has_function_privilege(
+             'x_fly_runtime', 'public.has_protected_stripe_card_finalization(uuid)', 'EXECUTE'
+         )",
+    )
+    .fetch_one(&runtime_pool)
+    .await
+    .unwrap();
+    assert!(!public_execute);
+    assert!(runtime_execute);
 }
 
 #[tokio::test]

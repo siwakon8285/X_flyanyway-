@@ -147,11 +147,14 @@ jobs:
           umask 077
           migrator_password="$(openssl rand -hex 32)"
           runtime_password="$(openssl rand -hex 32)"
+          external_pepper="$(openssl rand -hex 32)"
           echo "::add-mask::$migrator_password"
           echo "::add-mask::$runtime_password"
+          echo "::add-mask::$external_pepper"
           {
             printf 'CI_MIGRATOR_PASSWORD=%s\n' "$migrator_password"
             printf 'CI_RUNTIME_PASSWORD=%s\n' "$runtime_password"
+            printf 'EXTERNAL_API_CREDENTIAL_PEPPER_V1=%s\n' "$external_pepper"
           } >> "$GITHUB_ENV"
 
       - name: Prove CI database identity

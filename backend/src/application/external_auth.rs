@@ -16,6 +16,44 @@ use crate::domain::{
 
 pub use crate::domain::external_api::ACCESS_TOKEN_TTL;
 
+/// A deliberately low-cardinality description of an external authentication outcome.
+///
+/// Diagnostics are safe to attach to request spans: they never contain a client
+/// secret, access token, credential digest, token hash, or request payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExternalAuthDiagnostic {
+    Missing,
+    Malformed,
+    UnknownClient,
+    SecretMismatch,
+    Expired,
+    Suspended,
+    Revoked,
+    ScopeDenied,
+}
+
+impl ExternalAuthDiagnostic {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Missing => "missing",
+            Self::Malformed => "malformed",
+            Self::UnknownClient => "unknown_client",
+            Self::SecretMismatch => "secret_mismatch",
+            Self::Expired => "expired",
+            Self::Suspended => "suspended",
+            Self::Revoked => "revoked",
+            Self::ScopeDenied => "scope_denied",
+        }
+    }
+}
+
+/// Record only a safe authentication category on the request span.
+pub fn record_external_auth_diagnostic(span: &tracing::Span, diagnostic: ExternalAuthDiagnostic) {
+    let category = diagnostic.as_str();
+    span.record("external_auth_diagnostic", category);
+    tracing::debug!(parent: span, external_auth_diagnostic = category, "external authentication outcome");
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExternalScopeError {
     Missing,
