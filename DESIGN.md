@@ -489,10 +489,13 @@ Scope authorization
   ↓
 X-Fly REST API
   ↓
-Only approved booking / flight / passenger / ticket data
+Only the currently approved public flight and aggregate analytics data
 ```
 
-Examples include baggage, ticketing, operational, or marketing-analysis systems. External systems must never obtain direct database access.
+External systems may consume the current read-only flight and non-financial
+analytics contracts; booking creation, passenger/ticket/baggage operations,
+and other operational workflows remain outside this API. External systems must
+never obtain direct database access.
 
 ## 8.6 Operational Boundary — Airport Check-in / Boarding
 
@@ -544,7 +547,8 @@ Do not implement:
 - live cryptocurrency
 - live Stripe charging for the university/demo environment
 
-Marketing systems may receive authorized aggregate/required booking data through the external API, but campaign creation belongs outside X-Fly.
+Marketing systems may receive the currently approved aggregate analytics through
+the external API, but campaign creation belongs outside X-Fly.
 
 ## 8.8 Booking / Payment / Ticket Lifecycle
 
@@ -1746,7 +1750,7 @@ API Client registry
 Lifecycle status + system-defined allowed scopes
 ```
 
-Branch 25 will add the consumption path:
+Branch 25 provides the consumption path:
 
 ```txt
 External System
@@ -1781,9 +1785,11 @@ client is administratively approved and eligible for future API use. SUSPENDED
 is reversible. REVOKED is terminal and historical records remain inspectable.
 
 Branch 24 issues no credential, secret, token, or authentication capability. It
-contains no External REST API, token rotation/expiration/last-used tracking, or
-external authentication middleware. Those capabilities, including scope
-enforcement, rate limiting, and field-level minimization, belong to Branch 25.
+contains no External REST API or external authentication middleware. Branch 25
+adds the credential, token, scope, and field-minimised read paths. Application
+rate limiting, broad security headers, and other edge/abuse controls remain
+deployment or later-branch concerns rather than part of the External API
+contract.
 
 External clients never connect directly to PostgreSQL.
 
@@ -1858,12 +1864,16 @@ The system design must therefore remain horizontally scalable:
 - connection pooling
 - database indexing/query budgets
 - caching where safe
-- rate limiting / backpressure
+- edge rate limiting / backpressure as a deployment concern
 - observability
 - capacity/load testing
 - cloud migration path
 
 Branch 28 must benchmark realistic scenarios and report measured throughput/latency honestly.
+
+Branch 25 does not implement an application-level rate limiter or `429`
+contract; public exposure requires an edge policy at Nginx/Cloudflare or the
+equivalent gateway.
 
 ## Deployment environments
 
@@ -3328,7 +3338,7 @@ time, and the external data endpoints.
 
 ---
 
-# 65. BRANCH 25 — External REST API + Token / Scopes
+# 65. BRANCH 25 — External REST API + Token / Scopes (implemented)
 
 ## Branch
 
@@ -3336,23 +3346,278 @@ time, and the external data endpoints.
 feat/25-external-rest-api
 ```
 
-## Tasks
+**Status:** The Branch 25 implementation is present on
+`feat/25-external-rest-api`. The current implementation and tests are the
+source of truth for this section; older roadmap text must not be read as a
+promise of additional resources.
 
-- secure external credential/token issuance and storage
-- bearer/API-client authentication
-- scope authorization
-- flights:read
-- bookings:read
-- passengers:read
-- tickets:read
-- baggage:read
-- analytics:read where approved
-- field-level data minimization
-- rate limiting
-- audit logs
-- API documentation
-- token revocation, rotation, expiry, and last-used lifecycle
-- contract tests
+## Current system boundary
+
+X-Fly remains a premium airline booking and ticketing system. Customers use the
+website without an account or registration: they search and book flights,
+complete Stripe Test Mode or Mock Bitcoin payment, retrieve a booking with
+Booking Reference + Last Name, view/print an e-ticket, and cancel when the
+authoritative departure is at least 24 hours away. New customer bookings expose
+Business and First only; historical Economy and Premium Economy records remain
+readable and are not rewritten. Staff use the existing server-managed session
+and permission-based RBAC boundary. `SYSTEM_ADMIN` is not an implicit business
+superuser, and API client mutations require effective `api_clients:manage`.
+
+The External API is a separate machine-to-machine boundary. External callers do
+not use staff sessions, customer cookies, the Next.js staff BFF, or direct
+PostgreSQL access. They receive only the approved public flight DTO or the
+aggregate, non-financial analytics DTO described below.
+
+## Runtime and application topology
+
+```text
+Browser
+  → Next.js frontend/BFF (browser and staff flows where applicable)
+    → Rust/Axum API
+      → PostgreSQL
+
+External API consumer
+  → HTTPS edge/reverse proxy (Nginx/Cloudflare or equivalent deployment edge)
+    → Rust/Axum /api/v1/external/**
+      → PostgreSQL through x_fly_runtime
+```
+
+The external router is merged separately from the browser router and has no
+browser CORS layer. The existing credentialed CORS policy applies only to
+health, customer, and staff routes. PostgreSQL is private to the application
+network; an external consumer must never be given a database connection.
+
+The backend stack is Rust (CI pins Rust `1.98.0`), Axum, Tokio, SQLx, and
+PostgreSQL. The dependency direction remains HTTP handler → application service
+→ domain/repository interface → SQLx infrastructure → PostgreSQL. External
+handlers use dedicated application services and response DTOs; domain,
+persistence, staff, and Executive Dashboard structs are not serialized as
+External API responses.
+
+## Database roles and schema handoff
+
+`x_fly_app` is the historical/bootstrap infrastructure role used to establish
+the local cluster and is not the API runtime identity. The operational roles
+are:
+
+| Role | Use | Boundary |
+|---|---|---|
+| `x_fly_migrator` | migration and trusted operator commands | owns application objects and may run migrations |
+| `x_fly_runtime` | normal Axum application connection | least-privilege DML/SELECT; owns no application object |
+
+The application `DATABASE_URL` must resolve to `x_fly_runtime`. `db_admin` and
+the staff operator CLI use `MIGRATION_DATABASE_URL`, which resolves to
+`x_fly_migrator`. Runtime has schema USAGE but no schema CREATE, no migration
+ledger writes, no ownership/DDL, and no broad DELETE/TRUNCATE. The credential
+and access-token tables use column-level grants: credentials can be verified
+and revoked but immutable digest/identity fields cannot be updated; tokens can
+be looked up/inserted and only `revoked_at` can be updated; the management
+audit table accepts only its approved seven insert columns. Public has no auth
+table or audit write path. See `backend/provisioning/README.md` and
+`backend/provisioning/runtime_grants.sql` for the executable allowlist.
+
+Branch 25 adds two auth tables. The current migrated schema therefore records
+`26 → 27` migration-ledger entries (`27/27` successful/total), `33 → 35`
+application tables excluding `_sqlx_migrations`, `34 → 36` public tables
+including the ledger, and `34 → 36` public tables owned by `x_fly_migrator`.
+These counts are distinct checks, not interchangeable labels; the current
+values are 27, 35, 36, and 36 respectively.
+
+Developer integration tests use only the disposable TEST target
+`127.0.0.1:5434` / `x_fly_concurrency_test`, with setup through
+`x_fly_migrator` and restricted application checks through `x_fly_runtime`.
+The DEV target is `127.0.0.1:5433` / `x_fly`; tests must fail closed rather than
+connect to or mutate it.
+
+## Startup, migration, and demo seed
+
+Normal API startup loads configuration, connects using `DATABASE_URL`, verifies
+that every embedded migration is present with its expected checksum, builds the
+Axum services, and exposes `GET /health` (`{"status":"ok"}`). Startup does
+not run migrations and does not demo-seed data. A readiness failure prevents
+the listener from starting.
+
+An operator runs migrations explicitly with `MIGRATION_DATABASE_URL`, for
+example `cargo run --bin db_admin -- migrate`. Demo data is an explicit,
+guarded operation (`db_admin seed-demo`) that requires an exact
+`DEMO_SEED_DATABASE` match and refuses an already-populated inventory. The
+application must be migrated and granted runtime access before it is exposed;
+seed is never part of normal startup. The refund dispatcher is the only
+background worker started by the current API process.
+
+## Configuration names (values are deployment secrets and are not documented)
+
+Backend configuration names are:
+
+| Variable | Current use |
+|---|---|
+| `DATABASE_URL` | required normal runtime URL (`x_fly_runtime`) |
+| `MIGRATION_DATABASE_URL` | `db_admin`/`staff_admin` operator URL (`x_fly_migrator`) |
+| `TEST_DATABASE_URL` | TEST-only migration/fixture URL |
+| `TEST_RUNTIME_DATABASE_URL` | TEST-only restricted runtime URL |
+| `EXTERNAL_API_CREDENTIAL_PEPPER_V1` | required 64 hexadecimal characters (32 random bytes), identical across API instances |
+| `BACKEND_BIND_ADDRESS` | listener address; defaults to `127.0.0.1:8080` |
+| `FRONTEND_ORIGIN` | browser Origin allowlist value; defaults to `http://localhost:3000` |
+| `SEAT_HOLD_TTL_SECONDS` | server hold TTL; defaults to `600` |
+| `APP_ENV` | `production` enables secure browser cookies |
+| `TICKET_QR_SIGNING_SECRET` | required signing secret (at least 32 characters) |
+| `MANAGE_BOOKING_SIGNING_SECRET` | required Manage Booking signing secret (at least 32 characters) |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | optional pair; both are required together and must be Stripe Test Mode values when enabled |
+| `DEMO_SEED_DATABASE` | exact database-name confirmation for the explicit seed command only |
+
+`EXTERNAL_API_CREDENTIAL_PEPPER_V1` has no insecure default. Generate/provision
+it as a secret, never log or commit it, and keep the same value on all API
+instances that verify credentials. CI creates a fresh masked value with
+`openssl rand -hex 32` and writes only the environment assignment. Frontend
+deployments use the existing names `NEXT_PUBLIC_X_FLY_API_URL`,
+`X_FLY_INTERNAL_API_URL` (optional server-only BFF base),
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SITE_URL`, and
+`ALLOWED_DEV_ORIGINS` as applicable; no backend secret belongs in browser
+environment variables.
+
+## External authentication, scopes, and lifecycle
+
+An authorized staff user with effective `api_clients:manage` issues one
+credential from the existing API client detail surface. The response contains
+the public Client ID, a separate
+32-byte/64-lowercase-hex `clientSecret`, and issuance metadata. The plaintext
+secret is shown once, is not persisted or recoverable, and is never included in
+ordinary detail metadata. The verifier is HMAC-SHA-256 over the approved
+versioned context using `EXTERNAL_API_CREDENTIAL_PEPPER_V1`, compared in fixed
+length constant time. Access-token plaintext is likewise never persisted;
+PostgreSQL stores only its SHA-256 hash.
+
+The client exchanges the credential at `POST /api/v1/external/token` for an
+opaque 15-minute bearer token. The response is exactly `accessToken`,
+`tokenType` (`Bearer`), and `expiresIn` (`900`); it does **not** return a scope
+snapshot. Tokens use the intentional `xfa_v1_` plus 64 lowercase-hex format.
+Every protected request checks current client status, credential status, token
+expiry/revocation, and current relational scopes.
+
+The only current scopes are `flights:read` and `analytics:read`. A valid token
+with no current scope still authenticates to an empty principal; the typed route
+guard returns `403 EXTERNAL_SCOPE_DENIED`, not a misleading 401. Removing a
+scope affects the next request after the change commits; a request that already
+passed authentication/authorization may finish.
+
+Client lifecycle is `ACTIVE`, `SUSPENDED`, or terminal `REVOKED`. ACTIVE permits
+credential exchange when a live credential exists. SUSPENDED denies exchange,
+revokes existing live tokens, and reactivation does not revive those tokens.
+REVOKED denies exchange permanently and cannot issue a replacement. There is at
+most one live credential per client; replacement is an explicit revoke-then-
+issue flow, with historical revoked rows retained. Long-lived credential
+expiry, last-used tracking, overlapping live credentials, and refresh tokens are
+not implemented.
+
+## External routes and public contracts
+
+The current machine-facing routes are exactly:
+
+```text
+POST /api/v1/external/token
+GET  /api/v1/external/flights
+GET  /api/v1/external/flights/{flightPublicId}
+GET  /api/v1/external/analytics/summary
+```
+
+`POST /token` accepts strict JSON containing only `clientId` and `clientSecret`.
+Malformed/non-canonical input is `400 EXTERNAL_REQUEST_INVALID`; a
+well-formed but unknown/wrong/suspended/revoked credential is the generic
+`401 EXTERNAL_CLIENT_AUTHENTICATION_FAILED`. The route does not accept caller
+scopes, staff cookies, or customer cookies and is not forwarded through the
+Next.js BFF.
+
+`GET /flights` requires `origin`, `destination`, `departure=YYYY-MM-DD`, and
+`cabin=business|first`. Airport codes are normalized and validated as three-
+letter values, and origin must differ from destination. Results are scheduled
+public flights in deterministic departure/flight-number order, bounded to 100
+items. The detail
+route uses the public `flightPublicId` plus the required `departure` and cabin
+query values. Both routes return only the dedicated public fields
+`flightPublicId`, `flightNumber`, `originCode`, `destinationCode`,
+`departureTime`, `arrivalTime`, `arrivalDayOffset`, `durationMinutes`, `stops`,
+`aircraftCode`, `status`, and `cabinPrices` (public Business/First THB fares).
+Internal UUIDs, versions, audit data, inventory/hold/seat data, and aircraft
+entities are not part of the contract. Schedule times are public local schedule
+values with the explicit arrival-day offset; the authoritative IANA origin
+timezone remains an internal schedule/cancellation/analytics input rather than
+an extra DTO field. The API does not apply browser or host-local formatting.
+
+`GET /analytics/summary` accepts optional `from`, `to`, `route=AAA-BBB`, and
+`cabin=business|first`. Missing `to` defaults to today in Asia/Bangkok and
+missing `from` defaults to 29 days before `to`; dates are inclusive and the
+range is limited to 366 days. The response contains only `period.from`,
+`period.to`, `generatedAt` (machine-readable UTC), `totalBookings`,
+`ticketsIssued`, `cancelledBookings`, `bookedSeats`, `sellableSeats`, and
+`occupancyPercent`. The cohort is authoritative flight departure converted to
+Asia/Bangkok, not booking/payment/ticket timestamps. Successful Stripe and
+Mock Bitcoin attempts are included; cancelled bookings remain in booking and
+issued-ticket totals, cancelled seats do not count as booked, and capacity is
+active/sellable Business + First only. A cabin filter constrains every metric;
+without one, every metric uses exactly Business + First. Occupancy is booked
+seats divided by sellable seats, rounded to two decimals, and is `0.0` when the
+denominator is zero. No PII, booking/ticket/payment identifiers, revenue,
+refunds, or raw rows are returned.
+An empty qualifying cohort is still a successful summary with zero counts and
+`occupancyPercent: 0.0`.
+
+## Errors, HTTP security, and operations
+
+External errors use the single envelope:
+
+```json
+{"error":{"code":"EXTERNAL_REQUEST_INVALID","message":"The external request is invalid.","requestId":"server-generated UUID"}}
+```
+
+The current codes are `EXTERNAL_REQUEST_INVALID` (400),
+`EXTERNAL_CLIENT_AUTHENTICATION_FAILED` (401 token exchange),
+`EXTERNAL_AUTHENTICATION_FAILED` (401 bearer), `EXTERNAL_SCOPE_DENIED` (403),
+`EXTERNAL_RESOURCE_NOT_FOUND` (404), `EXTERNAL_AUTH_UNAVAILABLE` (503),
+`EXTERNAL_SERVICE_UNAVAILABLE` (503), and `EXTERNAL_INTERNAL_ERROR` (500).
+Bearer 401 responses include `WWW-Authenticate: Bearer`; scope denial does not.
+Messages are generic and do not disclose client existence, lifecycle state,
+SQLSTATE, hashes, or internal identifiers. Error envelopes use the authoritative
+server request ID, and external errors are cache-disabled. Credential/token
+responses use `Cache-Control: no-store, private`; token exchange additionally
+uses `Pragma: no-cache`.
+
+External routes deliberately emit no browser `Access-Control-Allow-*` headers.
+Request tracing records only request ID, method, matched route template, status,
+latency, and safe diagnostic categories. It excludes Authorization, cookies,
+query strings, request/response bodies, credentials, token hashes, PII, and raw
+database errors. There is no application-level `429` contract. Before exposing
+the namespace publicly, configure TLS and edge/proxy controls (including
+rate-limiting and log redaction) at Nginx/Cloudflare or the equivalent edge.
+
+Lifecycle-sensitive mutations and token exchange serialize on the same
+`api_clients` row. This gives deterministic exchange-versus-suspend/revoke
+linearization, at most one live credential, revoke-then-replace semantics, and
+no usable token after a committed invalidating lifecycle change. A request that
+has already passed the auth/scope point may finish; subsequent requests see
+committed state and current relational scopes.
+
+For a self-hosted deployment, place Nginx (and the approved Cloudflare Named
+Tunnel/edge, if used) in front of the frontend and backend, keep PostgreSQL on
+private connectivity, run the explicit migration as `x_fly_migrator`, apply the
+reviewed runtime grants, provision the pepper and other secrets out of band,
+then start the API with `x_fly_runtime`. Verify `/health`, migration checksums,
+TLS, edge log redaction, and the absence of public database ports before
+accepting external credentials. The repository contains the runtime and
+provisioning contracts; it does not claim that a production deployment has
+already been performed.
+
+## Explicitly deferred from Branch 25
+
+Branch 25 does not add JWT, OAuth2 authorization-server behavior, refresh
+tokens, overlapping/multi-live credentials, long-lived credential expiry,
+last-used tracking, external booking/passenger/ticket/baggage/payment/refund
+resources, browser third-party API consumption, revenue analytics, usage
+billing, a persistent security-event warehouse, an application-level
+distributed rate limiter, a cleanup worker, or deployment automation. Broad
+CSP/HSTS/security-header work, general resource/time bounds, abuse/rate-limit
+architecture, security-event/alerting platform work, and company-device
+enforcement remain later Branch 26/deployment concerns. The current API has no
+application `429` response; edge limiting is a deployment prerequisite.
 
 External clients never receive direct PostgreSQL access.
 
@@ -4666,11 +4931,15 @@ Employee Web
   └── API Client Management
 
 External Systems
-      ↓ Token / Scope
-X-Fly External REST API
-      ↓
-Authoritative X-Fly Data
+      ↓ HTTPS + client credential exchange
+X-Fly External REST API (`/api/v1/external/**`)
+      ↓ current relational scopes
+Approved public flight / aggregate data only
 ```
+
+External requests bypass the browser BFF and staff/customer cookie flows. The
+external router has no browser CORS layer; PostgreSQL remains private and is
+reachable only by the backend runtime role.
 
 Airport check-in, boarding-pass lifecycle, gate processing, and staff QR-scanner applications are downstream external operations and are not implemented by X-Fly.
 
@@ -4925,9 +5194,10 @@ X-Fly Anyway is successful when:
 - Branch 24 registers external API client identities and typed allowed scopes
 - Branch 25 authenticates external clients with safely managed credentials/tokens
 - Branch 25 enforces scopes at the External REST API boundary
-- Branch 25 owns credential revocation/rotation and secure token/secret storage
+- Branch 25 owns credential revocation and explicit revoke-then-replace lifecycle
+- Branch 25 stores only credential verifiers and access-token hashes; plaintext is one-time/ephemeral
 - direct PostgreSQL access is never given to external systems
-- API has rate limiting/audit visibility
+- privileged credential actions remain auditable; edge rate limiting/log redaction are deployment dependencies
 - field-level data minimization is enforced
 
 ## Non-Functional

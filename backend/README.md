@@ -32,7 +32,7 @@ Human staff use a separate PostgreSQL-backed security domain: `staff_users`, `ro
 
 Passwords are stored only as PHC-formatted Argon2id hashes (`m=19456,t=2,p=1`) with a fresh random salt. Successful login may rehash an older parameter set. Staff sessions use a 256-bit random opaque token; only its SHA-256 hash is stored. The 60-minute absolute-lifetime cookie is `HttpOnly`, `SameSite=Strict`, scoped to `/admin`, and `Secure` when `APP_ENV=production`. Staff endpoints return private/no-store responses. Login failures are generic and a durable per-normalized-identifier window blocks after five failures for 15 minutes.
 
-The backend `AuthenticatedStaff` extractor validates current durable session state. Handlers call its typed `require(PermissionCode)` guard for reusable 401/403 enforcement. Browser mutations require the exact configured `FRONTEND_ORIGIN` and `X-X-Fly-CSRF: 1`. This human RBAC/session boundary is intentionally distinct from customer Manage Booking authorization and future machine API clients/scopes.
+The backend `AuthenticatedStaff` extractor validates current durable session state. Handlers call its typed `require(PermissionCode)` guard for reusable 401/403 enforcement. Browser mutations require the exact configured `FRONTEND_ORIGIN` and `X-X-Fly-CSRF: 1`. This human RBAC/session boundary is intentionally distinct from customer Manage Booking authorization and the machine-facing External API client/scope boundary described below.
 
 Canonical role grants are deliberately least-privilege: `SYSTEM_ADMIN` receives only `staff:*` and `roles:*`; only `FLIGHT_MANAGER` receives `flights:write`. No `is_admin` or `admin:all` bypass exists.
 
@@ -61,13 +61,91 @@ POST   /api/v1/seat-holds/{hold_id}/validation
 GET    /api/v1/seat-holds/{hold_id}/passengers
 PUT    /api/v1/seat-holds/{hold_id}/passengers
 GET    /api/v1/seat-holds/{hold_id}/review
+
+POST   /api/v1/external/token
+GET    /api/v1/external/flights
+GET    /api/v1/external/flights/{flightPublicId}
+GET    /api/v1/external/analytics/summary
 ```
+
+`GET /health` returns `{"status":"ok"}` once the process has started. Startup
+connects with `DATABASE_URL` and verifies migration presence/checksums before
+binding the listener; there is no automatic migration or demo seed and no
+separate readiness route.
 
 The validation endpoint is the Continue gate: it revalidates authorization and expiry and independently requires held seats to equal adults + children. Lap infants do not consume seats. Conflicting inventory returns HTTP 409 with `SEAT_UNAVAILABLE` and `conflictingSeats`.
 
 The passenger resource uses the same hold-scoped HttpOnly authorization cookie. `GET` returns the active hold, authoritative passenger slots, any saved passenger draft, and `readyToContinue`. `PUT` atomically replaces the full draft after checking the hold, held-seat count, passenger count/order/types, and every passenger field. Adult, child, and infant slots are always ordered in that sequence. Age is attained age on outbound departure: adult 12+, child 2–11, and infant under 2.
 
 Passenger details are stored in `hold_passengers` and cascade with their temporary hold; this does not create the future final Booking aggregate. API validation errors contain stable codes and field coordinates, never submitted PII. Passenger repository failures are logged without raw database error details to avoid logging sensitive bound values.
+
+## Machine-facing External API
+
+The `/api/v1/external/**` routes are a separate server-to-server boundary. They
+do not use staff session cookies, customer hold/Manage Booking cookies, or the
+Next.js staff BFF, and external clients never receive PostgreSQL credentials.
+The external router is mounted without browser CORS; deploy it behind HTTPS and
+keep the database on private connectivity.
+
+API client credentials are issued by the existing staff API Client Management
+surface to users with effective `api_clients:manage`. The 32-byte plaintext
+client secret is shown once and is not recoverable. The backend stores only its
+HMAC-SHA-256 verifier using the required
+`EXTERNAL_API_CREDENTIAL_PEPPER_V1` pepper. A client exchanges its public Client
+ID and secret at `POST /api/v1/external/token` for an opaque 15-minute bearer
+token (`accessToken`, `tokenType`, `expiresIn: 900`); the response does not
+contain scopes. Only the SHA-256 token hash is persisted. Current client,
+credential, token, and relational scope state is checked on every protected
+request.
+
+The staff detail UI/BFF calls
+`POST /api/v1/admin/api-clients/{clientId}/credentials` and
+`POST /api/v1/admin/api-clients/{clientId}/credentials/revoke` with only the
+current optimistic `{ version }`. Issuance returns the one-time plaintext to
+the UI; revocation invalidates the live credential and associated tokens. The
+BFF and browser keep these mutation responses private and uncached.
+
+The current machine API has exactly two scopes: `flights:read` and
+`analytics:read`. Protected requests use an `Authorization` header containing
+`Bearer xfa_v1_<64-lowercase-hex-characters>`. A valid token with no current
+scope is still authenticated and receives a typed `403`; scope removal affects the next
+request after commit. Client states are `ACTIVE`, `SUSPENDED`, and terminal
+`REVOKED`; suspension/revocation invalidates existing tokens, reactivation does
+not revive them, and credential replacement is an explicit revoke-then-issue
+flow with at most one live credential.
+
+`GET /api/v1/external/flights` requires `origin`, `destination`,
+`departure=YYYY-MM-DD`, and `cabin=business|first`. It returns at most 100
+scheduled flights in deterministic order using a dedicated public DTO with
+flight number, public airport codes, local schedule values plus arrival-day
+offset, duration, status, `aircraftCode`, and Business/First THB fares. Internal
+UUIDs, audit/version fields, inventory/hold/seat data, and aircraft entities are
+not exposed. Schedule times are local service values with `arrivalDayOffset`;
+the authoritative IANA origin timezone is used internally and is not serialized
+as an additional external field. The detail route accepts only the public
+`flightPublicId` plus the required departure and cabin query values.
+
+`GET /api/v1/external/analytics/summary` accepts optional `from`, `to`,
+`route=AAA-BBB`, and `cabin=business|first`. Dates are inclusive Asia/Bangkok
+calendar dates (default `to` is today there, default `from` is 29 days earlier,
+maximum range 366 days) and the cohort is authoritative flight departure. It
+returns only period and machine-readable UTC `generatedAt`, booking/ticket/cancellation/seat
+capacity counts, and two-decimal occupancy. Successful Stripe and Mock Bitcoin paths are
+included; Business/First capacity is used, cancelled seats and legacy cabins do
+not contaminate the result, and no PII, payment/revenue/refund data, or raw
+rows are returned.
+An empty qualifying cohort returns `200` with zero counts and zero occupancy.
+
+External errors use the stable `{error:{code,message,requestId}}` envelope with
+generic messages. Malformed requests are `400`, invalid bearer credentials are
+`401` with a Bearer challenge, missing scope is `403`, missing resources are
+`404`, and auth/dependency failures are `503`; there is no application-level
+`429` contract. Token and credential-bearing responses are `no-store, private`
+(token exchange also sends `Pragma: no-cache`). Request tracing records only
+request ID, method, matched route template, status, latency, and safe
+diagnostic categories; it excludes Authorization, cookies, query strings,
+bodies, hashes, secrets, PII, and raw SQL errors. Configure equivalent edge
+rate limiting and log redaction before public exposure.
 
 ## Local development
 
@@ -77,6 +155,15 @@ Copy the Compose environment from the repository root and the API environment in
 cp .env.example .env
 cp backend/.env.example backend/.env
 ```
+
+The backend requires `DATABASE_URL`, `TICKET_QR_SIGNING_SECRET`,
+`MANAGE_BOOKING_SIGNING_SECRET`, and
+`EXTERNAL_API_CREDENTIAL_PEPPER_V1`. The pepper must be 64 hexadecimal
+characters representing 32 random bytes, must not have a repository/default
+value, and must be provisioned consistently to every API instance. Keep all
+secret values out of source control and logs. `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET` are an optional Test Mode pair; Mock Bitcoin remains a
+local/demo provider.
 
 The database lifecycle is explicit. `DATABASE_URL` is only the
 `x_fly_runtime` application connection. `MIGRATION_DATABASE_URL` is the
