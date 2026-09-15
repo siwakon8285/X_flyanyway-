@@ -554,7 +554,12 @@ async fn revokes_credential_and_live_tokens_atomically() {
                 )
                 .await
                 .unwrap();
-            let revoked_at = now + ChronoDuration::seconds(1);
+            let revoked_at =
+                chrono::DateTime::<Utc>::from_timestamp(now.timestamp() + 1, 123_456_789)
+                    .expect("deterministic revoke timestamp is valid");
+            let canonical_revoked_at =
+                chrono::DateTime::<Utc>::from_timestamp_micros(revoked_at.timestamp_micros())
+                    .expect("PostgreSQL timestamp is valid");
             let revoked = repository
                 .revoke_credential(
                     &fixture.client_id,
@@ -566,7 +571,7 @@ async fn revokes_credential_and_live_tokens_atomically() {
                 .await
                 .unwrap();
             assert_eq!(revoked.credential_id, issued.credential_id);
-            assert_eq!(revoked.revoked_at, Some(revoked_at));
+            assert_eq!(revoked.revoked_at, Some(canonical_revoked_at));
             assert_eq!(
                 revoked.revocation_reason,
                 Some(CredentialRevocationReason::AdminRequest)
@@ -578,7 +583,7 @@ async fn revokes_credential_and_live_tokens_atomically() {
             .fetch_one(&setup)
             .await
             .unwrap();
-            assert_eq!(credential_state.0, Some(revoked_at));
+            assert_eq!(credential_state.0, Some(canonical_revoked_at));
             assert_eq!(credential_state.1.as_deref(), Some("ADMIN_REQUEST"));
             let token_revoked: Option<chrono::DateTime<Utc>> = sqlx::query_scalar(
                 "SELECT revoked_at FROM external_access_tokens WHERE token_hash=$1",
@@ -587,7 +592,7 @@ async fn revokes_credential_and_live_tokens_atomically() {
             .fetch_one(&setup)
             .await
             .unwrap();
-            assert_eq!(token_revoked, Some(revoked_at));
+            assert_eq!(token_revoked, Some(canonical_revoked_at));
             let audit_action: String = sqlx::query_scalar(
                 "SELECT action FROM api_client_management_audit
              WHERE credential_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1",

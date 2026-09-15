@@ -132,6 +132,7 @@ impl ExternalAuthRepository for SqlxExternalAuthRepository {
         reason: CredentialRevocationReason,
         revoked_at: DateTime<Utc>,
     ) -> Result<CredentialMetadata, CredentialAdministrationError> {
+        let revoked_at = postgres_timestamp(revoked_at);
         let mut transaction = self
             .pool
             .begin()
@@ -304,6 +305,7 @@ pub async fn revoke_client_credentials_and_tokens(
     reason: CredentialRevocationReason,
     revoked_at: DateTime<Utc>,
 ) -> Result<Option<CredentialMetadata>, CredentialAdministrationError> {
+    let revoked_at = postgres_timestamp(revoked_at);
     let _ = sqlx::query_scalar::<_, Uuid>("SELECT id FROM api_clients WHERE id=$1 FOR UPDATE")
         .bind(client_id)
         .fetch_optional(&mut **transaction)
@@ -432,6 +434,11 @@ async fn insert_credential_audit(
     .map(|_| {
         let _ = after;
     })
+}
+
+fn postgres_timestamp(value: DateTime<Utc>) -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp_micros(value.timestamp_micros())
+        .expect("a valid UTC timestamp remains representable at PostgreSQL precision")
 }
 
 fn digest_matches(supplied: &[u8; 32], stored: &[u8]) -> bool {
