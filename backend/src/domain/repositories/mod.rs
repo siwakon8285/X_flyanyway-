@@ -440,6 +440,8 @@ pub trait ExtraRepository: Send + Sync {
 pub enum SeatHoldRepositoryError {
     #[error("flight not found")]
     FlightNotFound,
+    #[error("travel date is outside the supported booking window")]
+    TravelDateOutsideWindow,
     #[error("cabin is not available for this flight")]
     CabinUnavailable,
     #[error("one or more seats do not exist in the selected inventory")]

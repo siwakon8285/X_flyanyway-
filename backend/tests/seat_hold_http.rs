@@ -11,6 +11,11 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+fn supported_test_date_range() -> (chrono::NaiveDate, chrono::NaiveDate) {
+    let earliest = chrono::Utc::now().date_naive() + chrono::Duration::days(30);
+    (earliest, earliest + chrono::Duration::days(300))
+}
+
 use x_fly_api::{
     infrastructure::{
         database::{prepare_test_database, SqlxSeatHoldRepository},
@@ -77,8 +82,7 @@ fn create_request_for_cabin(cabin: &str, seat: &str, date: chrono::NaiveDate) ->
 #[tokio::test]
 async fn customer_hold_api_accepts_business_and_first_and_rejects_legacy_cabins() {
     let (app, _) = app().await;
-    let earliest = chrono::NaiveDate::from_ymd_opt(2190, 1, 1).unwrap();
-    let latest = chrono::NaiveDate::from_ymd_opt(2194, 12, 31).unwrap();
+    let (earliest, latest) = supported_test_date_range();
     let dates = [
         common::allocate_test_departure_date("xf-201", earliest, latest)
             .await
@@ -119,13 +123,10 @@ async fn customer_hold_api_accepts_business_and_first_and_rejects_legacy_cabins(
 #[tokio::test]
 async fn create_conflict_and_scoped_http_only_authorization_contract() {
     let (app, _) = app().await;
-    let date = common::allocate_test_departure_date(
-        "xf-201",
-        chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
-        chrono::NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
-    )
-    .await
-    .unwrap();
+    let (earliest, latest) = supported_test_date_range();
+    let date = common::allocate_test_departure_date("xf-201", earliest, latest)
+        .await
+        .unwrap();
     let first_response = app
         .clone()
         .oneshot(create_request("3K", date))
@@ -201,13 +202,10 @@ async fn create_conflict_and_scoped_http_only_authorization_contract() {
 #[tokio::test]
 async fn continue_validation_rejects_a_partial_hold() {
     let (app, _) = app().await;
-    let date = common::allocate_test_departure_date(
-        "xf-201",
-        chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
-        chrono::NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
-    )
-    .await
-    .unwrap();
+    let (earliest, latest) = supported_test_date_range();
+    let date = common::allocate_test_departure_date("xf-201", earliest, latest)
+        .await
+        .unwrap();
     let create = Request::builder()
         .method("POST")
         .uri("/api/v1/seat-holds")

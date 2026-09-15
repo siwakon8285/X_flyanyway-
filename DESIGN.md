@@ -3647,6 +3647,19 @@ feat/26-security-audit
 
 Do not claim application-side User-Agent checks enforce company-owned devices.
 
+## Customer travel-date policy
+
+Customer travel dates are bookable from the origin-airport local calendar date
+of today through today plus 365 calendar days, inclusive. The origin airport's
+authoritative IANA timezone determines today; server, container, browser,
+PostgreSQL-session, and UTC calendar dates are not substitutes.
+
+Public flight search/detail, seat-map, seat-hold, and customer booking paths
+must enforce this policy server-side before any inventory, instance, or hold
+state is allocated. Recurring and date-specific services follow the same rule.
+Staff/admin historical searches, reporting/analytics filters, and audit/history
+views are separate concerns and are not constrained by this customer window.
+
 ---
 
 # 67. BRANCH 27 — Accessibility + Responsive + Cross-Browser QA

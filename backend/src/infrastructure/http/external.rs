@@ -339,6 +339,9 @@ async fn search_external_flights(
     };
     match service.search(filter).await {
         Ok(page) => Json(page).into_response(),
+        Err(FlightManagementError::TravelDateOutsideWindow) => {
+            external_error(ExternalErrorCode::ExternalRequestInvalid, request_id)
+        }
         Err(_) => external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id),
     }
 }
@@ -366,6 +369,9 @@ async fn detail_external_flight(
         Ok(flight) => Json(flight).into_response(),
         Err(FlightManagementError::NotFound) => {
             external_error(ExternalErrorCode::ExternalResourceNotFound, request_id)
+        }
+        Err(FlightManagementError::TravelDateOutsideWindow) => {
+            external_error(ExternalErrorCode::ExternalRequestInvalid, request_id)
         }
         Err(_) => external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id),
     }

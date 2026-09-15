@@ -398,10 +398,11 @@ async fn runtime_role_has_required_positive_and_negative_permissions() {
     let cleanup_setup_pool = setup_pool.clone();
     common::run_fixture_body_with_cleanup(
         move || async move {
+            let earliest = chrono::Utc::now().date_naive() + chrono::Duration::days(30);
             let departure_date = common::allocate_test_departure_date(
                 "xf-201",
-                NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
-                NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+                earliest,
+                earliest + chrono::Duration::days(300),
             )
             .await
             .unwrap();

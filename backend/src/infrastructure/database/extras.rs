@@ -239,6 +239,7 @@ fn map_hold_error(error: SeatHoldRepositoryError) -> ExtraRepositoryError {
             ExtraRepositoryError::Infrastructure(error)
         }
         SeatHoldRepositoryError::FlightNotFound
+        | SeatHoldRepositoryError::TravelDateOutsideWindow
         | SeatHoldRepositoryError::CabinUnavailable
         | SeatHoldRepositoryError::SeatNotFound(_)
         | SeatHoldRepositoryError::SeatConflict(_) => ExtraRepositoryError::SeatCountMismatch,

@@ -1761,6 +1761,7 @@ impl AdminApiError {
                 code: "FLIGHT_NOT_FOUND",
                 message: "The flight was not found.",
             },
+            FlightManagementError::TravelDateOutsideWindow => Self::flight_validation(),
             FlightManagementError::Validation => Self::flight_validation(),
             FlightManagementError::Duplicate => Self {
                 status: StatusCode::CONFLICT,

@@ -1,6 +1,6 @@
 mod common;
 
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{Duration as ChronoDuration, NaiveTime, Utc};
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::future::Future;
 use uuid::Uuid;
@@ -23,10 +23,10 @@ async fn test_pool() -> PgPool {
 
 async fn clean_network_flight(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
-        "DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE origin_code='SYD' AND destination_code='CDG' AND operating_date='2098-05-10');
-         DELETE FROM flight_service_seat_templates WHERE flight_service_id IN (SELECT id FROM flight_services WHERE origin_code='SYD' AND destination_code='CDG' AND operating_date='2098-05-10');
-         DELETE FROM flight_service_cabins WHERE flight_service_id IN (SELECT id FROM flight_services WHERE origin_code='SYD' AND destination_code='CDG' AND operating_date='2098-05-10');
-         DELETE FROM flight_services WHERE origin_code='SYD' AND destination_code='CDG' AND operating_date='2098-05-10';
+        "DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 959');
+         DELETE FROM flight_service_seat_templates WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 959');
+         DELETE FROM flight_service_cabins WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 959');
+         DELETE FROM flight_services WHERE flight_number='XF 959';
          DELETE FROM staff_users WHERE email LIKE 'network-%@x-fly.test';",
     )
     .execute(pool)
@@ -85,6 +85,7 @@ async fn expanded_airports_are_shared_by_management_and_truthful_public_search()
         .await
         .expect("clean network TEST flight fixture");
     run_fixture_body(pool.clone(), move || async move {
+    let departure = Utc::now().date_naive() + ChronoDuration::days(30);
     let repository = SqlxFlightRepository::new(pool.clone());
     let references = repository.reference_data().await.unwrap();
     assert_eq!(references.airports.len(), 156);
@@ -111,7 +112,7 @@ async fn expanded_airports_are_shared_by_management_and_truthful_public_search()
                 flight_number: "XF 959".to_owned(),
                 origin_code: "SYD".to_owned(),
                 destination_code: "CDG".to_owned(),
-                operating_date: NaiveDate::from_ymd_opt(2098, 5, 10),
+                operating_date: Some(departure),
                 departure_time: NaiveTime::from_hms_opt(10, 0, 0).unwrap(),
                 arrival_time: NaiveTime::from_hms_opt(18, 0, 0).unwrap(),
                 arrival_day_offset: 0,
@@ -132,7 +133,7 @@ async fn expanded_airports_are_shared_by_management_and_truthful_public_search()
         .search_public(PublicFlightFilter {
             origin: "SYD".to_owned(),
             destination: "LHR".to_owned(),
-            departure: NaiveDate::from_ymd_opt(2098, 5, 10).unwrap(),
+            departure,
             cabin: CabinClass::Business,
         })
         .await
@@ -143,7 +144,7 @@ async fn expanded_airports_are_shared_by_management_and_truthful_public_search()
         .search_public(PublicFlightFilter {
             origin: "SYD".to_owned(),
             destination: "CDG".to_owned(),
-            departure: NaiveDate::from_ymd_opt(2098, 5, 10).unwrap(),
+            departure,
             cabin: CabinClass::First,
         })
         .await

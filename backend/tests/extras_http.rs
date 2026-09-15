@@ -41,10 +41,11 @@ async fn app() -> (axum::Router, PgPool) {
 #[tokio::test]
 async fn removed_extras_endpoint_cannot_read_or_add_optional_products() {
     let (app, pool) = app().await;
+    let earliest = chrono::Utc::now().date_naive() + chrono::Duration::days(30);
     let departure = common::allocate_test_departure_date(
         "xf-201",
-        chrono::NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
-        chrono::NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+        earliest,
+        earliest + chrono::Duration::days(300),
     )
     .await
     .unwrap();

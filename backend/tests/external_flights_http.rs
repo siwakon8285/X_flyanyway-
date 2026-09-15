@@ -12,7 +12,7 @@ use axum::{
     response::Response,
     Router,
 };
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{Duration as ChronoDuration, NaiveDate, NaiveTime, Utc};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -107,6 +107,13 @@ fn unique_client_id() -> String {
     format!("XFC{suffix}")
 }
 
+fn supported_departure_date() -> NaiveDate {
+    // Keep public-flight fixtures inside the customer travel window while
+    // leaving enough distance from today for the test not to be same-day
+    // sensitive.
+    Utc::now().date_naive() + ChronoDuration::days(30)
+}
+
 async fn fixture(setup: &PgPool, scopes: &[ApiClientScope]) -> Fixture {
     let mut transaction = setup.begin().await.expect("begin fixture transaction");
     let actor_id: Uuid = sqlx::query_scalar(
@@ -185,7 +192,7 @@ async fn add_flight(
     let mut transaction = setup.begin().await.expect("begin fixture flight");
     let public_id = format!("xf-ext-{}", Uuid::new_v4().simple());
     let flight_number = format!("XF-EXT-{flight_number_suffix}-{}", Uuid::new_v4());
-    let departure = NaiveDate::from_ymd_opt(2099, 12, 30).expect("fixture date");
+    let departure = supported_departure_date();
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO flight_services (
              public_id,flight_number,origin_code,destination_code,aircraft_code,
@@ -607,9 +614,13 @@ async fn empty_search_returns_an_empty_items_page() {
         move |_setup, runtime, fixture| async move {
             let router = build_router(state(runtime));
             let token = exchange(&router, &fixture).await;
+            let departure = supported_departure_date();
+            let uri = format!(
+                "/api/v1/external/flights?origin=HND&destination=JFK&departure={departure}&cabin=business"
+            );
             let (status, _, body) = request(
                 &router,
-                "/api/v1/external/flights?origin=HND&destination=JFK&departure=2099-12-31&cabin=business",
+                &uri,
                 Some(&token),
                 None,
             )
