@@ -35,6 +35,7 @@ use crate::{
 
 pub mod admin;
 mod browser_security;
+pub mod external;
 mod request_tracing;
 
 pub fn build_router(state: AppState) -> Router {
@@ -51,7 +52,7 @@ pub fn build_router(state: AppState) -> Router {
         ])
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]);
 
-    let router = Router::new()
+    let browser_router = Router::new()
         .route("/health", get(health))
         .route("/api/v1/airports", get(list_airports))
         .route("/api/v1/flights", get(search_flights))
@@ -98,7 +99,9 @@ pub fn build_router(state: AppState) -> Router {
         )
         .merge(admin::router())
         .layer(cors)
-        .with_state(state);
+        .with_state(state.clone());
+
+    let router = browser_router.merge(external::external_router(state));
 
     request_tracing::apply(router)
 }

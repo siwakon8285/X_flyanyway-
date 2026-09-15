@@ -88,7 +88,7 @@ async function forwardDashboardRequest(request: Request): Promise<Response> {
 const flightPath = /^\/admin\/flights(?:\/reference-data|\/[0-9a-f-]+(?:\/cancel)?)?$/;
 const bookingPath = /^\/admin\/bookings(?:\/search|\/XF[A-Z2-9]{8}(?:\/cancel)?)?$/;
 const ticketPath = /^\/admin\/tickets(?:\/search|\/XFT[A-Z2-9]{12}(?:\/print)?)?$/;
-const apiClientPath = /^\/admin\/api-clients(?:\/scopes|\/XFC[A-HJ-NP-Z2-9]{16}(?:\/(?:activate|suspend|revoke))?)?$/;
+const apiClientPath = /^\/admin\/api-clients(?:\/scopes|\/XFC[A-HJ-NP-Z2-9]{16}(?:\/(?:activate|suspend|revoke|credentials(?:\/revoke)?))?)?$/;
 
 async function forwardAdminFlightRequest(request: Request, path: string): Promise<Response> {
   if (!flightPath.test(path)) throw new Error("Unsupported flight management path");
@@ -167,4 +167,25 @@ async function forwardAdminApiClientRequest(request: Request, path: string): Pro
   }
 }
 
-export { fetchStaffPrincipal, forwardAdminApiClientRequest, forwardAdminAuthRequest, forwardAdminBookingRequest, forwardAdminFlightRequest, forwardAdminTicketRequest, forwardDashboardRequest, parseStaffPrincipal };
+const canonicalApiClientId = /^XFC[A-HJ-NP-Z2-9]{16}$/;
+
+const credentialMutationRequest = (request: Request, version: number): Request => {
+  const headers = new Headers();
+  for (const name of ["cookie", "content-type", "origin", "x-x-fly-csrf"] as const) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return new Request(request.url, { method:"POST", headers, body:JSON.stringify({ version }) });
+};
+
+async function issueApiClientCredential(clientId:string, version:number, request:Request):Promise<Response> {
+  if (!canonicalApiClientId.test(clientId) || !Number.isSafeInteger(version) || version < 1) throw new Error("Unsupported API client management path");
+  return forwardAdminApiClientRequest(credentialMutationRequest(request, version), `/admin/api-clients/${clientId}/credentials`);
+}
+
+async function revokeApiClientCredential(clientId:string, version:number, request:Request):Promise<Response> {
+  if (!canonicalApiClientId.test(clientId) || !Number.isSafeInteger(version) || version < 1) throw new Error("Unsupported API client management path");
+  return forwardAdminApiClientRequest(credentialMutationRequest(request, version), `/admin/api-clients/${clientId}/credentials/revoke`);
+}
+
+export { fetchStaffPrincipal, forwardAdminApiClientRequest, forwardAdminAuthRequest, forwardAdminBookingRequest, forwardAdminFlightRequest, forwardAdminTicketRequest, forwardDashboardRequest, issueApiClientCredential, parseStaffPrincipal, revokeApiClientCredential };

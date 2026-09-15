@@ -9,12 +9,14 @@ use crate::{
     application::api_client::{
         ApiClientAuditAction, ApiClientAuditEntry, ApiClientAuditSnapshot, ApiClientDetail,
         ApiClientListFilter, ApiClientManagementError, ApiClientPage, ApiClientRecord,
-        ApiClientRepository, ApiScopeDefinition,
+        ApiClientRepository, ApiScopeDefinition, CredentialMetadataResponse,
     },
     domain::api_client::{
         ApiClientScope, ApiClientStatus, ApiClientValidationError, UpdateApiClientCommand,
         ValidatedCreateApiClient,
     },
+    domain::external_api::CredentialRevocationReason,
+    infrastructure::database::revoke_client_credentials_and_tokens,
 };
 
 #[derive(Clone, Debug)]
@@ -104,9 +106,23 @@ impl ApiClientRepository for SqlxApiClientRepository {
         .into_iter()
         .map(AuditRow::domain)
         .collect::<Result<Vec<_>, _>>()?;
+        let credential_metadata = sqlx::query_as::<_, CredentialMetadataRow>(
+            "SELECT issued_at,revoked_at
+             FROM api_client_credentials
+             WHERE api_client_id=$1
+             ORDER BY issued_at DESC,id DESC
+             LIMIT 1",
+        )
+        .bind(client.internal_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| ApiClientManagementError::Infrastructure)?
+        .map(CredentialMetadataRow::response)
+        .unwrap_or_default();
         Ok(ApiClientDetail {
             client: client.public,
             audit,
+            credential_metadata,
         })
     }
 
@@ -321,6 +337,25 @@ impl ApiClientRepository for SqlxApiClientRepository {
             ApiClientStatus::Suspended => ApiClientAuditAction::ClientSuspended,
             ApiClientStatus::Revoked => ApiClientAuditAction::ClientRevoked,
         };
+        let revoked_credential = match status {
+            ApiClientStatus::Suspended => revoke_client_credentials_and_tokens(
+                &mut transaction,
+                current.internal_id,
+                CredentialRevocationReason::ClientSuspended,
+                chrono::Utc::now(),
+            )
+            .await
+            .map_err(|_| ApiClientManagementError::Infrastructure)?,
+            ApiClientStatus::Revoked => revoke_client_credentials_and_tokens(
+                &mut transaction,
+                current.internal_id,
+                CredentialRevocationReason::ClientRevoked,
+                chrono::Utc::now(),
+            )
+            .await
+            .map_err(|_| ApiClientManagementError::Infrastructure)?,
+            ApiClientStatus::Active => None,
+        };
         insert_audit(
             &mut transaction,
             current.internal_id,
@@ -330,6 +365,18 @@ impl ApiClientRepository for SqlxApiClientRepository {
             &after,
         )
         .await?;
+        if let Some(credential) = revoked_credential {
+            insert_audit_with_credential(
+                &mut transaction,
+                current.internal_id,
+                actor,
+                ApiClientAuditAction::CredentialRevoked,
+                Some(&before),
+                &after,
+                Some(credential.credential_id),
+            )
+            .await?;
+        }
         let response = load_client_in_transaction(&mut transaction, client_id)
             .await?
             .map(|value| value.public)
@@ -454,10 +501,22 @@ async fn insert_audit(
     before: Option<&ApiClientAuditSnapshot>,
     after: &ApiClientAuditSnapshot,
 ) -> Result<(), ApiClientManagementError> {
+    insert_audit_with_credential(transaction, client_id, actor, action, before, after, None).await
+}
+
+async fn insert_audit_with_credential(
+    transaction: &mut Transaction<'_, Postgres>,
+    client_id: Uuid,
+    actor: Uuid,
+    action: ApiClientAuditAction,
+    before: Option<&ApiClientAuditSnapshot>,
+    after: &ApiClientAuditSnapshot,
+    credential_id: Option<Uuid>,
+) -> Result<(), ApiClientManagementError> {
     sqlx::query(
         "INSERT INTO api_client_management_audit (
-            api_client_id,actor_staff_user_id,action,before_state,after_state,created_at
-         ) VALUES ($1,$2,$3,$4,$5,clock_timestamp())",
+            api_client_id,actor_staff_user_id,action,before_state,after_state,credential_id,created_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,clock_timestamp())",
     )
     .bind(client_id)
     .bind(actor)
@@ -469,6 +528,7 @@ async fn insert_audit(
             .map_err(|_| ApiClientManagementError::Infrastructure)?,
     )
     .bind(serde_json::to_value(after).map_err(|_| ApiClientManagementError::Infrastructure)?)
+    .bind(credential_id)
     .execute(&mut **transaction)
     .await
     .map_err(|_| ApiClientManagementError::Infrastructure)?;
@@ -525,6 +585,22 @@ impl ClientRow {
 struct InternalClient {
     internal_id: Uuid,
     public: ApiClientRecord,
+}
+
+#[derive(FromRow)]
+struct CredentialMetadataRow {
+    issued_at: chrono::DateTime<chrono::Utc>,
+    revoked_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl CredentialMetadataRow {
+    fn response(self) -> CredentialMetadataResponse {
+        CredentialMetadataResponse {
+            has_live_credential: self.revoked_at.is_none(),
+            issued_at: Some(self.issued_at),
+            revoked_at: self.revoked_at,
+        }
+    }
 }
 
 #[derive(FromRow)]

@@ -1,9 +1,6 @@
 mod common;
 
-use std::{
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -24,11 +21,8 @@ use x_fly_api::{
     state::AppState,
 };
 
-async fn fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
+async fn fixture_guard() -> common::TestFixtureLock {
+    common::acquire_test_fixture_lock().await
 }
 
 async fn pool() -> PgPool {
@@ -39,6 +33,13 @@ async fn pool() -> PgPool {
         .await
         .unwrap();
     prepare_test_database(&pool).await.unwrap();
+    cleanup(&pool)
+        .await
+        .expect("clean public flight TEST fixtures");
+    pool
+}
+
+async fn cleanup(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
         "DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 953');
          DELETE FROM flight_service_seat_templates WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 953');
@@ -49,8 +50,23 @@ async fn pool() -> PgPool {
          DELETE FROM flight_services WHERE flight_number='XF 953';
          DELETE FROM staff_user_roles WHERE staff_user_id IN (SELECT id FROM staff_users WHERE email='public-flight@flight-management.test');
          DELETE FROM staff_users WHERE email='public-flight@flight-management.test';",
-    ).execute(&pool).await.unwrap();
-    pool
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn run_fixture_body<F, Fut>(pool: PgPool, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = pool.clone();
+    common::run_fixture_body_with_cleanup(
+        body,
+        move || async move { cleanup(&cleanup_pool).await },
+    )
+    .await;
 }
 
 fn command() -> FlightCommand {
@@ -106,61 +122,64 @@ async fn get(router: &axum::Router, uri: &str) -> (StatusCode, Value) {
 async fn public_search_and_detail_use_postgresql_and_hide_cancelled_flights() {
     let _guard = fixture_guard().await;
     let pool = pool().await;
-    let (repository, flight) = fixture(&pool).await;
-    let router = app(pool);
-    let (status, body) = get(
-        &router,
-        "/api/v1/flights?origin=BKK&destination=DXB&departure=2026-10-10&cabin=business",
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let public = body
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["id"] == flight.public_id)
-        .unwrap();
-    assert_eq!(public["cabinPrices"].as_array().unwrap().len(), 2);
-    let (detail_status, detail) = get(
-        &router,
-        &format!(
-            "/api/v1/flights/{}?departure=2026-10-10&cabin=business",
-            flight.public_id
-        ),
-    )
-    .await;
-    assert_eq!(detail_status, StatusCode::OK);
-    assert_eq!(detail["flightNumber"], "XF 953");
+    run_fixture_body(pool.clone(), move || async move {
+        let (repository, flight) = fixture(&pool).await;
+        let router = app(pool);
+        let (status, body) = get(
+            &router,
+            "/api/v1/flights?origin=BKK&destination=DXB&departure=2026-10-10&cabin=business",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let public = body
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == flight.public_id)
+            .unwrap();
+        assert_eq!(public["cabinPrices"].as_array().unwrap().len(), 2);
+        let (detail_status, detail) = get(
+            &router,
+            &format!(
+                "/api/v1/flights/{}?departure=2026-10-10&cabin=business",
+                flight.public_id
+            ),
+        )
+        .await;
+        assert_eq!(detail_status, StatusCode::OK);
+        assert_eq!(detail["flightNumber"], "XF 953");
 
-    let actor: Uuid = sqlx::query_scalar(
-        "SELECT id FROM staff_users WHERE email='public-flight@flight-management.test'",
-    )
-    .fetch_one(repository.pool())
-    .await
-    .unwrap();
-    repository
-        .cancel(actor, flight.id, flight.version)
+        let actor: Uuid = sqlx::query_scalar(
+            "SELECT id FROM staff_users WHERE email='public-flight@flight-management.test'",
+        )
+        .fetch_one(repository.pool())
         .await
         .unwrap();
-    let (_, hidden) = get(
-        &router,
-        "/api/v1/flights?origin=BKK&destination=DXB&departure=2026-10-10&cabin=business",
-    )
+        repository
+            .cancel(actor, flight.id, flight.version)
+            .await
+            .unwrap();
+        let (_, hidden) = get(
+            &router,
+            "/api/v1/flights?origin=BKK&destination=DXB&departure=2026-10-10&cabin=business",
+        )
+        .await;
+        assert!(!hidden
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == flight.public_id));
+        let (seat_status, _) = get(
+            &router,
+            &format!(
+                "/api/v1/flights/{}/seats?departure=2026-10-10&cabin=business",
+                flight.public_id
+            ),
+        )
+        .await;
+        assert_eq!(seat_status, StatusCode::NOT_FOUND);
+    })
     .await;
-    assert!(!hidden
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|item| item["id"] == flight.public_id));
-    let (seat_status, _) = get(
-        &router,
-        &format!(
-            "/api/v1/flights/{}/seats?departure=2026-10-10&cabin=business",
-            flight.public_id
-        ),
-    )
-    .await;
-    assert_eq!(seat_status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

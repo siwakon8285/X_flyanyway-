@@ -36,7 +36,7 @@ impl ApiClientStatus {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ApiClientScope {
     #[serde(rename = "flights:read")]
     FlightsRead,

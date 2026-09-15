@@ -21,24 +21,7 @@ pub(super) fn apply(router: Router) -> Router {
         .layer(PropagateRequestIdLayer::new(X_REQUEST_ID))
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(|request: &Request<Body>| {
-                    let request_id = request
-                        .extensions()
-                        .get::<RequestId>()
-                        .and_then(|value| value.header_value().to_str().ok())
-                        .unwrap_or("<missing>");
-                    let route = request
-                        .extensions()
-                        .get::<MatchedPath>()
-                        .map(MatchedPath::as_str)
-                        .unwrap_or("<unmatched>");
-                    tracing::info_span!(
-                        "http_request",
-                        request_id,
-                        method = %request.method(),
-                        route,
-                    )
-                })
+                .make_span_with(make_request_span)
                 .on_request(())
                 .on_response(|response: &Response, latency: Duration, _span: &Span| {
                     log_completed(response.status(), latency);
@@ -47,6 +30,26 @@ pub(super) fn apply(router: Router) -> Router {
         )
         .layer(SetRequestIdLayer::new(X_REQUEST_ID, MakeRequestUuid))
         .layer(middleware::from_fn(remove_client_request_id))
+}
+
+fn make_request_span(request: &Request<Body>) -> Span {
+    let request_id = request
+        .extensions()
+        .get::<RequestId>()
+        .and_then(|value| value.header_value().to_str().ok())
+        .unwrap_or("<missing>");
+    let route = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(MatchedPath::as_str)
+        .unwrap_or("<unmatched>");
+    tracing::info_span!(
+        "http_request",
+        request_id,
+        method = %request.method(),
+        route,
+        external_auth_diagnostic = tracing::field::Empty,
+    )
 }
 
 async fn remove_client_request_id(mut request: Request<Body>, next: Next) -> Response {
@@ -90,9 +93,30 @@ fn log_completed(status: StatusCode, latency: Duration) {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::StatusCode;
+    use std::{
+        io::{self, Write},
+        sync::{Arc, Mutex},
+    };
 
-    use super::{response_log_level, ResponseLogLevel};
+    use super::{log_completed, make_request_span, response_log_level, ResponseLogLevel};
+    use axum::http::{header, Request, StatusCode};
+
+    #[derive(Clone)]
+    struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CaptureWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0
+                .lock()
+                .expect("capture writer lock")
+                .extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn response_statuses_map_to_the_approved_operational_levels() {
@@ -109,5 +133,39 @@ mod tests {
             response_log_level(StatusCode::INTERNAL_SERVER_ERROR),
             ResponseLogLevel::Error
         );
+    }
+
+    #[test]
+    fn request_trace_never_records_authorization_body_query_or_cookie_values() {
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer_output = Arc::clone(&output);
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(move || CaptureWriter(Arc::clone(&writer_output)))
+            .finish();
+        let sentinel = "task10-secret-token-authorization-sentinel";
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/v1/external/token?secret={sentinel}"))
+            .header(header::AUTHORIZATION, format!("Bearer {sentinel}"))
+            .header(header::COOKIE, format!("session={sentinel}"))
+            .body(axum::body::Body::from(sentinel))
+            .expect("sentinel request");
+
+        tracing::subscriber::with_default(subscriber, || {
+            let span = make_request_span(&request);
+            span.in_scope(|| {
+                log_completed(
+                    StatusCode::UNAUTHORIZED,
+                    std::time::Duration::from_millis(4),
+                )
+            });
+        });
+
+        let output = String::from_utf8(output.lock().expect("capture output lock").clone())
+            .expect("trace output is UTF-8");
+        assert!(!output.contains(sentinel));
+        assert!(output.contains("request completed"));
+        assert!(output.contains("status=401"));
     }
 }

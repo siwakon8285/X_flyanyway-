@@ -1,6 +1,8 @@
-use std::{env, net::SocketAddr, time::Duration};
+use std::{env, fmt, net::SocketAddr, time::Duration};
 
-#[derive(Clone, Debug)]
+use crate::domain::external_api::ExternalApiCredentialPepper;
+
+#[derive(Clone)]
 pub struct AppConfig {
     pub database_url: String,
     pub bind_address: SocketAddr,
@@ -11,6 +13,7 @@ pub struct AppConfig {
     pub stripe_webhook_secret: Option<String>,
     pub ticket_qr_signing_secret: String,
     pub manage_booking_signing_secret: String,
+    pub external_api_credential_pepper: ExternalApiCredentialPepper,
 }
 
 impl AppConfig {
@@ -43,6 +46,14 @@ impl AppConfig {
         if manage_booking_signing_secret.len() < 32 {
             return Err("MANAGE_BOOKING_SIGNING_SECRET must be at least 32 characters".to_owned());
         }
+        let external_api_credential_pepper = env::var("EXTERNAL_API_CREDENTIAL_PEPPER_V1")
+            .map_err(|_| "EXTERNAL_API_CREDENTIAL_PEPPER_V1 must be configured".to_owned())
+            .and_then(|value| {
+                ExternalApiCredentialPepper::parse_hex(&value).map_err(|_| {
+                    "EXTERNAL_API_CREDENTIAL_PEPPER_V1 must be exactly 64 hexadecimal characters"
+                        .to_owned()
+                })
+            })?;
         for (name, value, prefix) in [
             (
                 "STRIPE_SECRET_KEY",
@@ -75,8 +86,33 @@ impl AppConfig {
             stripe_webhook_secret,
             ticket_qr_signing_secret,
             manage_booking_signing_secret,
+            external_api_credential_pepper,
             seat_hold_ttl,
             secure_cookies,
         })
+    }
+}
+
+impl fmt::Debug for AppConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AppConfig")
+            .field("database_url", &"<redacted>")
+            .field("bind_address", &self.bind_address)
+            .field("frontend_origin", &self.frontend_origin)
+            .field("seat_hold_ttl", &self.seat_hold_ttl)
+            .field("secure_cookies", &self.secure_cookies)
+            .field(
+                "stripe_secret_key",
+                &self.stripe_secret_key.as_ref().map(|_| "<redacted>"),
+            )
+            .field(
+                "stripe_webhook_secret",
+                &self.stripe_webhook_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .field("ticket_qr_signing_secret", &"<redacted>")
+            .field("manage_booking_signing_secret", &"<redacted>")
+            .field("external_api_credential_pepper", &"<redacted>")
+            .finish()
     }
 }

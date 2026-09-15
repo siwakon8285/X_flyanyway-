@@ -1,9 +1,6 @@
 mod common;
 
-use std::{
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -28,11 +25,8 @@ use x_fly_api::{
     state::AppState,
 };
 
-async fn fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
+async fn fixture_guard() -> common::TestFixtureLock {
+    common::acquire_test_fixture_lock().await
 }
 
 async fn test_pool() -> PgPool {
@@ -43,6 +37,13 @@ async fn test_pool() -> PgPool {
         .await
         .unwrap();
     prepare_test_database(&pool).await.unwrap();
+    cleanup(&pool)
+        .await
+        .expect("clean admin flight HTTP TEST fixtures");
+    pool
+}
+
+async fn cleanup(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
         "DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number = 'XF 952')
              OR actor_staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@flight-http.test');
@@ -51,8 +52,23 @@ async fn test_pool() -> PgPool {
          DELETE FROM flight_service_cabins WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number = 'XF 952');
          DELETE FROM flight_services WHERE flight_number = 'XF 952';
          DELETE FROM staff_sessions; DELETE FROM staff_user_roles; DELETE FROM staff_users WHERE email LIKE '%@flight-http.test';",
-    ).execute(&pool).await.unwrap();
-    pool
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn run_fixture_body<F, Fut>(pool: PgPool, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = pool.clone();
+    common::run_fixture_body_with_cleanup(
+        body,
+        move || async move { cleanup(&cleanup_pool).await },
+    )
+    .await;
 }
 
 fn app(pool: PgPool) -> axum::Router {
@@ -151,50 +167,35 @@ fn create_payload(number: &str) -> Value {
 async fn flights_use_effective_read_and_write_permissions_without_role_bypasses() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
-    let router = app(pool.clone());
-    assert_eq!(
-        send(&router, "GET", "/api/v1/admin/flights", None, None, false)
+    run_fixture_body(pool.clone(), move || async move {
+        let router = app(pool.clone());
+        assert_eq!(
+            send(&router, "GET", "/api/v1/admin/flights", None, None, false)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+
+        let baggage = cookie(&pool, "BAGGAGE_STAFF", "baggage").await;
+        assert_eq!(
+            send(
+                &router,
+                "GET",
+                "/api/v1/admin/flights",
+                Some(&baggage),
+                None,
+                false
+            )
             .await
             .status(),
-        StatusCode::UNAUTHORIZED
-    );
-
-    let baggage = cookie(&pool, "BAGGAGE_STAFF", "baggage").await;
-    assert_eq!(
-        send(
-            &router,
-            "GET",
-            "/api/v1/admin/flights",
-            Some(&baggage),
-            None,
-            false
-        )
-        .await
-        .status(),
-        StatusCode::OK
-    );
-    assert_eq!(
-        send(
-            &router,
-            "POST",
-            "/api/v1/admin/flights",
-            Some(&baggage),
-            Some(create_payload("XF 952")),
-            true
-        )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN
-    );
-
-    for (role, suffix) in [("SYSTEM_ADMIN", "system"), ("EXECUTIVE", "executive")] {
-        let denied = cookie(&pool, role, suffix).await;
+            StatusCode::OK
+        );
         assert_eq!(
             send(
                 &router,
                 "POST",
                 "/api/v1/admin/flights",
-                Some(&denied),
+                Some(&baggage),
                 Some(create_payload("XF 952")),
                 true
             )
@@ -202,144 +203,165 @@ async fn flights_use_effective_read_and_write_permissions_without_role_bypasses(
             .status(),
             StatusCode::FORBIDDEN
         );
-    }
 
-    let manager = cookie(&pool, "FLIGHT_MANAGER", "manager").await;
-    assert_eq!(
-        send(
+        for (role, suffix) in [("SYSTEM_ADMIN", "system"), ("EXECUTIVE", "executive")] {
+            let denied = cookie(&pool, role, suffix).await;
+            assert_eq!(
+                send(
+                    &router,
+                    "POST",
+                    "/api/v1/admin/flights",
+                    Some(&denied),
+                    Some(create_payload("XF 952")),
+                    true
+                )
+                .await
+                .status(),
+                StatusCode::FORBIDDEN
+            );
+        }
+
+        let manager = cookie(&pool, "FLIGHT_MANAGER", "manager").await;
+        assert_eq!(
+            send(
+                &router,
+                "POST",
+                "/api/v1/admin/flights",
+                Some(&manager),
+                Some(create_payload("XF 952")),
+                false
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        let created_response = send(
             &router,
             "POST",
             "/api/v1/admin/flights",
             Some(&manager),
             Some(create_payload("XF 952")),
-            false
+            true,
         )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN
-    );
-    let created_response = send(
-        &router,
-        "POST",
-        "/api/v1/admin/flights",
-        Some(&manager),
-        Some(create_payload("XF 952")),
-        true,
-    )
-    .await;
-    assert_eq!(created_response.status(), StatusCode::CREATED);
-    let created = body(created_response).await;
-    let id = created["id"].as_str().unwrap();
-    assert_eq!(created["business"]["priceAmount"], 46900);
-    let detail_path = format!("/api/v1/admin/flights/{id}");
-    let cancel_path = format!("/api/v1/admin/flights/{id}/cancel");
-    let mut update = create_payload("XF 952");
-    update["version"] = json!(1);
+        .await;
+        assert_eq!(created_response.status(), StatusCode::CREATED);
+        let created = body(created_response).await;
+        let id = created["id"].as_str().unwrap();
+        assert_eq!(created["business"]["priceAmount"], 46900);
+        let detail_path = format!("/api/v1/admin/flights/{id}");
+        let cancel_path = format!("/api/v1/admin/flights/{id}/cancel");
+        let mut update = create_payload("XF 952");
+        update["version"] = json!(1);
 
-    for (method, uri, payload) in [
-        (
-            "POST",
-            "/api/v1/admin/flights".to_owned(),
-            Some(create_payload("XF 953")),
-        ),
-        ("GET", detail_path.clone(), None),
-        ("PUT", detail_path.clone(), Some(update.clone())),
-        ("POST", cancel_path.clone(), Some(json!({"version":1}))),
-    ] {
+        for (method, uri, payload) in [
+            (
+                "POST",
+                "/api/v1/admin/flights".to_owned(),
+                Some(create_payload("XF 953")),
+            ),
+            ("GET", detail_path.clone(), None),
+            ("PUT", detail_path.clone(), Some(update.clone())),
+            ("POST", cancel_path.clone(), Some(json!({"version":1}))),
+        ] {
+            assert_eq!(
+                send(&router, method, &uri, None, payload, true)
+                    .await
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+
         assert_eq!(
-            send(&router, method, &uri, None, payload, true)
+            send(&router, "GET", &detail_path, Some(&baggage), None, false)
                 .await
                 .status(),
-            StatusCode::UNAUTHORIZED
+            StatusCode::OK
         );
-    }
-
-    assert_eq!(
-        send(&router, "GET", &detail_path, Some(&baggage), None, false)
+        assert_eq!(
+            send(
+                &router,
+                "PUT",
+                &detail_path,
+                Some(&baggage),
+                Some(update.clone()),
+                true
+            )
             .await
             .status(),
-        StatusCode::OK
-    );
-    assert_eq!(
-        send(
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            send(
+                &router,
+                "POST",
+                &cancel_path,
+                Some(&baggage),
+                Some(json!({"version":1})),
+                true
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        let updated = send(
             &router,
             "PUT",
             &detail_path,
-            Some(&baggage),
-            Some(update.clone()),
-            true
+            Some(&manager),
+            Some(update),
+            true,
         )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        send(
+        .await;
+        assert_eq!(updated.status(), StatusCode::OK);
+        assert_eq!(body(updated).await["version"], 2);
+        let cancelled = send(
             &router,
             "POST",
             &cancel_path,
-            Some(&baggage),
-            Some(json!({"version":1})),
-            true
+            Some(&manager),
+            Some(json!({"version":2})),
+            true,
         )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN
-    );
-    let updated = send(
-        &router,
-        "PUT",
-        &detail_path,
-        Some(&manager),
-        Some(update),
-        true,
-    )
+        .await;
+        assert_eq!(cancelled.status(), StatusCode::OK);
+        assert_eq!(body(cancelled).await["status"], "CANCELLED");
+    })
     .await;
-    assert_eq!(updated.status(), StatusCode::OK);
-    assert_eq!(body(updated).await["version"], 2);
-    let cancelled = send(
-        &router,
-        "POST",
-        &cancel_path,
-        Some(&manager),
-        Some(json!({"version":2})),
-        true,
-    )
-    .await;
-    assert_eq!(cancelled.status(), StatusCode::OK);
-    assert_eq!(body(cancelled).await["status"], "CANCELLED");
 }
 
 #[tokio::test]
 async fn flight_filters_and_validation_are_bounded_and_structured() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
-    let manager = cookie(&pool, "FLIGHT_MANAGER", "validation").await;
-    let router = app(pool);
-    for uri in [
-        "/api/v1/admin/flights?limit=1000",
-        "/api/v1/admin/flights?status=DELAYED",
-        "/api/v1/admin/flights?date=not-a-date",
-    ] {
-        let response = send(&router, "GET", uri, Some(&manager), None, false).await;
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY, "{uri}");
+    run_fixture_body(pool.clone(), move || async move {
+        let manager = cookie(&pool, "FLIGHT_MANAGER", "validation").await;
+        let router = app(pool);
+        for uri in [
+            "/api/v1/admin/flights?limit=1000",
+            "/api/v1/admin/flights?status=DELAYED",
+            "/api/v1/admin/flights?date=not-a-date",
+        ] {
+            let response = send(&router, "GET", uri, Some(&manager), None, false).await;
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY, "{uri}");
+            assert_eq!(
+                body(response).await["error"]["code"],
+                "FLIGHT_VALIDATION_FAILED"
+            );
+        }
+        let invalid = send(
+            &router,
+            "POST",
+            "/api/v1/admin/flights",
+            Some(&manager),
+            Some(create_payload("BAD")),
+            true,
+        )
+        .await;
+        assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(
-            body(response).await["error"]["code"],
+            body(invalid).await["error"]["code"],
             "FLIGHT_VALIDATION_FAILED"
         );
-    }
-    let invalid = send(
-        &router,
-        "POST",
-        "/api/v1/admin/flights",
-        Some(&manager),
-        Some(create_payload("BAD")),
-        true,
-    )
+    })
     .await;
-    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        body(invalid).await["error"]["code"],
-        "FLIGHT_VALIDATION_FAILED"
-    );
 }

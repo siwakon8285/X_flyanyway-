@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { forwardAdminApiClientRequest, forwardAdminAuthRequest, forwardAdminBookingRequest, forwardAdminFlightRequest, parseStaffPrincipal } from "@/lib/admin/adminBackend";
+import { forwardAdminApiClientRequest, forwardAdminAuthRequest, forwardAdminBookingRequest, forwardAdminFlightRequest, issueApiClientCredential, parseStaffPrincipal, revokeApiClientCredential } from "@/lib/admin/adminBackend";
 
 describe("admin backend boundary", () => {
   beforeEach(() => { global.fetch = jest.fn(); });
@@ -99,5 +99,25 @@ describe("admin backend boundary", () => {
     const forwarded = new TextDecoder().decode(init?.body as ArrayBuffer);
     expect(forwarded).toBe(payload);
     expect(JSON.parse(forwarded).allowedScopes).toEqual(["flights:read", "analytics:read"]);
+  });
+
+  it("forwards credential issuance with only the version and no-store response handling", async () => {
+    jest.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ clientId: "XFCABCDEFGHJKLMNPQR", clientSecret: "a".repeat(64), issuedAt: "2026-09-09T03:00:00Z" }), { status: 201, headers: { "content-type": "application/json" } }));
+    const request = new Request("http://localhost:3000/admin/api/api-clients/XFCABCDEFGHJKLMNPQR/credentials", { method: "POST", headers: { cookie: "x_fly_staff_session=opaque; customer=private", origin: "http://localhost:3000", "x-x-fly-csrf": "1", "content-type": "application/json" }, body: JSON.stringify({ version: 7 }) });
+    const response = await issueApiClientCredential("XFCABCDEFGHJKLMNPQR", 7, request);
+    const [url, init] = jest.mocked(fetch).mock.calls[0];
+    expect(url).toBe("http://localhost:8080/api/v1/admin/api-clients/XFCABCDEFGHJKLMNPQR/credentials");
+    expect(JSON.parse(new TextDecoder().decode(init?.body as ArrayBuffer))).toEqual({ version: 7 });
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toBe("no-store, private");
+  });
+
+  it("forwards credential revocation with only the version and rejects noncanonical IDs", async () => {
+    jest.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ hasLiveCredential: false, issuedAt: "2026-09-09T03:00:00Z", revokedAt: "2026-09-09T04:00:00Z" }), { status: 200, headers: { "content-type": "application/json" } }));
+    const request = new Request("http://localhost:3000/admin/api/api-clients/XFCABCDEFGHJKLMNPQR/credentials/revoke", { method: "POST", headers: { cookie: "x_fly_staff_session=opaque", origin: "http://localhost:3000", "x-x-fly-csrf": "1", "content-type": "application/json" }, body: JSON.stringify({ version: 8, reason: "SYSTEM" }) });
+    await revokeApiClientCredential("XFCABCDEFGHJKLMNPQR", 8, request);
+    const [, init] = jest.mocked(fetch).mock.calls[0];
+    expect(JSON.parse(new TextDecoder().decode(init?.body as ArrayBuffer))).toEqual({ version: 8 });
+    await expect(issueApiClientCredential("not-a-client", 1, request)).rejects.toThrow("Unsupported API client management path");
   });
 });

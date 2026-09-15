@@ -8,6 +8,9 @@ use x_fly_api::{
     application::{
         api_client::ApiClientManagement,
         cancellation::{CancellationService, RefundDispatcher},
+        external_analytics::ExternalAnalyticsService,
+        external_auth::{ApiClientCredentialService, ExternalAuthService},
+        external_flights::ExternalFlightService,
         flight::FlightManagement,
         staff_auth::StaffAuthService,
         use_cases::PaymentApplication,
@@ -17,9 +20,11 @@ use x_fly_api::{
     infrastructure::{
         database::{
             verify_database_ready, SqlxAnalyticsRepository, SqlxApiClientRepository,
-            SqlxFlightRepository, SqlxSeatHoldRepository, SqlxStaffAuthRepository,
+            SqlxExternalAnalyticsRepository, SqlxExternalAuthRepository, SqlxFlightRepository,
+            SqlxSeatHoldRepository, SqlxStaffAuthRepository,
         },
         diagnostics::classify_sqlx_error,
+        external_auth_crypto::HmacExternalCredentialCrypto,
         http::build_router,
         password::Argon2PasswordService,
         payment::{
@@ -51,6 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let repository = Arc::new(SqlxSeatHoldRepository::new(pool));
     let analytics = Arc::new(SqlxAnalyticsRepository::new(repository.pool().clone()));
+    let external_analytics = ExternalAnalyticsService::new(Arc::new(
+        SqlxExternalAnalyticsRepository::new(repository.pool().clone()),
+    ));
     let staff_auth = StaffAuthService::new(
         Arc::new(SqlxStaffAuthRepository::new(repository.pool().clone())),
         Argon2PasswordService::default(),
@@ -97,15 +105,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let flights = FlightManagement::new(Arc::new(SqlxFlightRepository::new(
         repository.pool().clone(),
     )));
+    let external_auth_repository =
+        Arc::new(SqlxExternalAuthRepository::new(repository.pool().clone()));
+    let external_auth_crypto = Arc::new(HmacExternalCredentialCrypto::from_pepper(
+        config.external_api_credential_pepper.clone(),
+    ));
+    let api_client_credentials = ApiClientCredentialService::new(
+        external_auth_repository.clone(),
+        external_auth_crypto.clone(),
+    );
+    let external_auth = ExternalAuthService::new(external_auth_repository, external_auth_crypto);
     let state = state
         .with_staff_auth(staff_auth)
         .with_analytics(analytics)
-        .with_flights(flights)
+        .with_external_analytics(external_analytics)
+        .with_flights(flights.clone())
+        .with_external_flights(ExternalFlightService::new(flights))
         .with_booking_management(repository.clone())
         .with_ticket_operations(repository.clone())
         .with_api_clients(ApiClientManagement::new(Arc::new(
             SqlxApiClientRepository::new(repository.pool().clone()),
-        )));
+        )))
+        .with_external_auth(api_client_credentials, external_auth);
     let state =
         state.with_manage_bookings(repository.clone(), config.manage_booking_signing_secret);
     let listener = tokio::net::TcpListener::bind(config.bind_address).await?;

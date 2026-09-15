@@ -3,6 +3,7 @@ pub mod booking_confirmation;
 pub mod booking_management;
 pub mod cancellation;
 pub mod entities;
+pub mod external_api;
 pub mod extras;
 pub mod flight;
 pub mod manage_booking;

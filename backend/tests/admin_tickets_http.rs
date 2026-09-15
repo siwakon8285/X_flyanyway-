@@ -8,10 +8,7 @@ use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::{
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{future::Future, sync::Arc, time::Duration};
 use tower::ServiceExt;
 use uuid::Uuid;
 use x_fly_api::{
@@ -25,11 +22,8 @@ use x_fly_api::{
     state::AppState,
 };
 
-async fn guard() -> tokio::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
+async fn guard() -> common::TestFixtureLock {
+    common::acquire_test_fixture_lock().await
 }
 async fn pool() -> PgPool {
     let p = PgPoolOptions::new()
@@ -38,11 +32,25 @@ async fn pool() -> PgPool {
         .await
         .unwrap();
     prepare_test_database(&p).await.unwrap();
-    cleanup(&p).await;
+    cleanup(&p).await.expect("clean ticket HTTP TEST fixtures");
     p
 }
-async fn cleanup(p: &PgPool) {
-    sqlx::raw_sql("DELETE FROM booking_cancellations WHERE ticket_id IN(SELECT id FROM tickets WHERE booking_reference LIKE 'XF23%'); DELETE FROM tickets WHERE booking_reference LIKE 'XF23%'; DELETE FROM seat_holds WHERE id IN(SELECT h.id FROM seat_holds h JOIN flight_instances i ON i.id=h.flight_instance_id JOIN flight_services s ON s.id=i.flight_service_id WHERE s.public_id LIKE 'ticket-http-%'); DELETE FROM flight_instances WHERE flight_service_id IN(SELECT id FROM flight_services WHERE public_id LIKE 'ticket-http-%'); DELETE FROM flight_management_audit WHERE flight_service_id IN(SELECT id FROM flight_services WHERE public_id LIKE 'ticket-http-%'); DELETE FROM flight_service_seat_templates WHERE flight_service_id IN(SELECT id FROM flight_services WHERE public_id LIKE 'ticket-http-%'); DELETE FROM flight_service_cabins WHERE flight_service_id IN(SELECT id FROM flight_services WHERE public_id LIKE 'ticket-http-%'); DELETE FROM flight_services WHERE public_id LIKE 'ticket-http-%'; DELETE FROM staff_sessions WHERE staff_user_id IN(SELECT id FROM staff_users WHERE email LIKE '%@ticket-http.test'); DELETE FROM staff_user_roles WHERE staff_user_id IN(SELECT id FROM staff_users WHERE email LIKE '%@ticket-http.test'); DELETE FROM staff_users WHERE email LIKE '%@ticket-http.test';").execute(p).await.unwrap();
+async fn cleanup(p: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql("DELETE FROM booking_cancellations WHERE ticket_id IN(SELECT id FROM tickets WHERE booking_reference LIKE 'XF23%'); DELETE FROM tickets WHERE booking_reference LIKE 'XF23%'; DELETE FROM seat_holds WHERE id IN(SELECT h.id FROM seat_holds h JOIN flight_instances i ON i.id=h.flight_instance_id JOIN flight_services s ON s.id=i.flight_service_id WHERE s.public_id LIKE 'ticket-http-%'); DELETE FROM flight_instances WHERE flight_service_id IN(SELECT id FROM flight_services WHERE public_id LIKE 'ticket-http-%'); DELETE FROM flight_management_audit WHERE flight_service_id IN(SELECT id FROM flight_services WHERE public_id LIKE 'ticket-http-%'); DELETE FROM flight_service_seat_templates WHERE flight_service_id IN(SELECT id FROM flight_services WHERE public_id LIKE 'ticket-http-%'); DELETE FROM flight_service_cabins WHERE flight_service_id IN(SELECT id FROM flight_services WHERE public_id LIKE 'ticket-http-%'); DELETE FROM flight_services WHERE public_id LIKE 'ticket-http-%'; DELETE FROM staff_sessions WHERE staff_user_id IN(SELECT id FROM staff_users WHERE email LIKE '%@ticket-http.test'); DELETE FROM staff_user_roles WHERE staff_user_id IN(SELECT id FROM staff_users WHERE email LIKE '%@ticket-http.test'); DELETE FROM staff_users WHERE email LIKE '%@ticket-http.test';").execute(p).await?;
+    Ok(())
+}
+
+async fn run_fixture_body<F, Fut>(pool: PgPool, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = pool.clone();
+    common::run_fixture_body_with_cleanup(
+        body,
+        move || async move { cleanup(&cleanup_pool).await },
+    )
+    .await;
 }
 fn app(p: PgPool) -> axum::Router {
     let repo = Arc::new(SqlxSeatHoldRepository::new(p.clone()));
@@ -159,54 +167,57 @@ async fn fixture(p: &PgPool, suffix: &str, cabin: &str, cancelled: bool) -> Fixt
 async fn authorization_is_permission_based_and_private() {
     let _g = guard().await;
     let p = pool().await;
-    let router = app(p.clone());
-    let response = send(&router, "GET", "/api/v1/admin/tickets", None, None).await;
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(
-        response.headers()[header::CACHE_CONTROL],
-        "no-store, private"
-    );
-    for (role, suffix) in [
-        ("SYSTEM_ADMIN", "system"),
-        ("FLIGHT_MANAGER", "flight"),
-        ("BOOKING_OPERATIONS", "booking"),
-        ("EXECUTIVE", "executive"),
-    ] {
-        let c = cookie(&p, role, suffix).await;
+    run_fixture_body(p.clone(), move || async move {
+        let router = app(p.clone());
+        let response = send(&router, "GET", "/api/v1/admin/tickets", None, None).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-store, private"
+        );
+        for (role, suffix) in [
+            ("SYSTEM_ADMIN", "system"),
+            ("FLIGHT_MANAGER", "flight"),
+            ("BOOKING_OPERATIONS", "booking"),
+            ("EXECUTIVE", "executive"),
+        ] {
+            let c = cookie(&p, role, suffix).await;
+            assert_eq!(
+                send(&router, "GET", "/api/v1/admin/tickets", Some(&c), None)
+                    .await
+                    .status(),
+                StatusCode::FORBIDDEN
+            )
+        }
+        let c = cookie(&p, "TICKET_PASSENGER_OPERATIONS", "operator").await;
         assert_eq!(
             send(&router, "GET", "/api/v1/admin/tickets", Some(&c), None)
                 .await
                 .status(),
-            StatusCode::FORBIDDEN
-        )
-    }
-    let c = cookie(&p, "TICKET_PASSENGER_OPERATIONS", "operator").await;
-    assert_eq!(
-        send(&router, "GET", "/api/v1/admin/tickets", Some(&c), None)
+            StatusCode::OK
+        );
+        let without_print = cookie(&p, "FLIGHT_MANAGER", "no-print").await;
+        assert_eq!(
+            send(
+                &router,
+                "GET",
+                "/api/v1/admin/tickets/XFTABCDEFGHJKL/print",
+                Some(&without_print),
+                None
+            )
             .await
             .status(),
-        StatusCode::OK
-    );
-    let without_print = cookie(&p, "FLIGHT_MANAGER", "no-print").await;
-    assert_eq!(
-        send(
-            &router,
-            "GET",
-            "/api/v1/admin/tickets/XFTABCDEFGHJKL/print",
-            Some(&without_print),
-            None
-        )
-        .await
-        .status(),
-        StatusCode::FORBIDDEN
-    );
-    cleanup(&p).await
+            StatusCode::FORBIDDEN
+        );
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn search_detail_preserve_multi_passenger_history_and_separate_states() {
     let _g = guard().await;
     let p = pool().await;
+    run_fixture_body(p.clone(), move || async move {
     let f = fixture(&p, "ABCDEFGHJKLM", "economy", false).await;
     let c = cookie(&p, "TICKET_PASSENGER_OPERATIONS", "search").await;
     let router = app(p.clone());
@@ -234,13 +245,15 @@ async fn search_detail_preserve_multi_passenger_history_and_separate_states() {
     assert_eq!(detail["passengers"][0]["seat"], "1A");
     assert_eq!(detail["passengers"][1]["seat"], "1K");
     assert_eq!(detail["passengers"][1]["gender"], "UNSPECIFIED");
-    cleanup(&p).await
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn print_reuses_signed_ticket_and_never_mutates_authoritative_records() {
     let _g = guard().await;
     let p = pool().await;
+    run_fixture_body(p.clone(), move || async move {
     let issued = fixture(&p, "MNPQRSTUVWXY", "first", false).await;
     let cancelled = fixture(&p, "ZABCDEFGHJKL", "first", true).await;
     let c = cookie(&p, "TICKET_PASSENGER_OPERATIONS", "print").await;
@@ -314,65 +327,72 @@ async fn print_reuses_signed_ticket_and_never_mutates_authoritative_records() {
     );
     let after:(i64,i64,i64)=sqlx::query_as("SELECT (SELECT COUNT(*) FROM tickets),(SELECT COUNT(*) FROM payment_attempts),(SELECT COUNT(*) FROM booking_cancellations)").fetch_one(&p).await.unwrap();
     assert_eq!(before, after);
-    cleanup(&p).await
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn ticket_pagination_rejects_offsets_that_cannot_advance() {
     let _g = guard().await;
     let p = pool().await;
-    let c = cookie(&p, "TICKET_PASSENGER_OPERATIONS", "overflow").await;
-    let router = app(p.clone());
-    let response = send(
-        &router,
-        "GET",
-        &format!("/api/v1/admin/tickets?limit=50&offset={}", i64::MAX),
-        Some(&c),
-        None,
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    let response = send(
-        &router,
-        "POST",
-        "/api/v1/admin/tickets/search",
-        Some(&c),
-        Some(json!({"limit": 50, "offset": i64::MAX})),
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    run_fixture_body(p.clone(), move || async move {
+        let c = cookie(&p, "TICKET_PASSENGER_OPERATIONS", "overflow").await;
+        let router = app(p.clone());
+        let response = send(
+            &router,
+            "GET",
+            &format!("/api/v1/admin/tickets?limit=50&offset={}", i64::MAX),
+            Some(&c),
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let response = send(
+            &router,
+            "POST",
+            "/api/v1/admin/tickets/search",
+            Some(&c),
+            Some(json!({"limit": 50, "offset": i64::MAX})),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
-    let repository = SqlxSeatHoldRepository::new(p.clone());
-    let boundary = TicketOperationsFilter {
-        ticket_number: None,
-        booking_reference: None,
-        passenger_name: None,
-        flight_number: None,
-        origin: None,
-        destination: None,
-        travel_date: None,
-        ticket_status: None,
-        cabin: None,
-        limit: 50,
-        offset: i64::MAX - 50,
-    };
-    assert!(repository.list_tickets(&boundary).await.is_ok());
-    let overflow = TicketOperationsFilter {
-        offset: i64::MAX - 49,
-        ..boundary.clone()
-    };
-    assert!(matches!(
-        repository.list_tickets(&overflow).await,
-        Err(x_fly_api::domain::repositories::TicketOperationsRepositoryError::InvalidPagination)
-    ));
-    let invalid_limit = TicketOperationsFilter {
-        limit: i64::MAX,
-        offset: 0,
-        ..boundary
-    };
-    assert!(matches!(
-        repository.list_tickets(&invalid_limit).await,
-        Err(x_fly_api::domain::repositories::TicketOperationsRepositoryError::InvalidPagination)
-    ));
-    cleanup(&p).await
+        let repository = SqlxSeatHoldRepository::new(p.clone());
+        let boundary = TicketOperationsFilter {
+            ticket_number: None,
+            booking_reference: None,
+            passenger_name: None,
+            flight_number: None,
+            origin: None,
+            destination: None,
+            travel_date: None,
+            ticket_status: None,
+            cabin: None,
+            limit: 50,
+            offset: i64::MAX - 50,
+        };
+        assert!(repository.list_tickets(&boundary).await.is_ok());
+        let overflow = TicketOperationsFilter {
+            offset: i64::MAX - 49,
+            ..boundary.clone()
+        };
+        assert!(matches!(
+            repository.list_tickets(&overflow).await,
+            Err(
+                x_fly_api::domain::repositories::TicketOperationsRepositoryError::InvalidPagination
+            )
+        ));
+        let invalid_limit = TicketOperationsFilter {
+            limit: i64::MAX,
+            offset: 0,
+            ..boundary
+        };
+        assert!(matches!(
+            repository.list_tickets(&invalid_limit).await,
+            Err(
+                x_fly_api::domain::repositories::TicketOperationsRepositoryError::InvalidPagination
+            )
+        ));
+    })
+    .await;
 }
