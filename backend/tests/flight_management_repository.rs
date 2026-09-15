@@ -1,6 +1,6 @@
 mod common;
 
-use std::{sync::OnceLock, time::Duration};
+use std::{future::Future, time::Duration};
 
 use chrono::{NaiveDate, NaiveTime};
 use sqlx::{postgres::PgPoolOptions, PgPool};
@@ -18,11 +18,8 @@ use x_fly_api::{
     },
 };
 
-async fn fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
+async fn fixture_guard() -> common::TestFixtureLock {
+    common::acquire_test_fixture_lock().await
 }
 
 async fn test_pool() -> PgPool {
@@ -33,6 +30,13 @@ async fn test_pool() -> PgPool {
         .await
         .unwrap();
     prepare_test_database(&pool).await.unwrap();
+    cleanup(&pool)
+        .await
+        .expect("clean flight management TEST fixtures");
+    pool
+}
+
+async fn cleanup(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
         "DELETE FROM flight_management_audit WHERE flight_service_id IN
              (SELECT id FROM flight_services WHERE flight_number IN ('XF 951','XF 954'))
@@ -53,16 +57,29 @@ async fn test_pool() -> PgPool {
          DELETE FROM staff_user_roles;
          DELETE FROM staff_users WHERE email LIKE 'repo-%@flight-management.test';",
     )
-    .execute(&pool)
-    .await
-    .unwrap();
-    pool
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn run_fixture_body<F, Fut>(pool: PgPool, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = pool.clone();
+    common::run_fixture_body_with_cleanup(
+        body,
+        move || async move { cleanup(&cleanup_pool).await },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn cancellation_blocks_a_preexisting_hold_from_finalizing_payment() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
+    run_fixture_body(pool.clone(), move || async move {
     let actor = actor(&pool).await;
     let flights = SqlxFlightRepository::new(pool.clone());
     let mut input = command("XF 954");
@@ -127,6 +144,8 @@ async fn cancellation_blocks_a_preexisting_hold_from_finalizing_payment() {
             .await
             .unwrap();
     assert_eq!(ticket_count, 0);
+    })
+    .await;
 }
 
 async fn actor(pool: &PgPool) -> Uuid {
@@ -161,6 +180,7 @@ fn command(number: &str) -> FlightCommand {
 async fn creates_updates_and_cancels_audited_business_first_inventory() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
+    run_fixture_body(pool.clone(), move || async move {
     let actor = actor(&pool).await;
     let repository = SqlxFlightRepository::new(pool.clone());
 
@@ -304,39 +324,44 @@ async fn creates_updates_and_cancels_audited_business_first_inventory() {
     )
     .bind(created.id).fetch_one(&pool).await.unwrap();
     assert_eq!(audit_actor, actor);
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn rejects_unknown_airports_and_arrival_before_departure_in_authoritative_zones() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
-    let actor = actor(&pool).await;
-    let repository = SqlxFlightRepository::new(pool);
-    let mut unknown = command("XF 952");
-    unknown.destination_code = "ZZZ".to_owned();
-    assert_eq!(
-        repository.create(actor, unknown).await.unwrap_err(),
-        FlightManagementError::Validation
-    );
+    run_fixture_body(pool.clone(), move || async move {
+        let actor = actor(&pool).await;
+        let repository = SqlxFlightRepository::new(pool);
+        let mut unknown = command("XF 952");
+        unknown.destination_code = "ZZZ".to_owned();
+        assert_eq!(
+            repository.create(actor, unknown).await.unwrap_err(),
+            FlightManagementError::Validation
+        );
 
-    let mut unknown_aircraft = command("XF 951");
-    unknown_aircraft.aircraft_code = "Imaginary Aircraft".to_owned();
-    assert_eq!(
-        repository
-            .create(actor, unknown_aircraft)
-            .await
-            .unwrap_err(),
-        FlightManagementError::Validation
-    );
+        let mut unknown_aircraft = command("XF 951");
+        unknown_aircraft.aircraft_code = "Imaginary Aircraft".to_owned();
+        assert_eq!(
+            repository
+                .create(actor, unknown_aircraft)
+                .await
+                .unwrap_err(),
+            FlightManagementError::Validation
+        );
 
-    let mut backwards = command("XF 953");
-    backwards.destination_code = "BKK".to_owned();
-    backwards.origin_code = "DXB".to_owned();
-    backwards.departure_time = NaiveTime::from_hms_opt(23, 0, 0).unwrap();
-    backwards.arrival_time = NaiveTime::from_hms_opt(1, 0, 0).unwrap();
-    backwards.arrival_day_offset = 0;
-    assert_eq!(
-        repository.create(actor, backwards).await.unwrap_err(),
-        FlightManagementError::Validation
-    );
+        let mut backwards = command("XF 953");
+        backwards.destination_code = "BKK".to_owned();
+        backwards.origin_code = "DXB".to_owned();
+        backwards.departure_time = NaiveTime::from_hms_opt(23, 0, 0).unwrap();
+        backwards.arrival_time = NaiveTime::from_hms_opt(1, 0, 0).unwrap();
+        backwards.arrival_day_offset = 0;
+        assert_eq!(
+            repository.create(actor, backwards).await.unwrap_err(),
+            FlightManagementError::Validation
+        );
+    })
+    .await;
 }

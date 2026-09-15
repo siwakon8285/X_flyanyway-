@@ -1,9 +1,6 @@
 mod common;
 
-use std::{
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use x_fly_api::{
@@ -15,14 +12,11 @@ use x_fly_api::{
     },
 };
 
-async fn fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
+async fn fixture_guard() -> common::TestFixtureLock {
+    common::acquire_test_fixture_lock().await
 }
 
-async fn clean_staff(pool: &PgPool) {
+async fn clean_staff(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
         "DELETE FROM staff_sessions;
          DELETE FROM staff_login_throttles;
@@ -30,8 +24,21 @@ async fn clean_staff(pool: &PgPool) {
          DELETE FROM staff_users;",
     )
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
+}
+
+async fn run_staff_fixture_body<F, Fut>(pool: PgPool, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = pool.clone();
+    common::run_fixture_body_with_cleanup(
+        body,
+        move || async move { clean_staff(&cleanup_pool).await },
+    )
+    .await;
 }
 
 fn service(pool: PgPool) -> StaffAuthService {
@@ -136,202 +143,217 @@ async fn migration_seeds_the_exact_least_privilege_role_matrix() {
 async fn bootstrap_then_create_provisions_distinct_least_privilege_staff() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
-    clean_staff(&pool).await;
+    clean_staff(&pool)
+        .await
+        .expect("clear staff bootstrap TEST state");
     let auth = service(pool.clone());
 
-    assert_eq!(
-        auth.provision(
-            ProvisionMode::Create,
-            "too-early@x-fly.internal",
-            "Early account passphrase 2026",
-            &[RoleCode::Executive],
-        )
-        .await,
-        Err(StaffAuthError::BootstrapRequired)
-    );
+    run_staff_fixture_body(pool.clone(), move || async move {
+        assert_eq!(
+            auth.provision(
+                ProvisionMode::Create,
+                "too-early@x-fly.internal",
+                "Early account passphrase 2026",
+                &[RoleCode::Executive],
+            )
+            .await,
+            Err(StaffAuthError::BootstrapRequired)
+        );
 
-    auth.provision(
-        ProvisionMode::Bootstrap,
-        "system@x-fly.internal",
-        "System admin passphrase 2026",
-        &[RoleCode::SystemAdmin],
-    )
-    .await
-    .unwrap();
-    auth.provision(
-        ProvisionMode::Create,
-        "flight@x-fly.internal",
-        "Flight manager passphrase 2026",
-        &[RoleCode::FlightManager],
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(
         auth.provision(
             ProvisionMode::Bootstrap,
-            "second@x-fly.internal",
-            "Second bootstrap passphrase 2026",
-            &[RoleCode::Executive],
+            "system@x-fly.internal",
+            "System admin passphrase 2026",
+            &[RoleCode::SystemAdmin],
         )
-        .await,
-        Err(StaffAuthError::BootstrapAlreadyCompleted)
-    );
-
-    let system = auth
-        .login("system@x-fly.internal", "System admin passphrase 2026")
         .await
         .unwrap();
-    let flight = auth
-        .login("flight@x-fly.internal", "Flight manager passphrase 2026")
+        auth.provision(
+            ProvisionMode::Create,
+            "flight@x-fly.internal",
+            "Flight manager passphrase 2026",
+            &[RoleCode::FlightManager],
+        )
         .await
         .unwrap();
-    assert!(!system.principal.can(PermissionCode::FlightsWrite));
-    assert!(flight.principal.can(PermissionCode::FlightsWrite));
 
-    let stored_hash: String = sqlx::query_scalar(
-        "SELECT password_hash FROM staff_users WHERE email = 'flight@x-fly.internal'",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_ne!(stored_hash, "Flight manager passphrase 2026");
-    assert!(stored_hash.starts_with("$argon2id$"));
+        assert_eq!(
+            auth.provision(
+                ProvisionMode::Bootstrap,
+                "second@x-fly.internal",
+                "Second bootstrap passphrase 2026",
+                &[RoleCode::Executive],
+            )
+            .await,
+            Err(StaffAuthError::BootstrapAlreadyCompleted)
+        );
+
+        let system = auth
+            .login("system@x-fly.internal", "System admin passphrase 2026")
+            .await
+            .unwrap();
+        let flight = auth
+            .login("flight@x-fly.internal", "Flight manager passphrase 2026")
+            .await
+            .unwrap();
+        assert!(!system.principal.can(PermissionCode::FlightsWrite));
+        assert!(flight.principal.can(PermissionCode::FlightsWrite));
+
+        let stored_hash: String = sqlx::query_scalar(
+            "SELECT password_hash FROM staff_users WHERE email = 'flight@x-fly.internal'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_ne!(stored_hash, "Flight manager passphrase 2026");
+        assert!(stored_hash.starts_with("$argon2id$"));
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn sessions_use_current_roles_and_immediately_honor_revocation_and_disable() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
-    clean_staff(&pool).await;
+    clean_staff(&pool)
+        .await
+        .expect("clear staff session TEST state");
     let auth = service(pool.clone());
-    auth.provision(
-        ProvisionMode::Bootstrap,
-        "staff@x-fly.internal",
-        "Staff account passphrase 2026",
-        &[RoleCode::SystemAdmin],
-    )
-    .await
-    .unwrap();
-    let login = auth
-        .login("staff@x-fly.internal", "Staff account passphrase 2026")
+    run_staff_fixture_body(pool.clone(), move || async move {
+        auth.provision(
+            ProvisionMode::Bootstrap,
+            "staff@x-fly.internal",
+            "Staff account passphrase 2026",
+            &[RoleCode::SystemAdmin],
+        )
         .await
         .unwrap();
+        let login = auth
+            .login("staff@x-fly.internal", "Staff account passphrase 2026")
+            .await
+            .unwrap();
 
-    let first = auth.authenticate(&login.token).await.unwrap();
-    assert!(!first.can(PermissionCode::ApiClientsManage));
-    sqlx::query(
-        "INSERT INTO staff_user_roles (staff_user_id, role_code)
+        let first = auth.authenticate(&login.token).await.unwrap();
+        assert!(!first.can(PermissionCode::ApiClientsManage));
+        sqlx::query(
+            "INSERT INTO staff_user_roles (staff_user_id, role_code)
          VALUES ($1, 'API_ADMIN')",
-    )
-    .bind(first.staff_user_id())
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert!(auth
-        .authenticate(&login.token)
+        )
+        .bind(first.staff_user_id())
+        .execute(&pool)
         .await
-        .unwrap()
-        .can(PermissionCode::ApiClientsManage));
+        .unwrap();
+        assert!(auth
+            .authenticate(&login.token)
+            .await
+            .unwrap()
+            .can(PermissionCode::ApiClientsManage));
 
-    let second_instance = service(pool.clone());
-    assert!(second_instance.authenticate(&login.token).await.is_ok());
-    let mut tampered = login.token.clone();
-    tampered.replace_range(..1, if tampered.starts_with('0') { "1" } else { "0" });
-    assert_eq!(
-        second_instance.authenticate(&tampered).await,
-        Err(StaffAuthError::Unauthenticated)
-    );
+        let second_instance = service(pool.clone());
+        assert!(second_instance.authenticate(&login.token).await.is_ok());
+        let mut tampered = login.token.clone();
+        tampered.replace_range(..1, if tampered.starts_with('0') { "1" } else { "0" });
+        assert_eq!(
+            second_instance.authenticate(&tampered).await,
+            Err(StaffAuthError::Unauthenticated)
+        );
 
-    sqlx::query(
-        "DELETE FROM staff_user_roles WHERE staff_user_id = $1 AND role_code = 'API_ADMIN'",
-    )
-    .bind(first.staff_user_id())
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert!(!auth
-        .authenticate(&login.token)
+        sqlx::query(
+            "DELETE FROM staff_user_roles WHERE staff_user_id = $1 AND role_code = 'API_ADMIN'",
+        )
+        .bind(first.staff_user_id())
+        .execute(&pool)
         .await
-        .unwrap()
-        .can(PermissionCode::ApiClientsManage));
+        .unwrap();
+        assert!(!auth
+            .authenticate(&login.token)
+            .await
+            .unwrap()
+            .can(PermissionCode::ApiClientsManage));
 
-    sqlx::query(
-        "UPDATE staff_sessions
+        sqlx::query(
+            "UPDATE staff_sessions
          SET created_at = NOW() - INTERVAL '2 hours', expires_at = NOW() - INTERVAL '1 hour'
          WHERE id = $1",
-    )
-    .bind(first.session_id())
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        auth.authenticate(&login.token).await,
-        Err(StaffAuthError::Unauthenticated)
-    );
-
-    auth.logout(&login.token).await.unwrap();
-    assert_eq!(
-        auth.authenticate(&login.token).await,
-        Err(StaffAuthError::Unauthenticated)
-    );
-
-    let replacement = auth
-        .login("staff@x-fly.internal", "Staff account passphrase 2026")
+        )
+        .bind(first.session_id())
+        .execute(&pool)
         .await
         .unwrap();
-    sqlx::query(
-        "UPDATE staff_users SET status = 'DISABLED', disabled_at = NOW(), updated_at = NOW()
+        assert_eq!(
+            auth.authenticate(&login.token).await,
+            Err(StaffAuthError::Unauthenticated)
+        );
+
+        auth.logout(&login.token).await.unwrap();
+        assert_eq!(
+            auth.authenticate(&login.token).await,
+            Err(StaffAuthError::Unauthenticated)
+        );
+
+        let replacement = auth
+            .login("staff@x-fly.internal", "Staff account passphrase 2026")
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE staff_users SET status = 'DISABLED', disabled_at = NOW(), updated_at = NOW()
          WHERE email = 'staff@x-fly.internal'",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        auth.authenticate(&replacement.token).await,
-        Err(StaffAuthError::Unauthenticated)
-    );
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            auth.authenticate(&replacement.token).await,
+            Err(StaffAuthError::Unauthenticated)
+        );
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn invalid_unknown_and_disabled_logins_are_generic_and_durably_throttled() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
-    clean_staff(&pool).await;
+    clean_staff(&pool)
+        .await
+        .expect("clear staff login TEST state");
     let auth = service(pool.clone());
-    auth.provision(
-        ProvisionMode::Bootstrap,
-        "staff@x-fly.internal",
-        "Staff account passphrase 2026",
-        &[RoleCode::SystemAdmin],
-    )
-    .await
-    .unwrap();
+    run_staff_fixture_body(pool.clone(), move || async move {
+        auth.provision(
+            ProvisionMode::Bootstrap,
+            "staff@x-fly.internal",
+            "Staff account passphrase 2026",
+            &[RoleCode::SystemAdmin],
+        )
+        .await
+        .unwrap();
 
-    assert_eq!(
-        auth.login("unknown@x-fly.internal", "wrong password").await,
-        Err(StaffAuthError::InvalidCredentials)
-    );
-    assert_eq!(
-        auth.login("staff@x-fly.internal", "wrong password").await,
-        Err(StaffAuthError::InvalidCredentials)
-    );
-    for _ in 0..3 {
+        assert_eq!(
+            auth.login("unknown@x-fly.internal", "wrong password").await,
+            Err(StaffAuthError::InvalidCredentials)
+        );
         assert_eq!(
             auth.login("staff@x-fly.internal", "wrong password").await,
             Err(StaffAuthError::InvalidCredentials)
         );
-    }
-    assert_eq!(
-        auth.login("staff@x-fly.internal", "wrong password").await,
-        Err(StaffAuthError::Throttled)
-    );
+        for _ in 0..3 {
+            assert_eq!(
+                auth.login("staff@x-fly.internal", "wrong password").await,
+                Err(StaffAuthError::InvalidCredentials)
+            );
+        }
+        assert_eq!(
+            auth.login("staff@x-fly.internal", "wrong password").await,
+            Err(StaffAuthError::Throttled)
+        );
 
-    let persisted: i32 = sqlx::query_scalar(
-        "SELECT failure_count FROM staff_login_throttles WHERE blocked_until > NOW()",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(persisted, 5);
+        let persisted: i32 = sqlx::query_scalar(
+            "SELECT failure_count FROM staff_login_throttles WHERE blocked_until > NOW()",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(persisted, 5);
+    })
+    .await;
 }

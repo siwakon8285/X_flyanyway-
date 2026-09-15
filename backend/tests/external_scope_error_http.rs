@@ -1,6 +1,6 @@
 mod common;
 
-use std::{collections::BTreeSet, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, future::Future, sync::Arc, time::Duration};
 
 use axum::{
     body::{Body, Bytes},
@@ -13,6 +13,7 @@ use axum::{
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::{postgres::PgPoolOptions, PgPool};
+use tokio::sync::oneshot;
 use tower::ServiceExt;
 use tower_http::request_id::RequestId;
 use uuid::Uuid;
@@ -45,6 +46,7 @@ use x_fly_api::{
 const PEPPER: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 const REQUEST_ID: &str = "11111111-1111-4111-8111-111111111111";
 
+#[derive(Clone)]
 struct Fixture {
     client_pk: Uuid,
     client_id: String,
@@ -89,11 +91,12 @@ fn crypto() -> Arc<HmacExternalCredentialCrypto> {
 }
 
 async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fixture {
+    let mut transaction = setup.begin().await.expect("begin external scope fixture");
     let actor_id: Uuid = sqlx::query_scalar(
         "INSERT INTO staff_users (email,password_hash) VALUES ($1,'external-scope-http') RETURNING id",
     )
     .bind(format!("external-scope-{}@test.invalid", Uuid::new_v4()))
-    .fetch_one(setup)
+    .fetch_one(&mut *transaction)
     .await
     .expect("fixture actor");
     let client_id = unique_client_id();
@@ -107,7 +110,7 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fix
     .bind(format!("External scope {}", Uuid::new_v4()))
     .bind(status)
     .bind(actor_id)
-    .fetch_one(setup)
+    .fetch_one(&mut *transaction)
     .await
     .expect("fixture client");
     for scope in scopes {
@@ -119,7 +122,7 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fix
         .bind(client_pk)
         .bind(scope.as_str())
         .bind(actor_id)
-        .execute(setup)
+        .execute(&mut *transaction)
         .await
         .expect("fixture scope");
     }
@@ -138,9 +141,13 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fix
     .bind(client_pk)
     .bind(digest.as_bytes().as_slice())
     .bind(actor_id)
-    .execute(setup)
+    .execute(&mut *transaction)
     .await
     .expect("fixture credential");
+    transaction
+        .commit()
+        .await
+        .expect("commit external scope fixture");
 
     Fixture {
         client_pk,
@@ -150,8 +157,8 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fix
     }
 }
 
-async fn cleanup_fixture(setup: &PgPool, fixture: &Fixture) {
-    let mut transaction = setup.begin().await.expect("begin fixture cleanup");
+async fn cleanup_fixture(setup: &PgPool, fixture: &Fixture) -> Result<(), sqlx::Error> {
+    let mut transaction = setup.begin().await?;
     sqlx::query(
         "DELETE FROM external_access_tokens
          WHERE api_client_credential_id IN (
@@ -160,34 +167,46 @@ async fn cleanup_fixture(setup: &PgPool, fixture: &Fixture) {
     )
     .bind(fixture.client_pk)
     .execute(&mut *transaction)
-    .await
-    .expect("clean fixture tokens");
+    .await?;
     sqlx::query("DELETE FROM api_client_management_audit WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture audit");
+        .await?;
     sqlx::query("DELETE FROM api_client_credentials WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture credentials");
+        .await?;
     sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture scopes");
+        .await?;
     sqlx::query("DELETE FROM api_clients WHERE id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture client");
+        .await?;
     sqlx::query("DELETE FROM staff_users WHERE id=$1")
         .bind(fixture.actor_id)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture actor");
-    transaction.commit().await.expect("commit fixture cleanup");
+        .await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn run_fixture_test<F, Fut>(scopes: Vec<ApiClientScope>, body: F)
+where
+    F: FnOnce(PgPool, PgPool, Fixture) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
+    let (setup, runtime) = pools().await;
+    let fixture = fixture(&setup, &scopes, "ACTIVE").await;
+    let cleanup_setup = setup.clone();
+    let cleanup_target = fixture.clone();
+    common::run_fixture_body_with_cleanup(
+        move || body(setup, runtime, fixture),
+        move || async move { cleanup_fixture(&cleanup_setup, &cleanup_target).await },
+    )
+    .await;
 }
 
 fn state_with_auth(runtime: PgPool) -> AppState {
@@ -331,14 +350,20 @@ async fn issue_and_check_scope(
     scopes: &[ApiClientScope],
     required: ApiClientScope,
 ) -> (StatusCode, HeaderMap, Value) {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, scopes, "ACTIVE").await;
-    let state = state_with_auth(runtime);
-    let token = exchange(&state, &fixture).await;
-    let bearer = format!("Bearer {token}");
-    let result = send_bearer(&authenticated_scope_app(state, required), Some(&bearer)).await;
-    cleanup_fixture(&setup, &fixture).await;
-    result
+    let (result_tx, result_rx) = oneshot::channel();
+    run_fixture_test(
+        scopes.to_vec(),
+        move |_setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token = exchange(&state, &fixture).await;
+            let bearer = format!("Bearer {token}");
+            let result =
+                send_bearer(&authenticated_scope_app(state, required), Some(&bearer)).await;
+            result_tx.send(result).expect("scope result receiver");
+        },
+    )
+    .await;
+    result_rx.await.expect("scope result")
 }
 
 fn principal(scopes: &[ApiClientScope]) -> ExternalPrincipal {
@@ -420,26 +445,24 @@ async fn analytics_scope_is_denied_for_flights_requirement() {
 
 #[tokio::test]
 async fn both_scopes_satisfy_either_required_scope() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(
-        &setup,
-        &[ApiClientScope::FlightsRead, ApiClientScope::AnalyticsRead],
-        "ACTIVE",
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead, ApiClientScope::AnalyticsRead],
+        move |_setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token = exchange(&state, &fixture).await;
+            let bearer = format!("Bearer {token}");
+            for required in [ApiClientScope::FlightsRead, ApiClientScope::AnalyticsRead] {
+                let (status, _, body) = send_bearer(
+                    &authenticated_scope_app(state.clone(), required),
+                    Some(&bearer),
+                )
+                .await;
+                assert_eq!(status, StatusCode::OK);
+                assert_eq!(body["authorized"], true);
+            }
+        },
     )
     .await;
-    let state = state_with_auth(runtime);
-    let token = exchange(&state, &fixture).await;
-    let bearer = format!("Bearer {token}");
-    for required in [ApiClientScope::FlightsRead, ApiClientScope::AnalyticsRead] {
-        let (status, _, body) = send_bearer(
-            &authenticated_scope_app(state.clone(), required),
-            Some(&bearer),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["authorized"], true);
-    }
-    cleanup_fixture(&setup, &fixture).await;
 }
 
 #[tokio::test]
@@ -451,60 +474,64 @@ async fn missing_scope_is_403() {
 
 #[tokio::test]
 async fn zero_scope_authenticated_then_denied_403() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[], "ACTIVE").await;
-    let state = state_with_auth(runtime);
-    let token = exchange(&state, &fixture).await;
-    let bearer = format!("Bearer {token}");
-    let (status, _, body) = send_bearer(&authenticated_app(state.clone()), Some(&bearer)).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["scopeCount"], 0);
-    let (status, _, body) = send_bearer(
-        &authenticated_scope_app(state, ApiClientScope::FlightsRead),
-        Some(&bearer),
-    )
+    run_fixture_test(vec![], move |_setup, runtime, fixture| async move {
+        let state = state_with_auth(runtime);
+        let token = exchange(&state, &fixture).await;
+        let bearer = format!("Bearer {token}");
+        let (status, _, body) = send_bearer(&authenticated_app(state.clone()), Some(&bearer)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["scopeCount"], 0);
+        let (status, _, body) = send_bearer(
+            &authenticated_scope_app(state, ApiClientScope::FlightsRead),
+            Some(&bearer),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_error(&body, "EXTERNAL_SCOPE_DENIED");
+    })
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_error(&body, "EXTERNAL_SCOPE_DENIED");
-    cleanup_fixture(&setup, &fixture).await;
 }
 
 #[tokio::test]
 async fn scope_removal_is_seen_on_next_request() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let state = state_with_auth(runtime);
-    let token_router = build_router(state.clone());
-    let request = Request::builder()
-        .method("POST")
-        .uri("/api/v1/external/token")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            json!({"clientId": fixture.client_id, "clientSecret": fixture.secret_text}).to_string(),
-        ))
-        .expect("token request");
-    let response = token_router.oneshot(request).await.expect("token response");
-    let (status, _, body) = response_body(response).await;
-    assert_eq!(status, StatusCode::OK);
-    let token = body["accessToken"]
-        .as_str()
-        .expect("access token")
-        .to_owned();
-    let protected = authenticated_scope_app(state, ApiClientScope::FlightsRead);
-    let bearer = format!("Bearer {token}");
-    let (status, _, _) = send_bearer(&protected, Some(&bearer)).await;
-    assert_eq!(status, StatusCode::OK);
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        move |setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token_router = build_router(state.clone());
+            let request = Request::builder()
+                .method("POST")
+                .uri("/api/v1/external/token")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({"clientId": fixture.client_id, "clientSecret": fixture.secret_text})
+                        .to_string(),
+                ))
+                .expect("token request");
+            let response = token_router.oneshot(request).await.expect("token response");
+            let (status, _, body) = response_body(response).await;
+            assert_eq!(status, StatusCode::OK);
+            let token = body["accessToken"]
+                .as_str()
+                .expect("access token")
+                .to_owned();
+            let protected = authenticated_scope_app(state, ApiClientScope::FlightsRead);
+            let bearer = format!("Bearer {token}");
+            let (status, _, _) = send_bearer(&protected, Some(&bearer)).await;
+            assert_eq!(status, StatusCode::OK);
 
-    sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id=$1")
-        .bind(fixture.client_pk)
-        .execute(&setup)
-        .await
-        .expect("remove current fixture scope");
-    let (status, headers, body) = send_bearer(&protected, Some(&bearer)).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
-    assert_error(&body, "EXTERNAL_SCOPE_DENIED");
-    cleanup_fixture(&setup, &fixture).await;
+            sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id=$1")
+                .bind(fixture.client_pk)
+                .execute(&setup)
+                .await
+                .expect("remove current fixture scope");
+            let (status, headers, body) = send_bearer(&protected, Some(&bearer)).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+            assert_error(&body, "EXTERNAL_SCOPE_DENIED");
+        },
+    )
+    .await;
 }
 
 #[tokio::test]

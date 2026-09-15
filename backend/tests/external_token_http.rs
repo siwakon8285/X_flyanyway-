@@ -109,8 +109,8 @@ impl ExternalAuthRepository for CountingRepository {
     }
 }
 
-async fn cleanup_fixture(setup: &PgPool, fixture: &Fixture) {
-    let mut transaction = setup.begin().await.expect("begin fixture cleanup");
+async fn cleanup_fixture(setup: &PgPool, fixture: &Fixture) -> Result<(), sqlx::Error> {
+    let mut transaction = setup.begin().await?;
     sqlx::query(
         "DELETE FROM external_access_tokens
          WHERE api_client_credential_id IN (
@@ -119,34 +119,29 @@ async fn cleanup_fixture(setup: &PgPool, fixture: &Fixture) {
     )
     .bind(fixture.client_pk)
     .execute(&mut *transaction)
-    .await
-    .expect("clean fixture tokens");
+    .await?;
     sqlx::query("DELETE FROM api_client_management_audit WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture audit");
+        .await?;
     sqlx::query("DELETE FROM api_client_credentials WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture credentials");
+        .await?;
     sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture scopes");
+        .await?;
     sqlx::query("DELETE FROM api_clients WHERE id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture client");
+        .await?;
     sqlx::query("DELETE FROM staff_users WHERE id=$1")
         .bind(fixture.actor_id)
         .execute(&mut *transaction)
-        .await
-        .expect("clean fixture actor");
-    transaction.commit().await.expect("commit fixture cleanup");
+        .await?;
+    transaction.commit().await?;
+    Ok(())
 }
 
 async fn pools() -> (PgPool, PgPool) {
@@ -186,11 +181,12 @@ fn crypto() -> Arc<HmacExternalCredentialCrypto> {
 }
 
 async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fixture {
+    let mut transaction = setup.begin().await.expect("begin external token fixture");
     let actor_id: Uuid = sqlx::query_scalar(
         "INSERT INTO staff_users (email,password_hash) VALUES ($1,'external-token-http') RETURNING id",
     )
     .bind(format!("external-token-{}@test.invalid", Uuid::new_v4()))
-    .fetch_one(setup)
+    .fetch_one(&mut *transaction)
     .await
     .expect("fixture actor");
     let client_id = unique_client_id();
@@ -204,7 +200,7 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fix
     .bind(format!("External token {}", Uuid::new_v4()))
     .bind(status)
     .bind(actor_id)
-    .fetch_one(setup)
+    .fetch_one(&mut *transaction)
     .await
     .expect("fixture client");
     for scope in scopes {
@@ -216,7 +212,7 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fix
         .bind(client_pk)
         .bind(scope.as_str())
         .bind(actor_id)
-        .execute(setup)
+        .execute(&mut *transaction)
         .await
         .expect("fixture scope");
     }
@@ -235,9 +231,13 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fix
     .bind(client_pk)
     .bind(digest.as_bytes().as_slice())
     .bind(actor_id)
-    .fetch_one(setup)
+    .fetch_one(&mut *transaction)
     .await
     .expect("fixture credential");
+    transaction
+        .commit()
+        .await
+        .expect("commit external token fixture");
     Fixture {
         client_pk,
         client_id,
@@ -245,6 +245,57 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope], status: &str) -> Fix
         secret_text,
         credential_id,
     }
+}
+
+async fn run_fixture_test<F, Fut>(scopes: Vec<ApiClientScope>, status: &'static str, body: F)
+where
+    F: FnOnce(PgPool, PgPool, Fixture) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
+    let (setup, runtime) = pools().await;
+    let fixture = fixture(&setup, &scopes, status).await;
+    let cleanup_setup = setup.clone();
+    let cleanup_target = fixture.clone();
+    common::run_fixture_body_with_cleanup(
+        move || body(setup, runtime, fixture),
+        move || async move { cleanup_fixture(&cleanup_setup, &cleanup_target).await },
+    )
+    .await;
+}
+
+async fn run_fixtures_test<F, Fut>(
+    specifications: Vec<(Vec<ApiClientScope>, &'static str)>,
+    body: F,
+) where
+    F: FnOnce(PgPool, PgPool, Vec<Fixture>) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
+    let (setup, runtime) = pools().await;
+    let mut fixtures = Vec::with_capacity(specifications.len());
+    for (scopes, status) in specifications {
+        fixtures.push(fixture(&setup, &scopes, status).await);
+    }
+    let cleanup_setup = setup.clone();
+    let cleanup_fixtures = fixtures.clone();
+    common::run_fixture_body_with_cleanup(
+        move || body(setup, runtime, fixtures),
+        move || async move {
+            let mut errors = Vec::new();
+            for fixture in &cleanup_fixtures {
+                if let Err(error) = cleanup_fixture(&cleanup_setup, fixture).await {
+                    errors.push(error.to_string());
+                }
+            }
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors.join("; "))
+            }
+        },
+    )
+    .await;
 }
 
 fn app(runtime: PgPool, with_auth: bool) -> Router {
@@ -470,54 +521,64 @@ const VALID_REQUEST_SECRET: &str =
 
 #[tokio::test]
 async fn token_exchange_sets_no_store_and_pragma() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let router = app(runtime, true);
-    let (status, headers, _) = send_token(&router, &token_request(&fixture), None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store, private");
-    assert_eq!(headers[header::PRAGMA], "no-cache");
-    cleanup_fixture(&setup, &fixture).await;
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |_setup, runtime, fixture| async move {
+            let router = app(runtime, true);
+            let (status, headers, _) = send_token(&router, &token_request(&fixture), None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(headers[header::CACHE_CONTROL], "no-store, private");
+            assert_eq!(headers[header::PRAGMA], "no-cache");
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn token_exchange_persists_only_verifiers_with_a_900_second_lifetime() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let router = app(runtime, true);
-    let token_text = exchange(&router, &fixture).await;
-    let token = PlaintextAccessToken::parse_bearer_text(&token_text).expect("generated token");
-    let (stored_hash, issued_at, expires_at): (
-        Vec<u8>,
-        chrono::DateTime<chrono::Utc>,
-        chrono::DateTime<chrono::Utc>,
-    ) = sqlx::query_as(
-        "SELECT token_hash,issued_at,expires_at
-             FROM external_access_tokens
-             WHERE api_client_credential_id=$1
-             ORDER BY issued_at DESC
-             LIMIT 1",
-    )
-    .bind(fixture.credential_id)
-    .fetch_one(&setup)
-    .await
-    .expect("stored token verifier");
-    assert_eq!(stored_hash, crypto().access_token_hash(&token).as_bytes());
-    assert_eq!((expires_at - issued_at).num_seconds(), 900);
-    let stored_digest: Vec<u8> =
-        sqlx::query_scalar("SELECT secret_digest FROM api_client_credentials WHERE id=$1")
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |setup, runtime, fixture| async move {
+            let router = app(runtime, true);
+            let token_text = exchange(&router, &fixture).await;
+            let token =
+                PlaintextAccessToken::parse_bearer_text(&token_text).expect("generated token");
+            let (stored_hash, issued_at, expires_at): (
+                Vec<u8>,
+                chrono::DateTime<chrono::Utc>,
+                chrono::DateTime<chrono::Utc>,
+            ) = sqlx::query_as(
+                "SELECT token_hash,issued_at,expires_at
+                     FROM external_access_tokens
+                     WHERE api_client_credential_id=$1
+                     ORDER BY issued_at DESC
+                     LIMIT 1",
+            )
             .bind(fixture.credential_id)
             .fetch_one(&setup)
             .await
-            .expect("stored credential verifier");
-    let secret = PlaintextClientSecret::parse_hex(&fixture.secret_text).expect("fixture secret");
-    assert_eq!(
-        stored_digest,
-        crypto()
-            .credential_digest(&fixture.client_id, &secret)
-            .as_bytes()
-    );
-    cleanup_fixture(&setup, &fixture).await;
+            .expect("stored token verifier");
+            assert_eq!(stored_hash, crypto().access_token_hash(&token).as_bytes());
+            assert_eq!((expires_at - issued_at).num_seconds(), 900);
+            let stored_digest: Vec<u8> =
+                sqlx::query_scalar("SELECT secret_digest FROM api_client_credentials WHERE id=$1")
+                    .bind(fixture.credential_id)
+                    .fetch_one(&setup)
+                    .await
+                    .expect("stored credential verifier");
+            let secret =
+                PlaintextClientSecret::parse_hex(&fixture.secret_text).expect("fixture secret");
+            assert_eq!(
+                stored_digest,
+                crypto()
+                    .credential_digest(&fixture.client_id, &secret)
+                    .as_bytes()
+            );
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -608,27 +669,31 @@ async fn missing_external_auth_service_on_bearer_route_fails_closed() {
 
 #[tokio::test]
 async fn token_exchange_returns_no_scope_snapshot() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let router = app(runtime, true);
-    let (status, headers, body) = send_token(&router, &token_request(&fixture), None).await;
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |_setup, runtime, fixture| async move {
+            let router = app(runtime, true);
+            let (status, headers, body) = send_token(&router, &token_request(&fixture), None).await;
 
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers[header::CACHE_CONTROL], "no-store, private");
-    assert_eq!(headers[header::PRAGMA], "no-cache");
-    assert_eq!(body["tokenType"], "Bearer");
-    assert_eq!(body["expiresIn"], 900);
-    assert!(body.get("scopes").is_none());
-    let keys = body
-        .as_object()
-        .expect("token response object")
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
-    assert_eq!(keys, vec!["accessToken", "expiresIn", "tokenType"]);
-    let token = body["accessToken"].as_str().expect("access token");
-    assert!(PlaintextAccessToken::parse_bearer_text(token).is_ok());
-    cleanup_fixture(&setup, &fixture).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(headers[header::CACHE_CONTROL], "no-store, private");
+            assert_eq!(headers[header::PRAGMA], "no-cache");
+            assert_eq!(body["tokenType"], "Bearer");
+            assert_eq!(body["expiresIn"], 900);
+            assert!(body.get("scopes").is_none());
+            let keys = body
+                .as_object()
+                .expect("token response object")
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(keys, vec!["accessToken", "expiresIn", "tokenType"]);
+            let token = body["accessToken"].as_str().expect("access token");
+            assert!(PlaintextAccessToken::parse_bearer_text(token).is_ok());
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -677,111 +742,132 @@ async fn noncanonical_and_oversized_token_request_values_are_invalid_before_auth
 
 #[tokio::test]
 async fn token_exchange_authentication_failures_use_one_generic_envelope() {
-    let (setup, runtime) = pools().await;
-    let valid = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let wrong_secret = Fixture {
-        secret_text: hex::encode([0xabu8; 32]),
-        ..valid.clone()
-    };
-    let router = app(runtime.clone(), true);
-    let (wrong_status, wrong_headers, wrong_body) =
-        send_token(&router, &token_request(&wrong_secret), None).await;
-    assert_eq!(wrong_status, StatusCode::UNAUTHORIZED);
-    assert!(wrong_headers.get(header::WWW_AUTHENTICATE).is_none());
-    assert_external_error(&wrong_body, "EXTERNAL_CLIENT_AUTHENTICATION_FAILED");
-    let expected_message = wrong_body["error"]["message"].clone();
+    run_fixtures_test(
+        vec![
+            (vec![ApiClientScope::FlightsRead], "ACTIVE"),
+            (vec![ApiClientScope::FlightsRead], "SUSPENDED"),
+            (vec![ApiClientScope::FlightsRead], "REVOKED"),
+            (vec![ApiClientScope::FlightsRead], "ACTIVE"),
+        ],
+        move |setup, runtime, fixtures| async move {
+            let valid = fixtures[0].clone();
+            let wrong_secret = Fixture {
+                secret_text: hex::encode([0xabu8; 32]),
+                ..valid.clone()
+            };
+            let router = app(runtime, true);
+            let (wrong_status, wrong_headers, wrong_body) =
+                send_token(&router, &token_request(&wrong_secret), None).await;
+            assert_eq!(wrong_status, StatusCode::UNAUTHORIZED);
+            assert!(wrong_headers.get(header::WWW_AUTHENTICATE).is_none());
+            assert_external_error(&wrong_body, "EXTERNAL_CLIENT_AUTHENTICATION_FAILED");
+            let expected_message = wrong_body["error"]["message"].clone();
 
-    let unknown = Fixture {
-        client_id: unique_client_id(),
-        ..valid.clone()
-    };
-    let (unknown_status, _, unknown_body) =
-        send_token(&router, &token_request(&unknown), None).await;
-    assert_eq!(unknown_status, StatusCode::UNAUTHORIZED);
-    assert_external_error(&unknown_body, "EXTERNAL_CLIENT_AUTHENTICATION_FAILED");
-    assert_eq!(unknown_body["error"]["message"], expected_message);
+            let unknown = Fixture {
+                client_id: unique_client_id(),
+                ..valid.clone()
+            };
+            let (unknown_status, _, unknown_body) =
+                send_token(&router, &token_request(&unknown), None).await;
+            assert_eq!(unknown_status, StatusCode::UNAUTHORIZED);
+            assert_external_error(&unknown_body, "EXTERNAL_CLIENT_AUTHENTICATION_FAILED");
+            assert_eq!(unknown_body["error"]["message"], expected_message);
 
-    let suspended = fixture(&setup, &[ApiClientScope::FlightsRead], "SUSPENDED").await;
-    let suspended_body = assert_client_exchange_failure(&router, &suspended).await;
-    assert_eq!(suspended_body["error"]["message"], expected_message);
-    let revoked = fixture(&setup, &[ApiClientScope::FlightsRead], "REVOKED").await;
-    let revoked_body = assert_client_exchange_failure(&router, &revoked).await;
-    assert_eq!(revoked_body["error"]["message"], expected_message);
-    let revoked_credential = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    revoke_fixture_credential(&setup, &revoked_credential).await;
-    let revoked_credential_body =
-        assert_client_exchange_failure(&router, &revoked_credential).await;
-    assert_eq!(
-        revoked_credential_body["error"]["message"],
-        expected_message
-    );
-    cleanup_fixture(&setup, &valid).await;
-    cleanup_fixture(&setup, &suspended).await;
-    cleanup_fixture(&setup, &revoked).await;
-    cleanup_fixture(&setup, &revoked_credential).await;
+            let suspended_body = assert_client_exchange_failure(&router, &fixtures[1]).await;
+            assert_eq!(suspended_body["error"]["message"], expected_message);
+            let revoked_body = assert_client_exchange_failure(&router, &fixtures[2]).await;
+            assert_eq!(revoked_body["error"]["message"], expected_message);
+            revoke_fixture_credential(&setup, &fixtures[3]).await;
+            let revoked_credential_body =
+                assert_client_exchange_failure(&router, &fixtures[3]).await;
+            assert_eq!(
+                revoked_credential_body["error"]["message"],
+                expected_message
+            );
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn valid_token_authenticates_principal_and_current_scopes() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let state = state_with_auth(runtime);
-    let token_router = build_router(state.clone());
-    let token = exchange(&token_router, &fixture).await;
-    let protected = protected_app(state);
-    let (status, _, body) = send_protected(&protected, &[&format!("Bearer {token}")], None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["clientId"], fixture.client_id);
-    assert_eq!(body["scopeCount"], 1);
-    assert_eq!(body["hasFlightsRead"], true);
-    cleanup_fixture(&setup, &fixture).await;
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |_setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token_router = build_router(state.clone());
+            let token = exchange(&token_router, &fixture).await;
+            let protected = protected_app(state);
+            let (status, _, body) =
+                send_protected(&protected, &[&format!("Bearer {token}")], None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["clientId"], fixture.client_id);
+            assert_eq!(body["scopeCount"], 1);
+            assert_eq!(body["hasFlightsRead"], true);
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn zero_scope_client_authenticates_with_empty_principal() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[], "ACTIVE").await;
-    let state = state_with_auth(runtime);
-    let token_router = build_router(state.clone());
-    let token = exchange(&token_router, &fixture).await;
-    let protected = protected_app(state);
-    let (status, _, body) = send_protected(&protected, &[&format!("Bearer {token}")], None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["scopeCount"], 0);
-    assert_eq!(body["hasFlightsRead"], false);
-    cleanup_fixture(&setup, &fixture).await;
+    run_fixture_test(
+        vec![],
+        "ACTIVE",
+        move |_setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token_router = build_router(state.clone());
+            let token = exchange(&token_router, &fixture).await;
+            let protected = protected_app(state);
+            let (status, _, body) =
+                send_protected(&protected, &[&format!("Bearer {token}")], None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["scopeCount"], 0);
+            assert_eq!(body["hasFlightsRead"], false);
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn expired_and_malformed_bearers_are_generic_401_with_challenge() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let expired = insert_expired_token(&setup, &fixture).await;
-    let protected = protected_app(state_with_auth(runtime));
-    for value in [
-        "",
-        "Basic abc",
-        "Bearer",
-        "Bearer ",
-        "Bearer xfa_v2_0000000000000000000000000000000000000000000000000000000000000000",
-        "Bearer xfa_v1_000000000000000000000000000000000000000000000000000000000000000",
-        "Bearer xfa_v1_000000000000000000000000000000000000000000000000000000000000000A",
-        "Bearer  xfa_v1_0000000000000000000000000000000000000000000000000000000000000000",
-        "Bearer xfa_v1_0000000000000000000000000000000000000000000000000000000000000000 ",
-        "Bearer xfa_v1_0000000000000000000000000000000000000000000000000000000000000000 extra",
-        &format!("Bearer {expired}"),
-    ] {
-        let values = if value.is_empty() {
-            &[][..]
-        } else {
-            &[value][..]
-        };
-        let (status, headers, body) = send_protected(&protected, values, None).await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED);
-        assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
-        assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
-    }
-    cleanup_fixture(&setup, &fixture).await;
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |setup, runtime, fixture| async move {
+            let expired = insert_expired_token(&setup, &fixture).await;
+            let protected = protected_app(state_with_auth(runtime));
+            for value in [
+                "",
+                "Basic abc",
+                "Bearer",
+                "Bearer ",
+                "Bearer xfa_v2_0000000000000000000000000000000000000000000000000000000000000000",
+                "Bearer xfa_v1_000000000000000000000000000000000000000000000000000000000000000",
+                "Bearer xfa_v1_000000000000000000000000000000000000000000000000000000000000000A",
+                "Bearer  xfa_v1_0000000000000000000000000000000000000000000000000000000000000000",
+                "Bearer xfa_v1_0000000000000000000000000000000000000000000000000000000000000000 ",
+                "Bearer xfa_v1_0000000000000000000000000000000000000000000000000000000000000000 extra",
+            ] {
+                let values = if value.is_empty() {
+                    &[][..]
+                } else {
+                    &[value][..]
+                };
+                let (status, headers, body) = send_protected(&protected, values, None).await;
+                assert_eq!(status, StatusCode::UNAUTHORIZED);
+                assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+                assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+            }
+            let value = format!("Bearer {expired}");
+            let (status, headers, body) = send_protected(&protected, &[&value], None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+            assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -813,111 +899,123 @@ async fn duplicate_authorization_and_cookies_do_not_authenticate_external_routes
 
 #[tokio::test]
 async fn revoked_token_stays_invalid_after_client_reactivation() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let state = state_with_auth(runtime);
-    let token_router = build_router(state.clone());
-    let token = exchange(&token_router, &fixture).await;
-    mark_client_status(&setup, &fixture, "SUSPENDED").await;
-    sqlx::query(
-        "UPDATE external_access_tokens SET revoked_at=clock_timestamp()
-         WHERE api_client_credential_id=$1 AND revoked_at IS NULL",
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token_router = build_router(state.clone());
+            let token = exchange(&token_router, &fixture).await;
+            mark_client_status(&setup, &fixture, "SUSPENDED").await;
+            sqlx::query(
+                "UPDATE external_access_tokens SET revoked_at=clock_timestamp()
+                 WHERE api_client_credential_id=$1 AND revoked_at IS NULL",
+            )
+            .bind(fixture.credential_id)
+            .execute(&setup)
+            .await
+            .expect("revoke fixture token");
+            mark_client_status(&setup, &fixture, "ACTIVE").await;
+            let protected = protected_app(state);
+            let bearer = format!("Bearer {token}");
+            let (status, headers, body) = send_protected(&protected, &[&bearer], None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+            assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+        },
     )
-    .bind(fixture.credential_id)
-    .execute(&setup)
-    .await
-    .expect("revoke fixture token");
-    mark_client_status(&setup, &fixture, "ACTIVE").await;
-    let protected = protected_app(state);
-    let (status, headers, body) =
-        send_protected(&protected, &[&format!("Bearer {token}")], None).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
-    assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
-    cleanup_fixture(&setup, &fixture).await;
+    .await;
 }
 
 #[tokio::test]
 async fn current_scope_removal_is_seen_on_the_next_authenticated_request() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let state = state_with_auth(runtime);
-    let token_router = build_router(state.clone());
-    let token = exchange(&token_router, &fixture).await;
-    let protected = protected_app(state);
-    let bearer = format!("Bearer {token}");
-    let (status, _, body) = send_protected(&protected, &[&bearer], None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["scopeCount"], 1);
-    sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id=$1")
-        .bind(fixture.client_pk)
-        .execute(&setup)
-        .await
-        .expect("remove current fixture scope");
-    let (status, _, body) = send_protected(&protected, &[&bearer], None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["scopeCount"], 0);
-    assert_eq!(body["hasFlightsRead"], false);
-    cleanup_fixture(&setup, &fixture).await;
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token_router = build_router(state.clone());
+            let token = exchange(&token_router, &fixture).await;
+            let protected = protected_app(state);
+            let bearer = format!("Bearer {token}");
+            let (status, _, body) = send_protected(&protected, &[&bearer], None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["scopeCount"], 1);
+            sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id=$1")
+                .bind(fixture.client_pk)
+                .execute(&setup)
+                .await
+                .expect("remove current fixture scope");
+            let (status, _, body) = send_protected(&protected, &[&bearer], None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["scopeCount"], 0);
+            assert_eq!(body["hasFlightsRead"], false);
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn suspended_client_and_revoked_credential_are_generic_bearer_failures() {
-    let (setup, runtime) = pools().await;
-    let suspended_fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let suspended_state = state_with_auth(runtime.clone());
-    let token_router = build_router(suspended_state.clone());
-    let suspended_token = exchange(&token_router, &suspended_fixture).await;
-    mark_client_status(&setup, &suspended_fixture, "SUSPENDED").await;
-    let (status, headers, body) = send_protected(
-        &protected_app(suspended_state),
-        &[&format!("Bearer {suspended_token}")],
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
-    assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
-    cleanup_fixture(&setup, &suspended_fixture).await;
+    run_fixtures_test(
+        vec![
+            (vec![ApiClientScope::FlightsRead], "ACTIVE"),
+            (vec![ApiClientScope::FlightsRead], "ACTIVE"),
+        ],
+        move |setup, runtime, fixtures| async move {
+            let suspended_fixture = fixtures[0].clone();
+            let revoked_fixture = fixtures[1].clone();
+            let suspended_state = state_with_auth(runtime.clone());
+            let token_router = build_router(suspended_state.clone());
+            let suspended_token = exchange(&token_router, &suspended_fixture).await;
+            mark_client_status(&setup, &suspended_fixture, "SUSPENDED").await;
+            let suspended_bearer = format!("Bearer {suspended_token}");
+            let (status, headers, body) =
+                send_protected(&protected_app(suspended_state), &[&suspended_bearer], None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+            assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
 
-    let revoked_fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let revoked_state = state_with_auth(runtime);
-    let token_router = build_router(revoked_state.clone());
-    let revoked_token = exchange(&token_router, &revoked_fixture).await;
-    revoke_fixture_credential(&setup, &revoked_fixture).await;
-    let (status, headers, body) = send_protected(
-        &protected_app(revoked_state),
-        &[&format!("Bearer {revoked_token}")],
-        None,
+            let revoked_state = state_with_auth(runtime);
+            let token_router = build_router(revoked_state.clone());
+            let revoked_token = exchange(&token_router, &revoked_fixture).await;
+            revoke_fixture_credential(&setup, &revoked_fixture).await;
+            let revoked_bearer = format!("Bearer {revoked_token}");
+            let (status, headers, body) =
+                send_protected(&protected_app(revoked_state), &[&revoked_bearer], None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+            assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+        },
     )
     .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
-    assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
-    cleanup_fixture(&setup, &revoked_fixture).await;
 }
 
 #[tokio::test]
 async fn external_token_origin_has_no_browser_cors_headers() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead], "ACTIVE").await;
-    let router = app(runtime, true);
-    let (status, headers, _) = send_token(
-        &router,
-        &token_request(&fixture),
-        Some("https://example.test"),
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |_setup, runtime, fixture| async move {
+            let router = app(runtime, true);
+            let (status, headers, _) = send_token(
+                &router,
+                &token_request(&fixture),
+                Some("https://example.test"),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            for name in [
+                header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+                header::ACCESS_CONTROL_ALLOW_HEADERS,
+                header::ACCESS_CONTROL_ALLOW_METHODS,
+            ] {
+                assert!(headers.get(name).is_none());
+            }
+        },
     )
     .await;
-    assert_eq!(status, StatusCode::OK);
-    for name in [
-        header::ACCESS_CONTROL_ALLOW_ORIGIN,
-        header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
-        header::ACCESS_CONTROL_ALLOW_HEADERS,
-        header::ACCESS_CONTROL_ALLOW_METHODS,
-    ] {
-        assert!(headers.get(name).is_none());
-    }
-    cleanup_fixture(&setup, &fixture).await;
 }
 
 #[tokio::test]

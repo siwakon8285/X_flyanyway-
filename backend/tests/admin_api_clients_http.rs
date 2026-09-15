@@ -1,6 +1,6 @@
 mod common;
 
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{future::Future, ops::Deref, sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -36,6 +36,10 @@ async fn test_pool() -> PgPool {
         .unwrap();
     prepare_test_database(&pool).await.unwrap();
     pool
+}
+
+async fn fixture_guard() -> common::TestFixtureLock {
+    common::acquire_test_fixture_lock().await
 }
 
 struct StaffFixture {
@@ -81,7 +85,7 @@ async fn remove_stale_role_permission_fixtures(pool: &PgPool) {
     .unwrap();
 }
 
-async fn cleanup_actor(pool: &PgPool, actor: Uuid) {
+async fn cleanup_actor(pool: &PgPool, actor: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query(
         "DELETE FROM role_permissions
          WHERE granted_by_staff_user_id=$1
@@ -90,8 +94,7 @@ async fn cleanup_actor(pool: &PgPool, actor: Uuid) {
     )
     .bind(actor)
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
     sqlx::query(
         "DELETE FROM api_client_management_audit
          WHERE actor_staff_user_id=$1
@@ -101,8 +104,7 @@ async fn cleanup_actor(pool: &PgPool, actor: Uuid) {
     )
     .bind(actor)
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
     sqlx::query(
         "DELETE FROM external_access_tokens
          WHERE api_client_credential_id IN (
@@ -116,8 +118,7 @@ async fn cleanup_actor(pool: &PgPool, actor: Uuid) {
     )
     .bind(actor)
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
     sqlx::query(
         "DELETE FROM api_client_credentials
          WHERE api_client_id IN (
@@ -128,8 +129,7 @@ async fn cleanup_actor(pool: &PgPool, actor: Uuid) {
     )
     .bind(actor)
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
     sqlx::query(
         "DELETE FROM api_client_allowed_scopes
          WHERE api_client_id IN (
@@ -139,31 +139,49 @@ async fn cleanup_actor(pool: &PgPool, actor: Uuid) {
     )
     .bind(actor)
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
     sqlx::query(
         "DELETE FROM api_clients
          WHERE created_by_staff_user_id=$1 OR updated_by_staff_user_id=$1",
     )
     .bind(actor)
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
     sqlx::query("DELETE FROM staff_sessions WHERE staff_user_id=$1")
         .bind(actor)
         .execute(pool)
-        .await
-        .unwrap();
+        .await?;
     sqlx::query("DELETE FROM staff_user_roles WHERE staff_user_id=$1")
         .bind(actor)
         .execute(pool)
-        .await
-        .unwrap();
+        .await?;
     sqlx::query("DELETE FROM staff_users WHERE id=$1")
         .bind(actor)
         .execute(pool)
-        .await
-        .unwrap();
+        .await?;
+    Ok(())
+}
+
+async fn run_fixture_body<F, Fut>(pool: &PgPool, actors: Vec<Uuid>, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = pool.clone();
+    common::run_fixture_body_with_cleanup(body, move || async move {
+        let mut errors = Vec::new();
+        for actor in actors {
+            if let Err(error) = cleanup_actor(&cleanup_pool, actor).await {
+                errors.push(error.to_string());
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    })
+    .await;
 }
 
 fn app(pool: PgPool) -> axum::Router {
@@ -277,256 +295,280 @@ fn unique_name(label: &str) -> String {
 
 #[tokio::test]
 async fn create_and_detail_preserve_literal_scope_codes_independent_of_input_order() {
+    let _fixture_lock = fixture_guard().await;
     let pool = test_pool().await;
     let admin = cookie(&pool, "API_ADMIN", "scope-codes").await;
-    let router = app(pool.clone());
-    let namespace = Uuid::new_v4().simple().to_string();
+    let pool_for_body = pool.clone();
+    run_fixture_body(&pool, vec![admin.id], move || async move {
+        let router = app(pool_for_body.clone());
+        let namespace = Uuid::new_v4().simple().to_string();
 
-    for (name, input, expected) in [
-        (
-            format!("Flights only {namespace}"),
-            json!(["flights:read"]),
-            json!(["flights:read"]),
-        ),
-        (
-            format!("Analytics only {namespace}"),
-            json!(["analytics:read"]),
-            json!(["analytics:read"]),
-        ),
-        (
-            format!("Both reversed {namespace}"),
-            json!(["flights:read", "analytics:read"]),
-            json!(["analytics:read", "flights:read"]),
-        ),
-    ] {
-        let created = body(
-            send(
-                &router,
-                "POST",
-                "/api/v1/admin/api-clients",
-                Some(&admin),
-                Some(json!({
-                    "name":name,
-                    "description":null,
-                    "status":"ACTIVE",
-                    "allowedScopes":input,
-                })),
-                true,
+        for (name, input, expected) in [
+            (
+                format!("Flights only {namespace}"),
+                json!(["flights:read"]),
+                json!(["flights:read"]),
+            ),
+            (
+                format!("Analytics only {namespace}"),
+                json!(["analytics:read"]),
+                json!(["analytics:read"]),
+            ),
+            (
+                format!("Both reversed {namespace}"),
+                json!(["flights:read", "analytics:read"]),
+                json!(["analytics:read", "flights:read"]),
+            ),
+        ] {
+            let created = body(
+                send(
+                    &router,
+                    "POST",
+                    "/api/v1/admin/api-clients",
+                    Some(&admin),
+                    Some(json!({
+                        "name":name,
+                        "description":null,
+                        "status":"ACTIVE",
+                        "allowedScopes":input,
+                    })),
+                    true,
+                )
+                .await,
             )
-            .await,
-        )
-        .await;
-        assert_eq!(created["allowedScopes"], expected);
-        let client_id = created["clientId"].as_str().unwrap();
-        let detail = body(
-            send(
-                &router,
-                "GET",
-                &format!("/api/v1/admin/api-clients/{client_id}"),
-                Some(&admin),
-                None,
-                false,
+            .await;
+            assert_eq!(created["allowedScopes"], expected);
+            let client_id = created["clientId"].as_str().unwrap();
+            let detail = body(
+                send(
+                    &router,
+                    "GET",
+                    &format!("/api/v1/admin/api-clients/{client_id}"),
+                    Some(&admin),
+                    None,
+                    false,
+                )
+                .await,
             )
-            .await,
-        )
-        .await;
-        assert_eq!(detail["allowedScopes"], expected);
-        assert_eq!(detail["audit"][0]["after"]["allowedScopes"], expected);
-    }
-    cleanup_actor(&pool, admin.id).await;
+            .await;
+            assert_eq!(detail["allowedScopes"], expected);
+            assert_eq!(detail["audit"][0]["after"]["allowedScopes"], expected);
+        }
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn effective_permissions_authorize_without_role_name_bypasses() {
     let _role_lock = role_permission_fixture_lock().await;
+    let _fixture_lock = fixture_guard().await;
     let pool = test_pool().await;
     remove_stale_role_permission_fixtures(&pool).await;
-    let router = app(pool.clone());
-
-    assert_eq!(
-        send(
-            &router,
-            "GET",
-            "/api/v1/admin/api-clients",
-            None,
-            None,
-            false
-        )
-        .await
-        .status(),
-        StatusCode::UNAUTHORIZED
-    );
     let denied_system = cookie(&pool, "SYSTEM_ADMIN", "system").await;
     let denied_flight = cookie(&pool, "FLIGHT_MANAGER", "flight").await;
     let denied_executive = cookie(&pool, "EXECUTIVE", "executive").await;
-    for (role, denied) in [
-        ("SYSTEM_ADMIN", &denied_system),
-        ("FLIGHT_MANAGER", &denied_flight),
-        ("EXECUTIVE", &denied_executive),
-    ] {
-        assert_eq!(
-            send(
-                &router,
-                "GET",
-                "/api/v1/admin/api-clients",
-                Some(denied),
-                None,
-                false,
-            )
-            .await
-            .status(),
-            StatusCode::FORBIDDEN,
-            "{role} must not receive implicit access"
-        );
-    }
-
     let api_admin = cookie(&pool, "API_ADMIN", "api-admin").await;
-    assert_eq!(
-        send(
-            &router,
-            "GET",
-            "/api/v1/admin/api-clients/scopes",
-            Some(&api_admin),
-            None,
-            false,
-        )
-        .await
-        .status(),
-        StatusCode::OK
-    );
-    sqlx::query(
-        "INSERT INTO role_permissions(role_code,permission_code,granted_by_staff_user_id) VALUES
-            ('FLIGHT_MANAGER','api_clients:read',$1),
-            ('FLIGHT_MANAGER','api_clients:manage',$1)",
-    )
-    .bind(api_admin.id)
-    .execute(&pool)
-    .await
-    .unwrap();
     let granted = cookie(&pool, "FLIGHT_MANAGER", "effective").await;
-    assert_eq!(
-        send(
-            &router,
-            "POST",
-            "/api/v1/admin/api-clients",
-            Some(&granted),
-            Some(create_payload(&unique_name("Effective grant"))),
-            true,
-        )
-        .await
-        .status(),
-        StatusCode::CREATED
-    );
-    cleanup_actor(&pool, granted.id).await;
-    cleanup_actor(&pool, api_admin.id).await;
-    for actor in [denied_system.id, denied_flight.id, denied_executive.id] {
-        cleanup_actor(&pool, actor).await;
-    }
+    let pool_for_body = pool.clone();
+    run_fixture_body(
+        &pool,
+        vec![
+            denied_system.id,
+            denied_flight.id,
+            denied_executive.id,
+            api_admin.id,
+            granted.id,
+        ],
+        move || async move {
+            let router = app(pool_for_body.clone());
+
+            assert_eq!(
+                send(
+                    &router,
+                    "GET",
+                    "/api/v1/admin/api-clients",
+                    None,
+                    None,
+                    false
+                )
+                .await
+                .status(),
+                StatusCode::UNAUTHORIZED
+            );
+            for (role, denied) in [
+                ("SYSTEM_ADMIN", &denied_system),
+                ("FLIGHT_MANAGER", &denied_flight),
+                ("EXECUTIVE", &denied_executive),
+            ] {
+                assert_eq!(
+                    send(
+                        &router,
+                        "GET",
+                        "/api/v1/admin/api-clients",
+                        Some(denied),
+                        None,
+                        false,
+                    )
+                    .await
+                    .status(),
+                    StatusCode::FORBIDDEN,
+                    "{role} must not receive implicit access"
+                );
+            }
+
+            assert_eq!(
+                send(
+                    &router,
+                    "GET",
+                    "/api/v1/admin/api-clients/scopes",
+                    Some(&api_admin),
+                    None,
+                    false,
+                )
+                .await
+                .status(),
+                StatusCode::OK
+            );
+            sqlx::query(
+                "INSERT INTO role_permissions(role_code,permission_code,granted_by_staff_user_id) VALUES
+                    ('FLIGHT_MANAGER','api_clients:read',$1),
+                    ('FLIGHT_MANAGER','api_clients:manage',$1)",
+            )
+            .bind(api_admin.id)
+            .execute(&pool_for_body)
+            .await
+            .unwrap();
+            assert_eq!(
+                send(
+                    &router,
+                    "POST",
+                    "/api/v1/admin/api-clients",
+                    Some(&granted),
+                    Some(create_payload(&unique_name("Effective grant"))),
+                    true,
+                )
+                .await
+                .status(),
+                StatusCode::CREATED
+            );
+        },
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn mutations_require_origin_csrf_and_return_safe_public_dtos() {
+    let _fixture_lock = fixture_guard().await;
     let pool = test_pool().await;
     let admin = cookie(&pool, "API_ADMIN", "security").await;
-    let router = app(pool.clone());
-    let rejected = send(
-        &router,
-        "POST",
-        "/api/v1/admin/api-clients",
-        Some(&admin),
-        Some(create_payload(&unique_name("Rejected origin"))),
-        false,
-    )
-    .await;
-    assert_eq!(rejected.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        rejected.headers()[header::CACHE_CONTROL],
-        "no-store, private"
-    );
+    let pool_for_body = pool.clone();
+    run_fixture_body(&pool, vec![admin.id], move || async move {
+        let router = app(pool_for_body.clone());
+        let rejected = send(
+            &router,
+            "POST",
+            "/api/v1/admin/api-clients",
+            Some(&admin),
+            Some(create_payload(&unique_name("Rejected origin"))),
+            false,
+        )
+        .await;
+        assert_eq!(rejected.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            rejected.headers()[header::CACHE_CONTROL],
+            "no-store, private"
+        );
 
-    let response = send(
-        &router,
-        "POST",
-        "/api/v1/admin/api-clients",
-        Some(&admin),
-        Some(create_payload(&unique_name("Safe DTO"))),
-        true,
-    )
-    .await;
-    assert_eq!(response.status(), StatusCode::CREATED);
-    assert_eq!(
-        response.headers()[header::CACHE_CONTROL],
-        "no-store, private"
-    );
-    let created = body(response).await;
-    assert!(created["clientId"].as_str().unwrap().starts_with("XFC"));
-    for forbidden in [
-        "id",
-        "secret",
-        "token",
-        "credential",
-        "createdByStaffUserId",
-    ] {
-        assert!(created.get(forbidden).is_none(), "must omit {forbidden}");
-    }
+        let response = send(
+            &router,
+            "POST",
+            "/api/v1/admin/api-clients",
+            Some(&admin),
+            Some(create_payload(&unique_name("Safe DTO"))),
+            true,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-store, private"
+        );
+        let created = body(response).await;
+        assert!(created["clientId"].as_str().unwrap().starts_with("XFC"));
+        for forbidden in [
+            "id",
+            "secret",
+            "token",
+            "credential",
+            "createdByStaffUserId",
+        ] {
+            assert!(created.get(forbidden).is_none(), "must omit {forbidden}");
+        }
 
-    let client_id = created["clientId"].as_str().unwrap();
-    let detail = send(
-        &router,
-        "GET",
-        &format!("/api/v1/admin/api-clients/{client_id}"),
-        Some(&admin),
-        None,
-        false,
-    )
+        let client_id = created["clientId"].as_str().unwrap();
+        let detail = send(
+            &router,
+            "GET",
+            &format!("/api/v1/admin/api-clients/{client_id}"),
+            Some(&admin),
+            None,
+            false,
+        )
+        .await;
+        assert_eq!(detail.status(), StatusCode::OK);
+        let detail = body(detail).await;
+        assert_eq!(detail["audit"][0]["action"], "CLIENT_CREATED");
+        assert!(detail["audit"][0].get("actorStaffUserId").is_none());
+    })
     .await;
-    assert_eq!(detail.status(), StatusCode::OK);
-    let detail = body(detail).await;
-    assert_eq!(detail["audit"][0]["action"], "CLIENT_CREATED");
-    assert!(detail["audit"][0].get("actorStaffUserId").is_none());
-    cleanup_actor(&pool, admin.id).await;
 }
 
 #[tokio::test]
 async fn rejects_pagination_offsets_that_cannot_advance() {
+    let _fixture_lock = fixture_guard().await;
     let pool = test_pool().await;
     let admin = cookie(&pool, "API_ADMIN", "pagination-overflow").await;
-    let router = app(pool.clone());
+    let pool_for_body = pool.clone();
+    run_fixture_body(&pool, vec![admin.id], move || async move {
+        let router = app(pool_for_body.clone());
 
-    let normal = send(
-        &router,
-        "GET",
-        "/api/v1/admin/api-clients?limit=50&offset=0",
-        Some(&admin),
-        None,
-        false,
-    )
+        let normal = send(
+            &router,
+            "GET",
+            "/api/v1/admin/api-clients?limit=50&offset=0",
+            Some(&admin),
+            None,
+            false,
+        )
+        .await;
+        assert_eq!(normal.status(), StatusCode::OK);
+
+        let extreme = send(
+            &router,
+            "GET",
+            "/api/v1/admin/api-clients?limit=50&offset=9223372036854775807",
+            Some(&admin),
+            None,
+            false,
+        )
+        .await;
+        assert_eq!(extreme.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            body(extreme).await["error"]["code"],
+            "API_CLIENT_VALIDATION_FAILED"
+        );
+    })
     .await;
-    assert_eq!(normal.status(), StatusCode::OK);
-
-    let extreme = send(
-        &router,
-        "GET",
-        "/api/v1/admin/api-clients?limit=50&offset=9223372036854775807",
-        Some(&admin),
-        None,
-        false,
-    )
-    .await;
-    assert_eq!(extreme.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        body(extreme).await["error"]["code"],
-        "API_CLIENT_VALIDATION_FAILED"
-    );
-
-    cleanup_actor(&pool, admin.id).await;
 }
 
 #[tokio::test]
 async fn validates_catalog_filters_pagination_edits_and_terminal_lifecycle() {
+    let _fixture_lock = fixture_guard().await;
     let pool = test_pool().await;
     let admin = cookie(&pool, "API_ADMIN", "workflow").await;
-    let router = app(pool.clone());
+    let pool_for_body = pool.clone();
+    run_fixture_body(&pool, vec![admin.id], move || async move {
+    let router = app(pool_for_body.clone());
     let namespace = Uuid::new_v4().simple().to_string();
     let alpha_name = format!("Alpha Analytics {namespace}");
     let beta_name = format!("Beta Analytics {namespace}");
@@ -694,5 +736,6 @@ async fn validates_catalog_filters_pagination_edits_and_terminal_lifecycle() {
         body(forbidden_reactivation).await["error"]["code"],
         "API_CLIENT_STATUS_CONFLICT"
     );
-    cleanup_actor(&pool, admin.id).await;
+    })
+    .await;
 }

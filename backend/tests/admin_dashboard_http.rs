@@ -1,9 +1,6 @@
 mod common;
 
-use std::{
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -38,11 +35,8 @@ use x_fly_api::{
 
 const PASSWORD: &str = "change_me_for_local_development";
 
-async fn fixture_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await
+async fn fixture_guard() -> common::TestFixtureLock {
+    common::acquire_test_fixture_lock().await
 }
 
 async fn test_pool() -> PgPool {
@@ -53,11 +47,13 @@ async fn test_pool() -> PgPool {
         .await
         .unwrap();
     prepare_test_database(&pool).await.unwrap();
-    clean_dashboard_fixtures(&pool).await;
+    clean_dashboard_fixtures(&pool)
+        .await
+        .expect("clean dashboard TEST fixtures");
     pool
 }
 
-async fn clean_dashboard_fixtures(pool: &PgPool) {
+async fn clean_dashboard_fixtures(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
         "DELETE FROM stripe_refund_events;
          DELETE FROM booking_cancellations;
@@ -87,8 +83,20 @@ async fn clean_dashboard_fixtures(pool: &PgPool) {
          DELETE FROM flight_services WHERE public_id LIKE 'dashboard-%';",
     )
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
+}
+
+async fn run_fixture_body<F, Fut>(pool: PgPool, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = pool.clone();
+    common::run_fixture_body_with_cleanup(body, move || async move {
+        clean_dashboard_fixtures(&cleanup_pool).await
+    })
+    .await;
 }
 
 fn app(pool: PgPool) -> axum::Router {
@@ -163,38 +171,41 @@ async fn body(response: axum::response::Response) -> Value {
 async fn dashboard_authenticates_and_does_not_treat_system_admin_as_a_superuser() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
-    let router = app(pool.clone());
+    run_fixture_body(pool.clone(), move || async move {
+        let router = app(pool.clone());
 
-    let unauthenticated = get(&router, "/api/v1/admin/dashboard?from=not-a-date", None).await;
-    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
-    assert_eq!(
-        unauthenticated.headers()[header::CACHE_CONTROL],
-        "no-store, private"
-    );
+        let unauthenticated = get(&router, "/api/v1/admin/dashboard?from=not-a-date", None).await;
+        assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            unauthenticated.headers()[header::CACHE_CONTROL],
+            "no-store, private"
+        );
 
-    let cookie = session_cookie(&pool, "system_admin", &[]).await;
-    let response = get(
-        &router,
-        "/api/v1/admin/dashboard?from=not-a-date",
-        Some(&cookie),
-    )
+        let cookie = session_cookie(&pool, "system_admin", &[]).await;
+        let response = get(
+            &router,
+            "/api/v1/admin/dashboard?from=not-a-date",
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-store, private"
+        );
+        assert_eq!(
+            body(response).await["error"]["code"],
+            "STAFF_PERMISSION_DENIED"
+        );
+    })
     .await;
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(
-        response.headers()[header::CACHE_CONTROL],
-        "no-store, private"
-    );
-    assert_eq!(
-        body(response).await["error"]["code"],
-        "STAFF_PERMISSION_DENIED"
-    );
-    clean_dashboard_fixtures(&pool).await;
 }
 
 #[tokio::test]
 async fn dashboard_strictly_validates_filters_and_returns_private_sanitized_errors() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
+    run_fixture_body(pool.clone(), move || async move {
     let cookie = session_cookie(
         &pool,
         "executive_validation",
@@ -228,7 +239,8 @@ async fn dashboard_strictly_validates_filters_and_returns_private_sanitized_erro
             json!({"error":{"code":"DASHBOARD_FILTER_INVALID","message":"The dashboard filters are invalid."}})
         );
     }
-    clean_dashboard_fixtures(&pool).await;
+    })
+    .await;
 }
 
 async fn insert_service(
@@ -313,6 +325,7 @@ async fn insert_inventory(
 async fn dashboard_aggregates_literal_cohort_inventory_filters_and_exact_public_shape() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
+    run_fixture_body(pool.clone(), move || async move {
     let bkk_hnd = insert_service(&pool, "DA901", "BKK", "HND").await;
     let hnd_bkk = insert_service(&pool, "DA902", "HND", "BKK").await;
     let legacy_only = insert_service(&pool, "DA904", "HKT", "CNX").await;
@@ -733,46 +746,52 @@ async fn dashboard_aggregates_literal_cohort_inventory_filters_and_exact_public_
     .await
     .unwrap();
     assert_eq!(legacy_after, legacy_before);
-    clean_dashboard_fixtures(&pool).await;
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn dashboard_empty_range_uses_nullable_rates_and_accepts_each_provider() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
-    insert_service(&pool, "DA903", "BKK", "LHR").await;
-    let cookie = session_cookie(
-        &pool,
-        "executive_empty",
-        &["dashboard:read", "analytics:read", "reports:read"],
-    )
-    .await;
-    let router = app(pool.clone());
-    for provider in ["STRIPE", "MOCK_BITCOIN"] {
-        let response = get(
-            &router,
-            &format!("/api/v1/admin/dashboard?from=2026-08-01&to=2026-08-01&provider={provider}"),
-            Some(&cookie),
+    run_fixture_body(pool.clone(), move || async move {
+        insert_service(&pool, "DA903", "BKK", "LHR").await;
+        let cookie = session_cookie(
+            &pool,
+            "executive_empty",
+            &["dashboard:read", "analytics:read", "reports:read"],
         )
         .await;
-        assert_eq!(response.status(), StatusCode::OK);
-        let payload = body(response).await;
-        assert_eq!(payload["provider"], provider);
-        assert_eq!(payload["summary"]["cancellationRatePercent"], Value::Null);
-        assert_eq!(payload["summary"]["averageBookingValue"], Value::Null);
-        assert_eq!(payload["inventory"]["occupancyPercent"], Value::Null);
-        assert!(payload["availableRoutes"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("BKK-LHR")));
-    }
-    clean_dashboard_fixtures(&pool).await;
+        let router = app(pool.clone());
+        for provider in ["STRIPE", "MOCK_BITCOIN"] {
+            let response = get(
+                &router,
+                &format!(
+                    "/api/v1/admin/dashboard?from=2026-08-01&to=2026-08-01&provider={provider}"
+                ),
+                Some(&cookie),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let payload = body(response).await;
+            assert_eq!(payload["provider"], provider);
+            assert_eq!(payload["summary"]["cancellationRatePercent"], Value::Null);
+            assert_eq!(payload["summary"]["averageBookingValue"], Value::Null);
+            assert_eq!(payload["inventory"]["occupancyPercent"], Value::Null);
+            assert!(payload["availableRoutes"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("BKK-LHR")));
+        }
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn managed_network_flights_preserve_zero_booking_and_cancelled_history_semantics() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
+    run_fixture_body(pool.clone(), move || async move {
     let actor: Uuid = sqlx::query_scalar(
         "INSERT INTO staff_users (email,password_hash) VALUES ('network-analytics@dashboard.test','hash') RETURNING id",
     )
@@ -918,5 +937,6 @@ async fn managed_network_flights_preserve_zero_booking_and_cancelled_history_sem
         preserved,
         (99_500, "ISSUED".to_owned(), "CANCELLED".to_owned())
     );
-    clean_dashboard_fixtures(&pool).await;
+    })
+    .await;
 }

@@ -1,6 +1,6 @@
 mod common;
 
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use argon2::{
     password_hash::{PasswordHasher, SaltString},
@@ -23,6 +23,7 @@ use x_fly_api::{
     infrastructure::password::Argon2PasswordService,
 };
 
+#[derive(Clone)]
 struct AuthFixture {
     client_id: uuid::Uuid,
     staff_id: uuid::Uuid,
@@ -54,6 +55,7 @@ fn fixture_public_client_id() -> String {
 }
 
 async fn create_auth_fixture(setup_pool: &PgPool) -> AuthFixture {
+    let mut transaction = setup_pool.begin().await.unwrap();
     let staff_id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO staff_users (email, password_hash)
          VALUES ($1, 'task2-permission-fixture') RETURNING id",
@@ -62,7 +64,7 @@ async fn create_auth_fixture(setup_pool: &PgPool) -> AuthFixture {
         "task2-permission-{}@x-fly.test",
         uuid::Uuid::new_v4().simple()
     ))
-    .fetch_one(setup_pool)
+    .fetch_one(&mut *transaction)
     .await
     .unwrap();
     let client_id: uuid::Uuid = sqlx::query_scalar(
@@ -74,21 +76,24 @@ async fn create_auth_fixture(setup_pool: &PgPool) -> AuthFixture {
     )
     .bind(fixture_public_client_id())
     .bind(staff_id)
-    .fetch_one(setup_pool)
+    .fetch_one(&mut *transaction)
     .await
     .unwrap();
+    transaction.commit().await.unwrap();
     AuthFixture {
         client_id,
         staff_id,
     }
 }
 
-async fn cleanup_auth_fixture(setup_pool: &PgPool, fixture: &AuthFixture) {
+async fn cleanup_auth_fixture(
+    setup_pool: &PgPool,
+    fixture: &AuthFixture,
+) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM api_client_management_audit WHERE api_client_id = $1")
         .bind(fixture.client_id)
         .execute(setup_pool)
-        .await
-        .unwrap();
+        .await?;
     sqlx::query(
         "DELETE FROM external_access_tokens
          WHERE api_client_credential_id IN (
@@ -97,32 +102,103 @@ async fn cleanup_auth_fixture(setup_pool: &PgPool, fixture: &AuthFixture) {
     )
     .bind(fixture.client_id)
     .execute(setup_pool)
-    .await
-    .unwrap();
+    .await?;
     sqlx::query("DELETE FROM api_client_credentials WHERE api_client_id = $1")
         .bind(fixture.client_id)
         .execute(setup_pool)
-        .await
-        .unwrap();
+        .await?;
     sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id = $1")
         .bind(fixture.client_id)
         .execute(setup_pool)
-        .await
-        .unwrap();
+        .await?;
     sqlx::query("DELETE FROM api_clients WHERE id = $1")
         .bind(fixture.client_id)
         .execute(setup_pool)
-        .await
-        .unwrap();
+        .await?;
     sqlx::query("DELETE FROM staff_users WHERE id = $1")
         .bind(fixture.staff_id)
         .execute(setup_pool)
-        .await
-        .unwrap();
+        .await?;
+    Ok(())
+}
+
+async fn run_auth_fixture_body<F, Fut>(setup_pool: &PgPool, fixtures: Vec<AuthFixture>, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = setup_pool.clone();
+    common::run_fixture_body_with_cleanup(body, move || async move {
+        let mut errors = Vec::new();
+        for fixture in fixtures {
+            if let Err(error) = cleanup_auth_fixture(&cleanup_pool, &fixture).await {
+                errors.push(error.to_string());
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    })
+    .await;
+}
+
+async fn cleanup_staff_actor(setup_pool: &PgPool, staff_id: uuid::Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM staff_sessions WHERE staff_user_id=$1")
+        .bind(staff_id)
+        .execute(setup_pool)
+        .await?;
+    sqlx::query("DELETE FROM staff_user_roles WHERE staff_user_id=$1")
+        .bind(staff_id)
+        .execute(setup_pool)
+        .await?;
+    sqlx::query("DELETE FROM staff_users WHERE id=$1")
+        .bind(staff_id)
+        .execute(setup_pool)
+        .await?;
+    Ok(())
+}
+
+async fn run_staff_actor_body<F, Fut>(setup_pool: &PgPool, staff_id: uuid::Uuid, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = setup_pool.clone();
+    common::run_fixture_body_with_cleanup(body, move || async move {
+        cleanup_staff_actor(&cleanup_pool, staff_id).await
+    })
+    .await;
+}
+
+async fn cleanup_runtime_seat_hold(
+    setup_pool: &PgPool,
+    state: &Arc<tokio::sync::Mutex<Option<(uuid::Uuid, NaiveDate)>>>,
+) -> Result<(), sqlx::Error> {
+    let Some((hold_id, departure_date)) = *state.lock().await else {
+        return Ok(());
+    };
+
+    sqlx::query("DELETE FROM seat_holds WHERE id = $1")
+        .bind(hold_id)
+        .execute(setup_pool)
+        .await?;
+    sqlx::query(
+        "DELETE FROM flight_instances
+         WHERE departure_date = $1
+           AND flight_service_id = (SELECT id FROM flight_services WHERE public_id = 'xf-201')",
+    )
+    .bind(departure_date)
+    .execute(setup_pool)
+    .await?;
+    state.lock().await.take();
+    Ok(())
 }
 
 async fn insert_setup_credential(setup_pool: &PgPool, fixture: &AuthFixture) -> uuid::Uuid {
-    sqlx::query_scalar(
+    let mut transaction = setup_pool.begin().await.unwrap();
+    let credential_id = sqlx::query_scalar(
         "INSERT INTO api_client_credentials (
              api_client_id, secret_digest, digest_version, issued_at,
              issued_by_staff_user_id
@@ -133,9 +209,11 @@ async fn insert_setup_credential(setup_pool: &PgPool, fixture: &AuthFixture) -> 
     .bind(vec![0x11_u8; 32])
     .bind(Utc::now())
     .bind(fixture.staff_id)
-    .fetch_one(setup_pool)
+    .fetch_one(&mut *transaction)
     .await
-    .unwrap()
+    .unwrap();
+    transaction.commit().await.unwrap();
+    credential_id
 }
 
 fn fresh_test_token_hash() -> [u8; 32] {
@@ -145,7 +223,8 @@ fn fresh_test_token_hash() -> [u8; 32] {
 }
 
 async fn insert_setup_token(setup_pool: &PgPool, credential_id: uuid::Uuid) -> uuid::Uuid {
-    sqlx::query_scalar(
+    let mut transaction = setup_pool.begin().await.unwrap();
+    let token_id = sqlx::query_scalar(
         "INSERT INTO external_access_tokens (
              api_client_credential_id, token_hash, issued_at, expires_at
          ) VALUES ($1, $2, $3, $4)
@@ -155,9 +234,11 @@ async fn insert_setup_token(setup_pool: &PgPool, credential_id: uuid::Uuid) -> u
     .bind(fresh_test_token_hash().to_vec())
     .bind(Utc::now())
     .bind(Utc::now() + chrono::Duration::minutes(15))
-    .fetch_one(setup_pool)
+    .fetch_one(&mut *transaction)
     .await
-    .unwrap()
+    .unwrap();
+    transaction.commit().await.unwrap();
+    token_id
 }
 
 async fn permission_pools_only() -> (PgPool, PgPool) {
@@ -193,6 +274,7 @@ async fn column_privilege(
 
 #[tokio::test]
 async fn runtime_role_has_required_positive_and_negative_permissions() {
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let setup_url = common::test_database_url();
     let runtime_url = common::test_runtime_database_url();
     let setup_pool = PgPool::connect(&setup_url).await.unwrap();
@@ -308,95 +390,107 @@ async fn runtime_role_has_required_positive_and_negative_permissions() {
     assert!(!function_result);
     transaction.rollback().await.unwrap();
 
-    let departure_date = common::allocate_test_departure_date(
-        "xf-201",
-        NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
-        NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
-    )
-    .await
-    .unwrap();
-    let repository = SqlxSeatHoldRepository::new(runtime_pool.clone());
-    let hold = repository
-        .create_hold(
-            CreateSeatHold {
-                selection: FlightSelection {
-                    flight_id: "xf-201".to_owned(),
-                    departure_date,
-                    cabin: CabinClass::Business,
-                },
-                passengers: PassengerCounts::new(1, 0, 0).unwrap(),
-                seats: vec![SeatNumber::parse("3A").unwrap()],
-                token_hash: [0x6b; 32],
-            },
-            Duration::from_secs(600),
-        )
-        .await
-        .unwrap();
-    repository.get_hold(hold.id, [0x6b; 32]).await.unwrap();
-    sqlx::query("DELETE FROM seat_holds WHERE id = $1")
-        .bind(hold.id)
-        .execute(&setup_pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM flight_instances WHERE departure_date = $1")
-        .bind(departure_date)
-        .execute(&setup_pool)
-        .await
-        .unwrap();
-
-    assert!(
-        sqlx::query("CREATE TABLE public.runtime_must_not_create(id integer)")
-            .execute(&runtime_pool)
+    let hold_state = Arc::new(tokio::sync::Mutex::new(None::<(uuid::Uuid, NaiveDate)>));
+    let body_hold_state = hold_state.clone();
+    let cleanup_hold_state = hold_state.clone();
+    let body_setup_pool = setup_pool.clone();
+    let body_runtime_pool = runtime_pool.clone();
+    let cleanup_setup_pool = setup_pool.clone();
+    common::run_fixture_body_with_cleanup(
+        move || async move {
+            let departure_date = common::allocate_test_departure_date(
+                "xf-201",
+                NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+            )
             .await
-            .is_err()
-    );
-    assert!(sqlx::query(
-        "ALTER TABLE public.flight_services ADD COLUMN runtime_must_not_add integer"
+            .unwrap();
+            let repository = SqlxSeatHoldRepository::new(body_runtime_pool.clone());
+            let hold = repository
+                .create_hold(
+                    CreateSeatHold {
+                        selection: FlightSelection {
+                            flight_id: "xf-201".to_owned(),
+                            departure_date,
+                            cabin: CabinClass::Business,
+                        },
+                        passengers: PassengerCounts::new(1, 0, 0).unwrap(),
+                        seats: vec![SeatNumber::parse("3A").unwrap()],
+                        token_hash: [0x6b; 32],
+                    },
+                    Duration::from_secs(600),
+                )
+                .await
+                .unwrap();
+            body_hold_state
+                .lock()
+                .await
+                .replace((hold.id, departure_date));
+            repository.get_hold(hold.id, [0x6b; 32]).await.unwrap();
+            cleanup_runtime_seat_hold(&body_setup_pool, &body_hold_state)
+                .await
+                .unwrap();
+
+            assert!(
+                sqlx::query("CREATE TABLE public.runtime_must_not_create(id integer)")
+                    .execute(&body_runtime_pool)
+                    .await
+                    .is_err()
+            );
+            assert!(sqlx::query(
+                "ALTER TABLE public.flight_services ADD COLUMN runtime_must_not_add integer"
+            )
+            .execute(&body_runtime_pool)
+            .await
+            .is_err());
+            assert!(sqlx::query("DROP TABLE public.airports")
+                .execute(&body_runtime_pool)
+                .await
+                .is_err());
+            assert!(sqlx::query("CREATE ROLE runtime_must_not_create")
+                .execute(&body_runtime_pool)
+                .await
+                .is_err());
+            assert!(sqlx::query(
+                "INSERT INTO staff_users (email, password_hash) VALUES ('runtime-must-not-provision@x-fly.test', 'nope')",
+            )
+            .execute(&body_runtime_pool)
+            .await
+            .is_err());
+            assert!(sqlx::query(
+                "INSERT INTO staff_user_roles (staff_user_id, role_code) VALUES ($1, 'SYSTEM_ADMIN')",
+            )
+            .bind(uuid::Uuid::new_v4())
+            .execute(&body_runtime_pool)
+            .await
+            .is_err());
+            assert!(sqlx::query("ALTER ROLE x_fly_runtime CREATEDB")
+                .execute(&body_runtime_pool)
+                .await
+                .is_err());
+            assert!(sqlx::query("CREATE DATABASE runtime_must_not_create")
+                .execute(&body_runtime_pool)
+                .await
+                .is_err());
+            assert!(sqlx::query("SET ROLE x_fly_migrator")
+                .execute(&body_runtime_pool)
+                .await
+                .is_err());
+            assert!(sqlx::query("UPDATE _sqlx_migrations SET success = success")
+                .execute(&body_runtime_pool)
+                .await
+                .is_err());
+        },
+        move || async move {
+            cleanup_runtime_seat_hold(&cleanup_setup_pool, &cleanup_hold_state).await
+        },
     )
-    .execute(&runtime_pool)
-    .await
-    .is_err());
-    assert!(sqlx::query("DROP TABLE public.airports")
-        .execute(&runtime_pool)
-        .await
-        .is_err());
-    assert!(sqlx::query("CREATE ROLE runtime_must_not_create")
-        .execute(&runtime_pool)
-        .await
-        .is_err());
-    assert!(sqlx::query(
-        "INSERT INTO staff_users (email, password_hash) VALUES ('runtime-must-not-provision@x-fly.test', 'nope')",
-    )
-    .execute(&runtime_pool)
-    .await
-    .is_err());
-    assert!(sqlx::query(
-        "INSERT INTO staff_user_roles (staff_user_id, role_code) VALUES ($1, 'SYSTEM_ADMIN')",
-    )
-    .bind(uuid::Uuid::new_v4())
-    .execute(&runtime_pool)
-    .await
-    .is_err());
-    assert!(sqlx::query("ALTER ROLE x_fly_runtime CREATEDB")
-        .execute(&runtime_pool)
-        .await
-        .is_err());
-    assert!(sqlx::query("CREATE DATABASE runtime_must_not_create")
-        .execute(&runtime_pool)
-        .await
-        .is_err());
-    assert!(sqlx::query("SET ROLE x_fly_migrator")
-        .execute(&runtime_pool)
-        .await
-        .is_err());
-    assert!(sqlx::query("UPDATE _sqlx_migrations SET success = success")
-        .execute(&runtime_pool)
-        .await
-        .is_err());
+    .await;
 }
 
 #[tokio::test]
 async fn runtime_staff_login_can_rehash_without_provisioning_privileges() {
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let setup_url = common::test_database_url();
     let setup_pool = PgPool::connect(&setup_url).await.unwrap();
     prepare_test_database(&setup_pool).await.unwrap();
@@ -416,54 +510,43 @@ async fn runtime_staff_login_can_rehash_without_provisioning_privileges() {
         .hash_password(password.as_bytes(), &salt)
         .unwrap()
         .to_string();
+    let mut setup_transaction = setup_pool.begin().await.unwrap();
     let staff_id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO staff_users (email, password_hash) VALUES ($1, $2) RETURNING id",
     )
     .bind(&email)
     .bind(&weak_hash)
-    .fetch_one(&setup_pool)
+    .fetch_one(&mut *setup_transaction)
     .await
     .unwrap();
     sqlx::query(
         "INSERT INTO staff_user_roles (staff_user_id, role_code) VALUES ($1, 'SYSTEM_ADMIN')",
     )
     .bind(staff_id)
-    .execute(&setup_pool)
+    .execute(&mut *setup_transaction)
     .await
     .unwrap();
-
-    let auth = StaffAuthService::new(
-        Arc::new(SqlxStaffAuthRepository::new(runtime_pool)),
-        Argon2PasswordService::default(),
-        Duration::from_secs(3_600),
-    )
-    .unwrap();
-    let login = auth.login(&email, password).await.unwrap();
-    assert!(!login.token.is_empty());
-    let stored_hash: String =
-        sqlx::query_scalar("SELECT password_hash FROM staff_users WHERE id=$1")
-            .bind(staff_id)
-            .fetch_one(&setup_pool)
-            .await
-            .unwrap();
-    assert_ne!(stored_hash, weak_hash);
-    assert!(stored_hash.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
-
-    sqlx::query("DELETE FROM staff_sessions WHERE staff_user_id=$1")
-        .bind(staff_id)
-        .execute(&setup_pool)
-        .await
+    setup_transaction.commit().await.unwrap();
+    let setup_for_body = setup_pool.clone();
+    run_staff_actor_body(&setup_pool, staff_id, move || async move {
+        let auth = StaffAuthService::new(
+            Arc::new(SqlxStaffAuthRepository::new(runtime_pool)),
+            Argon2PasswordService::default(),
+            Duration::from_secs(3_600),
+        )
         .unwrap();
-    sqlx::query("DELETE FROM staff_user_roles WHERE staff_user_id=$1")
-        .bind(staff_id)
-        .execute(&setup_pool)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM staff_users WHERE id=$1")
-        .bind(staff_id)
-        .execute(&setup_pool)
-        .await
-        .unwrap();
+        let login = auth.login(&email, password).await.unwrap();
+        assert!(!login.token.is_empty());
+        let stored_hash: String =
+            sqlx::query_scalar("SELECT password_hash FROM staff_users WHERE id=$1")
+                .bind(staff_id)
+                .fetch_one(&setup_for_body)
+                .await
+                .unwrap();
+        assert_ne!(stored_hash, weak_hash);
+        assert!(stored_hash.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -835,99 +918,114 @@ async fn runtime_cannot_select_credential_attribution_fields() {
 #[tokio::test]
 async fn branch24_audit_insert_succeeds_as_runtime() {
     let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let fixture = create_auth_fixture(&setup_pool).await;
-    let audit_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO api_client_management_audit (
-             api_client_id, actor_staff_user_id, action,
-             before_state, after_state, created_at
-         ) VALUES ($1, $2, 'CLIENT_CREATED', NULL, '{}'::jsonb, clock_timestamp())
-         RETURNING id",
-    )
-    .bind(fixture.client_id)
-    .bind(fixture.staff_id)
-    .fetch_one(&runtime_pool)
-    .await
-    .unwrap();
-    assert_ne!(audit_id, uuid::Uuid::nil());
-    cleanup_auth_fixture(&setup_pool, &fixture).await;
+    let fixture_for_body = fixture.clone();
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        let audit_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO api_client_management_audit (
+                 api_client_id, actor_staff_user_id, action,
+                 before_state, after_state, created_at
+             ) VALUES ($1, $2, 'CLIENT_CREATED', NULL, '{}'::jsonb, clock_timestamp())
+             RETURNING id",
+        )
+        .bind(fixture_for_body.client_id)
+        .bind(fixture_for_body.staff_id)
+        .fetch_one(&runtime_pool)
+        .await
+        .unwrap();
+        assert_ne!(audit_id, uuid::Uuid::nil());
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn credential_issued_audit_insert_succeeds_as_runtime() {
     let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let fixture = create_auth_fixture(&setup_pool).await;
     let credential_id = insert_setup_credential(&setup_pool, &fixture).await;
-    let audit_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO api_client_management_audit (
-             api_client_id, actor_staff_user_id, action,
-             before_state, after_state, credential_id, created_at
-         ) VALUES ($1, $2, 'CREDENTIAL_ISSUED', NULL, '{}'::jsonb, $3, clock_timestamp())
-         RETURNING id",
-    )
-    .bind(fixture.client_id)
-    .bind(fixture.staff_id)
-    .bind(credential_id)
-    .fetch_one(&runtime_pool)
-    .await
-    .unwrap();
-    assert_ne!(audit_id, uuid::Uuid::nil());
-    cleanup_auth_fixture(&setup_pool, &fixture).await;
+    let fixture_for_body = fixture.clone();
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        let audit_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO api_client_management_audit (
+                 api_client_id, actor_staff_user_id, action,
+                 before_state, after_state, credential_id, created_at
+             ) VALUES ($1, $2, 'CREDENTIAL_ISSUED', NULL, '{}'::jsonb, $3, clock_timestamp())
+             RETURNING id",
+        )
+        .bind(fixture_for_body.client_id)
+        .bind(fixture_for_body.staff_id)
+        .bind(credential_id)
+        .fetch_one(&runtime_pool)
+        .await
+        .unwrap();
+        assert_ne!(audit_id, uuid::Uuid::nil());
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn credential_revoked_audit_insert_succeeds_as_runtime() {
     let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let fixture = create_auth_fixture(&setup_pool).await;
     let credential_id = insert_setup_credential(&setup_pool, &fixture).await;
-    let audit_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO api_client_management_audit (
-             api_client_id, actor_staff_user_id, action,
-             before_state, after_state, credential_id, created_at
-         ) VALUES ($1, $2, 'CREDENTIAL_REVOKED', '{}'::jsonb, '{}'::jsonb, $3, clock_timestamp())
-         RETURNING id",
-    )
-    .bind(fixture.client_id)
-    .bind(fixture.staff_id)
-    .bind(credential_id)
-    .fetch_one(&runtime_pool)
-    .await
-    .unwrap();
-    assert_ne!(audit_id, uuid::Uuid::nil());
-    cleanup_auth_fixture(&setup_pool, &fixture).await;
+    let fixture_for_body = fixture.clone();
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        let audit_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO api_client_management_audit (
+                 api_client_id, actor_staff_user_id, action,
+                 before_state, after_state, credential_id, created_at
+             ) VALUES ($1, $2, 'CREDENTIAL_REVOKED', '{}'::jsonb, '{}'::jsonb, $3, clock_timestamp())
+             RETURNING id",
+        )
+        .bind(fixture_for_body.client_id)
+        .bind(fixture_for_body.staff_id)
+        .bind(credential_id)
+        .fetch_one(&runtime_pool)
+        .await
+        .unwrap();
+        assert_ne!(audit_id, uuid::Uuid::nil());
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn audit_credential_context_constraint_rejects_mismatches() {
     let (setup_pool, _runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let fixture = create_auth_fixture(&setup_pool).await;
     let credential_id = insert_setup_credential(&setup_pool, &fixture).await;
+    let fixture_for_body = fixture.clone();
+    let setup_for_body = setup_pool.clone();
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        assert!(sqlx::query(
+            "INSERT INTO api_client_management_audit (
+                 api_client_id, actor_staff_user_id, action,
+                 before_state, after_state, created_at
+             ) VALUES ($1, $2, 'CREDENTIAL_ISSUED', NULL, '{}'::jsonb, clock_timestamp())",
+        )
+        .bind(fixture_for_body.client_id)
+        .bind(fixture_for_body.staff_id)
+        .execute(&setup_for_body)
+        .await
+        .is_err());
 
-    assert!(sqlx::query(
-        "INSERT INTO api_client_management_audit (
-             api_client_id, actor_staff_user_id, action,
-             before_state, after_state, created_at
-         ) VALUES ($1, $2, 'CREDENTIAL_ISSUED', NULL, '{}'::jsonb, clock_timestamp())",
-    )
-    .bind(fixture.client_id)
-    .bind(fixture.staff_id)
-    .execute(&setup_pool)
-    .await
-    .is_err());
-
-    assert!(sqlx::query(
-        "INSERT INTO api_client_management_audit (
-             api_client_id, actor_staff_user_id, action,
-             before_state, after_state, credential_id, created_at
-         ) VALUES ($1, $2, 'CLIENT_CREATED', NULL, '{}'::jsonb, $3, clock_timestamp())",
-    )
-    .bind(fixture.client_id)
-    .bind(fixture.staff_id)
-    .bind(credential_id)
-    .execute(&setup_pool)
-    .await
-    .is_err());
-
-    cleanup_auth_fixture(&setup_pool, &fixture).await;
+        assert!(sqlx::query(
+            "INSERT INTO api_client_management_audit (
+                 api_client_id, actor_staff_user_id, action,
+                 before_state, after_state, credential_id, created_at
+             ) VALUES ($1, $2, 'CLIENT_CREATED', NULL, '{}'::jsonb, $3, clock_timestamp())",
+        )
+        .bind(fixture_for_body.client_id)
+        .bind(fixture_for_body.staff_id)
+        .bind(credential_id)
+        .execute(&setup_for_body)
+        .await
+        .is_err());
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -974,149 +1072,172 @@ async fn runtime_cannot_alter_or_transfer_audit_table() {
 #[tokio::test]
 async fn runtime_can_insert_credential_with_issuance_columns() {
     let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let fixture = create_auth_fixture(&setup_pool).await;
-    let credential_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO api_client_credentials (
-             api_client_id, secret_digest, digest_version, issued_at,
-             issued_by_staff_user_id
-         ) VALUES ($1, $2, 1, $3, $4)
-         RETURNING id",
-    )
-    .bind(fixture.client_id)
-    .bind(vec![0x33_u8; 32])
-    .bind(Utc::now())
-    .bind(fixture.staff_id)
-    .fetch_one(&runtime_pool)
-    .await
-    .unwrap();
-    assert_ne!(credential_id, uuid::Uuid::nil());
-    cleanup_auth_fixture(&setup_pool, &fixture).await;
+    let fixture_for_body = fixture.clone();
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        let credential_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO api_client_credentials (
+                 api_client_id, secret_digest, digest_version, issued_at,
+                 issued_by_staff_user_id
+             ) VALUES ($1, $2, 1, $3, $4)
+             RETURNING id",
+        )
+        .bind(fixture_for_body.client_id)
+        .bind(vec![0x33_u8; 32])
+        .bind(Utc::now())
+        .bind(fixture_for_body.staff_id)
+        .fetch_one(&runtime_pool)
+        .await
+        .unwrap();
+        assert_ne!(credential_id, uuid::Uuid::nil());
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn runtime_can_insert_token_with_issuance_columns() {
     let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let fixture = create_auth_fixture(&setup_pool).await;
     let credential_id = insert_setup_credential(&setup_pool, &fixture).await;
-    let token_id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO external_access_tokens (
-             api_client_credential_id, token_hash, issued_at, expires_at
-         ) VALUES ($1, $2, $3, $4)
-         RETURNING id",
-    )
-    .bind(credential_id)
-    .bind(fresh_test_token_hash().to_vec())
-    .bind(Utc::now())
-    .bind(Utc::now() + chrono::Duration::minutes(15))
-    .fetch_one(&runtime_pool)
-    .await
-    .unwrap();
-    assert_ne!(token_id, uuid::Uuid::nil());
-    cleanup_auth_fixture(&setup_pool, &fixture).await;
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        let token_id: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO external_access_tokens (
+                 api_client_credential_id, token_hash, issued_at, expires_at
+             ) VALUES ($1, $2, $3, $4)
+             RETURNING id",
+        )
+        .bind(credential_id)
+        .bind(fresh_test_token_hash().to_vec())
+        .bind(Utc::now())
+        .bind(Utc::now() + chrono::Duration::minutes(15))
+        .fetch_one(&runtime_pool)
+        .await
+        .unwrap();
+        assert_ne!(token_id, uuid::Uuid::nil());
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn independent_token_fixtures_do_not_reuse_unique_hashes() {
     let (setup_pool, _runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let first_fixture = create_auth_fixture(&setup_pool).await;
     let second_fixture = create_auth_fixture(&setup_pool).await;
-    let first_credential = insert_setup_credential(&setup_pool, &first_fixture).await;
-    let second_credential = insert_setup_credential(&setup_pool, &second_fixture).await;
-    let first_hash = fresh_test_token_hash();
-    let second_hash = fresh_test_token_hash();
+    let first_for_body = first_fixture.clone();
+    let second_for_body = second_fixture.clone();
+    let setup_for_body = setup_pool.clone();
+    run_auth_fixture_body(
+        &setup_pool,
+        vec![first_fixture, second_fixture],
+        move || async move {
+            let first_credential = insert_setup_credential(&setup_for_body, &first_for_body).await;
+            let second_credential =
+                insert_setup_credential(&setup_for_body, &second_for_body).await;
+            let first_hash = fresh_test_token_hash();
+            let second_hash = fresh_test_token_hash();
 
-    let first_result = sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO external_access_tokens (
-             api_client_credential_id, token_hash, issued_at, expires_at
-         ) VALUES ($1, $2, $3, $4)
-         RETURNING id",
+            let first_result = sqlx::query_scalar::<_, uuid::Uuid>(
+                "INSERT INTO external_access_tokens (
+                     api_client_credential_id, token_hash, issued_at, expires_at
+                 ) VALUES ($1, $2, $3, $4)
+                 RETURNING id",
+            )
+            .bind(first_credential)
+            .bind(first_hash.to_vec())
+            .bind(Utc::now())
+            .bind(Utc::now() + chrono::Duration::minutes(15))
+            .fetch_one(&setup_for_body)
+            .await;
+            let second_result = sqlx::query_scalar::<_, uuid::Uuid>(
+                "INSERT INTO external_access_tokens (
+                     api_client_credential_id, token_hash, issued_at, expires_at
+                 ) VALUES ($1, $2, $3, $4)
+                 RETURNING id",
+            )
+            .bind(second_credential)
+            .bind(second_hash.to_vec())
+            .bind(Utc::now())
+            .bind(Utc::now() + chrono::Duration::minutes(15))
+            .fetch_one(&setup_for_body)
+            .await;
+
+            assert_ne!(first_hash, second_hash);
+            assert!(first_result.is_ok());
+            assert!(second_result.is_ok());
+        },
     )
-    .bind(first_credential)
-    .bind(first_hash.to_vec())
-    .bind(Utc::now())
-    .bind(Utc::now() + chrono::Duration::minutes(15))
-    .fetch_one(&setup_pool)
     .await;
-    let second_result = sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO external_access_tokens (
-             api_client_credential_id, token_hash, issued_at, expires_at
-         ) VALUES ($1, $2, $3, $4)
-         RETURNING id",
-    )
-    .bind(second_credential)
-    .bind(second_hash.to_vec())
-    .bind(Utc::now())
-    .bind(Utc::now() + chrono::Duration::minutes(15))
-    .fetch_one(&setup_pool)
-    .await;
-
-    cleanup_auth_fixture(&setup_pool, &first_fixture).await;
-    cleanup_auth_fixture(&setup_pool, &second_fixture).await;
-
-    assert_ne!(first_hash, second_hash);
-    assert!(first_result.is_ok());
-    assert!(second_result.is_ok());
 }
 
 #[tokio::test]
 async fn runtime_can_revoke_credential() {
     let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let fixture = create_auth_fixture(&setup_pool).await;
     let credential_id = insert_setup_credential(&setup_pool, &fixture).await;
-    let mut runtime_connection = runtime_pool.acquire().await.unwrap();
-    let db_before: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+    let fixture_for_body = fixture.clone();
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        let mut runtime_connection = runtime_pool.acquire().await.unwrap();
+        let db_before: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut *runtime_connection)
+            .await
+            .unwrap();
+        let revoked_at: chrono::DateTime<Utc> = sqlx::query_scalar(
+            "UPDATE api_client_credentials
+             SET revoked_at = clock_timestamp(), revoked_by_staff_user_id = $2,
+                 revocation_reason = 'ADMIN_REQUEST'
+             WHERE id = $1
+             RETURNING revoked_at",
+        )
+        .bind(credential_id)
+        .bind(fixture_for_body.staff_id)
         .fetch_one(&mut *runtime_connection)
         .await
         .unwrap();
-    let revoked_at: chrono::DateTime<Utc> = sqlx::query_scalar(
-        "UPDATE api_client_credentials
-         SET revoked_at = clock_timestamp(), revoked_by_staff_user_id = $2,
-             revocation_reason = 'ADMIN_REQUEST'
-         WHERE id = $1
-         RETURNING revoked_at",
-    )
-    .bind(credential_id)
-    .bind(fixture.staff_id)
-    .fetch_one(&mut *runtime_connection)
-    .await
-    .unwrap();
-    let db_after: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
-        .fetch_one(&mut *runtime_connection)
-        .await
-        .unwrap();
-    assert!(db_before <= revoked_at);
-    assert!(revoked_at <= db_after);
-    cleanup_auth_fixture(&setup_pool, &fixture).await;
+        let db_after: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut *runtime_connection)
+            .await
+            .unwrap();
+        assert!(db_before <= revoked_at);
+        assert!(revoked_at <= db_after);
+    })
+    .await;
 }
 
 #[tokio::test]
 async fn runtime_can_revoke_token() {
     let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let fixture = create_auth_fixture(&setup_pool).await;
     let credential_id = insert_setup_credential(&setup_pool, &fixture).await;
     let token_id = insert_setup_token(&setup_pool, credential_id).await;
-    let mut runtime_connection = runtime_pool.acquire().await.unwrap();
-    let db_before: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        let mut runtime_connection = runtime_pool.acquire().await.unwrap();
+        let db_before: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut *runtime_connection)
+            .await
+            .unwrap();
+        let revoked_at: chrono::DateTime<Utc> = sqlx::query_scalar(
+            "UPDATE external_access_tokens
+             SET revoked_at = clock_timestamp()
+             WHERE id = $1
+             RETURNING revoked_at",
+        )
+        .bind(token_id)
         .fetch_one(&mut *runtime_connection)
         .await
         .unwrap();
-    let revoked_at: chrono::DateTime<Utc> = sqlx::query_scalar(
-        "UPDATE external_access_tokens
-         SET revoked_at = clock_timestamp()
-         WHERE id = $1
-         RETURNING revoked_at",
-    )
-    .bind(token_id)
-    .fetch_one(&mut *runtime_connection)
-    .await
-    .unwrap();
-    let db_after: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
-        .fetch_one(&mut *runtime_connection)
-        .await
-        .unwrap();
-    assert!(db_before <= revoked_at);
-    assert!(revoked_at <= db_after);
-    cleanup_auth_fixture(&setup_pool, &fixture).await;
+        let db_after: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT clock_timestamp()")
+            .fetch_one(&mut *runtime_connection)
+            .await
+            .unwrap();
+        assert!(db_before <= revoked_at);
+        assert!(revoked_at <= db_after);
+    })
+    .await;
 }
 
 #[tokio::test]

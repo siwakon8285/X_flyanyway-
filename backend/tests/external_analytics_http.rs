@@ -1,6 +1,10 @@
 mod common;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use axum::{
     body::{Body, Bytes},
@@ -40,13 +44,14 @@ use x_fly_api::{
 const PEPPER: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 const FIXTURE_REFERENCE_DATE: NaiveDate = NaiveDate::from_ymd_opt(2040, 1, 1).unwrap();
 
+#[derive(Clone)]
 struct Fixture {
     actor_id: Uuid,
     client_pk: Uuid,
     client_id: String,
     client_secret: String,
     namespace_date: NaiveDate,
-    service_ids: Vec<Uuid>,
+    service_ids: Arc<Mutex<Vec<Uuid>>>,
 }
 
 async fn pools() -> (PgPool, PgPool) {
@@ -86,11 +91,15 @@ fn unique_client_id() -> String {
 }
 
 async fn fixture(setup: &PgPool, scopes: &[ApiClientScope]) -> Fixture {
+    let mut transaction = setup
+        .begin()
+        .await
+        .expect("begin external analytics fixture");
     let actor_id: Uuid = sqlx::query_scalar(
         "INSERT INTO staff_users (email,password_hash) VALUES ($1,'external-analytics-http') RETURNING id",
     )
     .bind(format!("external-analytics-{}@test.invalid", Uuid::new_v4()))
-    .fetch_one(setup)
+    .fetch_one(&mut *transaction)
     .await
     .expect("fixture actor");
     let client_id = unique_client_id();
@@ -103,7 +112,7 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope]) -> Fixture {
     .bind(&client_id)
     .bind(format!("External analytics {}", Uuid::new_v4()))
     .bind(actor_id)
-    .fetch_one(setup)
+    .fetch_one(&mut *transaction)
     .await
     .expect("fixture client");
     for scope in scopes {
@@ -115,7 +124,7 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope]) -> Fixture {
         .bind(client_pk)
         .bind(scope.as_str())
         .bind(actor_id)
-        .execute(setup)
+        .execute(&mut *transaction)
         .await
         .expect("fixture scope");
     }
@@ -133,9 +142,13 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope]) -> Fixture {
     .bind(client_pk)
     .bind(digest.as_bytes().as_slice())
     .bind(actor_id)
-    .execute(setup)
+    .execute(&mut *transaction)
     .await
     .expect("fixture credential");
+    transaction
+        .commit()
+        .await
+        .expect("commit external analytics fixture");
     let namespace_date = common::allocate_test_departure_date(
         "xf-201",
         NaiveDate::from_ymd_opt(2500, 1, 1).unwrap(),
@@ -149,7 +162,7 @@ async fn fixture(setup: &PgPool, scopes: &[ApiClientScope]) -> Fixture {
         client_id,
         client_secret,
         namespace_date,
-        service_ids: Vec::new(),
+        service_ids: Arc::new(Mutex::new(Vec::new())),
     }
 }
 
@@ -164,6 +177,7 @@ async fn add_service(
     departure_time: NaiveTime,
 ) -> Uuid {
     let departure = fixture_date(fixture, departure);
+    let mut transaction = setup.begin().await.expect("begin analytics HTTP flight");
     let service_id: Uuid = sqlx::query_scalar(
         "INSERT INTO flight_services (
              public_id,flight_number,origin_code,destination_code,aircraft_code,
@@ -179,21 +193,29 @@ async fn add_service(
     .bind(format!("XH-{}", Uuid::new_v4().simple()))
     .bind(departure_time)
     .bind(departure)
-    .fetch_one(setup)
+    .fetch_one(&mut *transaction)
     .await
     .expect("fixture flight service");
     sqlx::query("INSERT INTO flight_instances (flight_service_id,departure_date) VALUES ($1,$2)")
         .bind(service_id)
         .bind(departure)
-        .execute(setup)
+        .execute(&mut *transaction)
         .await
         .expect("fixture flight instance");
-    fixture.service_ids.push(service_id);
+    transaction
+        .commit()
+        .await
+        .expect("commit analytics HTTP flight");
+    fixture
+        .service_ids
+        .lock()
+        .expect("service tracker lock")
+        .push(service_id);
     service_id
 }
 
-async fn cleanup(setup: &PgPool, fixture: &Fixture) {
-    let mut tx = setup.begin().await.expect("begin analytics HTTP cleanup");
+async fn cleanup(setup: &PgPool, fixture: &Fixture) -> Result<(), sqlx::Error> {
+    let mut tx = setup.begin().await?;
     sqlx::query(
         "DELETE FROM external_access_tokens
          WHERE api_client_credential_id IN
@@ -201,40 +223,38 @@ async fn cleanup(setup: &PgPool, fixture: &Fixture) {
     )
     .bind(fixture.client_pk)
     .execute(&mut *tx)
-    .await
-    .expect("delete analytics HTTP tokens");
+    .await?;
     sqlx::query("DELETE FROM api_client_management_audit WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *tx)
-        .await
-        .expect("delete analytics HTTP audit");
+        .await?;
     sqlx::query("DELETE FROM api_client_credentials WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *tx)
-        .await
-        .expect("delete analytics HTTP credentials");
+        .await?;
     sqlx::query("DELETE FROM api_client_allowed_scopes WHERE api_client_id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *tx)
-        .await
-        .expect("delete analytics HTTP scopes");
-    for service_id in &fixture.service_ids {
+        .await?;
+    let service_ids = fixture
+        .service_ids
+        .lock()
+        .map_err(|_| sqlx::Error::Protocol("service tracker poisoned".to_owned()))?
+        .clone();
+    for service_id in &service_ids {
         sqlx::query("DELETE FROM flight_instances WHERE flight_service_id=$1")
             .bind(service_id)
             .execute(&mut *tx)
-            .await
-            .expect("delete analytics HTTP instances");
+            .await?;
         sqlx::query("DELETE FROM flight_services WHERE id=$1")
             .bind(service_id)
             .execute(&mut *tx)
-            .await
-            .expect("delete analytics HTTP service");
+            .await?;
     }
     sqlx::query("DELETE FROM api_clients WHERE id=$1")
         .bind(fixture.client_pk)
         .execute(&mut *tx)
-        .await
-        .expect("delete analytics HTTP client");
+        .await?;
     sqlx::query(
         "DELETE FROM flight_instances AS instance
          USING flight_services AS service
@@ -244,14 +264,72 @@ async fn cleanup(setup: &PgPool, fixture: &Fixture) {
     )
     .bind(fixture.namespace_date)
     .execute(&mut *tx)
-    .await
-    .expect("delete analytics HTTP namespace instance");
+    .await?;
     sqlx::query("DELETE FROM staff_users WHERE id=$1")
         .bind(fixture.actor_id)
         .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+async fn run_fixture_test<F, Fut>(scopes: Vec<ApiClientScope>, body: F)
+where
+    F: FnOnce(PgPool, PgPool, Fixture) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
+    let (setup, runtime) = pools().await;
+    let fixture = fixture(&setup, &scopes).await;
+    let cleanup_setup = setup.clone();
+    let cleanup_target = fixture.clone();
+    common::run_fixture_body_with_cleanup(
+        move || body(setup, runtime, fixture),
+        move || async move { cleanup(&cleanup_setup, &cleanup_target).await },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn dynamically_added_service_is_cleaned_when_body_mutates_fixture() {
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
+    let (setup, _runtime) = pools().await;
+    let fixture = fixture(&setup, &[ApiClientScope::AnalyticsRead]).await;
+    let body_fixture = fixture.clone();
+    let cleanup_fixture = fixture.clone();
+    let cleanup_setup = setup.clone();
+    let body_setup = setup.clone();
+    let created_service = Arc::new(Mutex::new(None));
+    let created_service_for_body = Arc::clone(&created_service);
+
+    common::run_fixture_body_with_cleanup(
+        move || async move {
+            let mut fixture = body_fixture;
+            let service_id = add_service(
+                &body_setup,
+                &mut fixture,
+                NaiveDate::from_ymd_opt(2040, 1, 10).expect("fixture date"),
+                NaiveTime::from_hms_opt(12, 0, 0).expect("fixture time"),
+            )
+            .await;
+            *created_service_for_body
+                .lock()
+                .expect("service tracker lock") = Some(service_id);
+        },
+        move || async move { cleanup(&cleanup_setup, &cleanup_fixture).await },
+    )
+    .await;
+
+    let service_id = created_service
+        .lock()
+        .expect("service tracker lock")
+        .expect("body created a service");
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM flight_services WHERE id=$1")
+        .bind(service_id)
+        .fetch_one(&setup)
         .await
-        .expect("delete analytics HTTP actor");
-    tx.commit().await.expect("commit analytics HTTP cleanup");
+        .expect("inspect dynamically-created analytics service");
+    assert_eq!(remaining, 0, "body-created service must be finalized");
 }
 
 fn state(runtime: PgPool) -> AppState {
@@ -360,31 +438,31 @@ fn assert_error(body: &Value, code: &str) {
 
 #[tokio::test]
 async fn analytics_requires_analytics_read() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[]).await;
-    let router = build_router(state(runtime));
-    let (status, headers, body) = get(
-        &router,
-        "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
-        None,
-        None,
-    )
+    run_fixture_test(vec![], move |_setup, runtime, fixture| async move {
+        let router = build_router(state(runtime));
+        let (status, headers, body) = get(
+            &router,
+            "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
+            None,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+        assert_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+        let token = exchange(&router, &fixture).await;
+        let (status, headers, body) = get(
+            &router,
+            "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+        assert_error(&body, "EXTERNAL_SCOPE_DENIED");
+    })
     .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
-    assert_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
-    let token = exchange(&router, &fixture).await;
-    let (status, headers, body) = get(
-        &router,
-        "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
-        Some(&token),
-        None,
-    )
-    .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
-    assert_error(&body, "EXTERNAL_SCOPE_DENIED");
-    cleanup(&setup, &fixture).await;
 }
 
 #[tokio::test]
@@ -405,176 +483,185 @@ async fn invalid_bearer_remains_authentication_failure() {
 
 #[tokio::test]
 async fn flights_scope_cannot_read_analytics() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::FlightsRead]).await;
-    let router = build_router(state(runtime));
-    let token = exchange(&router, &fixture).await;
-    let (status, headers, body) = get(
-        &router,
-        "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
-        Some(&token),
-        None,
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        move |_setup, runtime, fixture| async move {
+            let router = build_router(state(runtime));
+            let token = exchange(&router, &fixture).await;
+            let (status, headers, body) = get(
+                &router,
+                "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
+                Some(&token),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+            assert_error(&body, "EXTERNAL_SCOPE_DENIED");
+        },
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
-    assert_error(&body, "EXTERNAL_SCOPE_DENIED");
-    cleanup(&setup, &fixture).await;
 }
 
 #[tokio::test]
 async fn zero_scope_principal_is_authenticated_but_denied_by_scope_guard() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[]).await;
-    let router = build_router(state(runtime));
-    let token = exchange(&router, &fixture).await;
-    let (status, _, body) = get(
-        &router,
-        "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
-        Some(&token),
-        None,
-    )
+    run_fixture_test(vec![], move |_setup, runtime, fixture| async move {
+        let router = build_router(state(runtime));
+        let token = exchange(&router, &fixture).await;
+        let (status, _, body) = get(
+            &router,
+            "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_error(&body, "EXTERNAL_SCOPE_DENIED");
+    })
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_error(&body, "EXTERNAL_SCOPE_DENIED");
-    cleanup(&setup, &fixture).await;
 }
 
 #[tokio::test]
 async fn analytics_scope_returns_exact_minimal_summary_and_no_browser_cors() {
-    let (setup, runtime) = pools().await;
-    let mut fixture = fixture(&setup, &[ApiClientScope::AnalyticsRead]).await;
-    add_service(
-        &setup,
-        &mut fixture,
-        NaiveDate::from_ymd_opt(2040, 1, 10).unwrap(),
-        NaiveTime::from_hms_opt(12, 0, 0).unwrap(),
+    run_fixture_test(
+        vec![ApiClientScope::AnalyticsRead],
+        move |setup, runtime, fixture| async move {
+            let mut fixture = fixture;
+            add_service(
+                &setup,
+                &mut fixture,
+                NaiveDate::from_ymd_opt(2040, 1, 10).unwrap(),
+                NaiveTime::from_hms_opt(12, 0, 0).unwrap(),
+            )
+            .await;
+            let router = build_router(state(runtime));
+            let token = exchange(&router, &fixture).await;
+            let (status, headers, body) = get(
+                &router,
+                "/api/v1/external/analytics/summary?from=2040-01-10&to=2040-01-10",
+                Some(&token),
+                Some("https://browser.example"),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(headers.get("access-control-allow-origin").is_none());
+            assert!(headers.get("access-control-allow-credentials").is_none());
+            assert_eq!(
+                body.as_object()
+                    .unwrap()
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                vec![
+                    "bookedSeats",
+                    "cancelledBookings",
+                    "generatedAt",
+                    "occupancyPercent",
+                    "period",
+                    "sellableSeats",
+                    "ticketsIssued",
+                    "totalBookings",
+                ]
+            );
+            assert_eq!(
+                body["period"],
+                json!({"from":"2040-01-10","to":"2040-01-10"})
+            );
+            assert_eq!(body["totalBookings"], 0);
+            assert_eq!(body["ticketsIssued"], 0);
+            assert_eq!(body["cancelledBookings"], 0);
+            assert_eq!(body["bookedSeats"], 0);
+            assert_eq!(body["sellableSeats"], 0);
+            assert_eq!(body["occupancyPercent"], 0.0);
+            for forbidden in [
+                "revenue",
+                "bookingReference",
+                "ticketNumber",
+                "providerReference",
+                "passenger",
+                "payment",
+                "refund",
+                "internalId",
+                "uuid",
+            ] {
+                assert!(
+                    !body.to_string().contains(forbidden),
+                    "forbidden field {forbidden}"
+                );
+            }
+        },
     )
     .await;
-    let router = build_router(state(runtime));
-    let token = exchange(&router, &fixture).await;
-    let (status, headers, body) = get(
-        &router,
-        "/api/v1/external/analytics/summary?from=2040-01-10&to=2040-01-10",
-        Some(&token),
-        Some("https://browser.example"),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(headers.get("access-control-allow-origin").is_none());
-    assert!(headers.get("access-control-allow-credentials").is_none());
-    assert_eq!(
-        body.as_object()
-            .unwrap()
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>(),
-        vec![
-            "bookedSeats",
-            "cancelledBookings",
-            "generatedAt",
-            "occupancyPercent",
-            "period",
-            "sellableSeats",
-            "ticketsIssued",
-            "totalBookings",
-        ]
-    );
-    assert_eq!(
-        body["period"],
-        json!({"from":"2040-01-10","to":"2040-01-10"})
-    );
-    assert_eq!(body["totalBookings"], 0);
-    assert_eq!(body["ticketsIssued"], 0);
-    assert_eq!(body["cancelledBookings"], 0);
-    assert_eq!(body["bookedSeats"], 0);
-    assert_eq!(body["sellableSeats"], 0);
-    assert_eq!(body["occupancyPercent"], 0.0);
-    for forbidden in [
-        "revenue",
-        "bookingReference",
-        "ticketNumber",
-        "providerReference",
-        "passenger",
-        "payment",
-        "refund",
-        "internalId",
-        "uuid",
-    ] {
-        assert!(
-            !body.to_string().contains(forbidden),
-            "forbidden field {forbidden}"
-        );
-    }
-    cleanup(&setup, &fixture).await;
 }
 
 #[tokio::test]
 async fn both_scopes_allow_analytics_then_current_scope_removal_denies_next_request() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(
-        &setup,
-        &[ApiClientScope::AnalyticsRead, ApiClientScope::FlightsRead],
+    run_fixture_test(
+        vec![ApiClientScope::AnalyticsRead, ApiClientScope::FlightsRead],
+        move |setup, runtime, fixture| async move {
+            let router = build_router(state(runtime));
+            let token = exchange(&router, &fixture).await;
+            let uri = "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01";
+
+            let (status, _, body) = get(&router, uri, Some(&token), None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(body.get("totalBookings").is_some());
+
+            sqlx::query(
+                "DELETE FROM api_client_allowed_scopes
+                 WHERE api_client_id=$1 AND scope_code=$2",
+            )
+            .bind(fixture.client_pk)
+            .bind(ApiClientScope::AnalyticsRead.as_str())
+            .execute(&setup)
+            .await
+            .expect("remove analytics scope");
+
+            let (status, headers, body) = get(&router, uri, Some(&token), None).await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+            assert_error(&body, "EXTERNAL_SCOPE_DENIED");
+        },
     )
     .await;
-    let router = build_router(state(runtime));
-    let token = exchange(&router, &fixture).await;
-    let uri = "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01";
-
-    let (status, _, body) = get(&router, uri, Some(&token), None).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(body.get("totalBookings").is_some());
-
-    sqlx::query(
-        "DELETE FROM api_client_allowed_scopes
-         WHERE api_client_id=$1 AND scope_code=$2",
-    )
-    .bind(fixture.client_pk)
-    .bind(ApiClientScope::AnalyticsRead.as_str())
-    .execute(&setup)
-    .await
-    .expect("remove analytics scope");
-
-    let (status, headers, body) = get(&router, uri, Some(&token), None).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
-    assert_error(&body, "EXTERNAL_SCOPE_DENIED");
-    cleanup(&setup, &fixture).await;
 }
 
 #[tokio::test]
 async fn invalid_analytics_query_is_rejected_after_authentication() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[ApiClientScope::AnalyticsRead]).await;
-    let router = build_router(state(runtime));
-    let token = exchange(&router, &fixture).await;
-    let (status, headers, body) = get(
-        &router,
-        "/api/v1/external/analytics/summary?from=not-a-date&to=2040-01-01",
-        Some(&token),
-        None,
+    run_fixture_test(
+        vec![ApiClientScope::AnalyticsRead],
+        move |_setup, runtime, fixture| async move {
+            let router = build_router(state(runtime));
+            let token = exchange(&router, &fixture).await;
+            let (status, headers, body) = get(
+                &router,
+                "/api/v1/external/analytics/summary?from=not-a-date&to=2040-01-01",
+                Some(&token),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+            assert_error(&body, "EXTERNAL_REQUEST_INVALID");
+        },
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
-    assert_error(&body, "EXTERNAL_REQUEST_INVALID");
-    cleanup(&setup, &fixture).await;
 }
 
 #[tokio::test]
 async fn analytics_auth_repository_unavailable_fails_closed() {
-    let (setup, runtime) = pools().await;
-    let fixture = fixture(&setup, &[]).await;
-    let router = build_router(state_without_auth(runtime));
-    let (status, headers, body) = get(
-        &router,
-        "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
-        Some("xfa_v1_0000000000000000000000000000000000000000000000000000000000000000"),
-        None,
-    )
+    run_fixture_test(vec![], move |_setup, runtime, _fixture| async move {
+        let router = build_router(state_without_auth(runtime));
+        let (status, headers, body) = get(
+            &router,
+            "/api/v1/external/analytics/summary?from=2040-01-01&to=2040-01-01",
+            Some("xfa_v1_0000000000000000000000000000000000000000000000000000000000000000"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+        assert_error(&body, "EXTERNAL_AUTH_UNAVAILABLE");
+    })
     .await;
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
-    assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
-    assert_error(&body, "EXTERNAL_AUTH_UNAVAILABLE");
-    cleanup(&setup, &fixture).await;
 }

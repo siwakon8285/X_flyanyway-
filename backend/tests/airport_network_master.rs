@@ -2,6 +2,7 @@ mod common;
 
 use chrono::{NaiveDate, NaiveTime};
 use sqlx::{postgres::PgPoolOptions, PgPool};
+use std::future::Future;
 use uuid::Uuid;
 use x_fly_api::{
     application::flight::{FlightRepository, PublicFlightFilter},
@@ -20,7 +21,7 @@ async fn test_pool() -> PgPool {
     pool
 }
 
-async fn clean_network_flight(pool: &PgPool) {
+async fn clean_network_flight(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
         "DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE origin_code='SYD' AND destination_code='CDG' AND operating_date='2098-05-10');
          DELETE FROM flight_service_seat_templates WHERE flight_service_id IN (SELECT id FROM flight_services WHERE origin_code='SYD' AND destination_code='CDG' AND operating_date='2098-05-10');
@@ -29,8 +30,20 @@ async fn clean_network_flight(pool: &PgPool) {
          DELETE FROM staff_users WHERE email LIKE 'network-%@x-fly.test';",
     )
     .execute(pool)
-    .await
-    .unwrap();
+    .await?;
+    Ok(())
+}
+
+async fn run_fixture_body<F, Fut>(pool: PgPool, body: F)
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let cleanup_pool = pool.clone();
+    common::run_fixture_body_with_cleanup(body, move || async move {
+        clean_network_flight(&cleanup_pool).await
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -66,8 +79,12 @@ async fn authoritative_network_has_exactly_156_unique_countries_and_primary_airp
 
 #[tokio::test]
 async fn expanded_airports_are_shared_by_management_and_truthful_public_search() {
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
     let pool = test_pool().await;
-    clean_network_flight(&pool).await;
+    clean_network_flight(&pool)
+        .await
+        .expect("clean network TEST flight fixture");
+    run_fixture_body(pool.clone(), move || async move {
     let repository = SqlxFlightRepository::new(pool.clone());
     let references = repository.reference_data().await.unwrap();
     assert_eq!(references.airports.len(), 156);
@@ -137,5 +154,6 @@ async fn expanded_airports_are_shared_by_management_and_truthful_public_search()
         .cabin_prices
         .iter()
         .all(|price| matches!(price.cabin.as_str(), "business" | "first")));
-    clean_network_flight(&pool).await;
+    })
+    .await;
 }
