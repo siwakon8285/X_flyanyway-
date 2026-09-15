@@ -112,6 +112,120 @@ HTTP Request → Handler/Controller → Application Use Case → Port/Repository
 
 ---
 
+## 🧠 Programming Paradigm Selection & Object Design
+
+อย่าเริ่มออกแบบจากคำถามว่า **“ต้องใช้ OOP pattern ไหน?”** ให้เริ่มจาก **domain invariant, ownership, state lifecycle, change boundary, concurrency และ dependency** ก่อน แล้วค่อยเลือก paradigm/abstraction ที่ช่วยให้ boundary เหล่านั้นชัดขึ้น
+
+### Paradigm Selection Gate
+
+| Paradigm / Style | เหมาะเมื่อ | ระวัง |
+|---|---|---|
+| **Object-Oriented (OOP)** | domain มี state + invariant + lifecycle, dependency/integration หลายชนิด, framework ใช้ class/DI เป็นธรรมชาติ | God Class, inheritance ลึก, mutable shared state, interface ที่ไม่มีเหตุผล |
+| **Functional / Functional Core** | transformation, validation, pricing/rules, deterministic calculation, logic ที่อยาก test ง่ายและลด hidden state | อย่าฝืน pure-function ทุก boundary ที่ต้องทำ I/O/transaction/stateful orchestration |
+| **Procedural / Explicit Workflow** | use case ตรงไปตรงมา, orchestration, CLI/worker, flow ที่ sequence สำคัญกว่า object graph | function ใหญ่เกินไป, global mutable state, hidden coupling |
+| **Data-Oriented** | hot path, batch/stream processing, memory/cache locality, high-volume transformation | อย่าใช้เพียงเพราะ benchmark micro-level ถ้า domain readability/correctness แย่ลง |
+| **Event-Driven / Message-Driven** | asynchronous workflow, integration, retry, decoupling, durable events | eventual consistency, duplicate delivery, ordering, idempotency, observability |
+| **Actor / Message-Passing** | isolated mutable state, concurrent/distributed workers, mailbox semantics | operational/debug complexity, message ordering, failure/restart semantics |
+| **Hybrid** | production backend ส่วนใหญ่ | boundary ต้องชัดว่าแต่ละ paradigm ใช้แก้ปัญหาอะไร ไม่ผสมจน behavior อ่านไม่ออก |
+
+**Default mindset:** production system ส่วนใหญ่ควรเป็น **hybrid** — เช่น pure/domain functions สำหรับ rules, stateful objects สำหรับ invariant/lifecycle, explicit application workflows สำหรับ transaction orchestration และ event/message model สำหรับ async boundary
+
+### OOP Core Principles — ใช้เป็นเครื่องมือ ไม่ใช่พิธีกรรม
+
+- **Encapsulation**: ซ่อน mutable state/invariant ที่ caller ไม่ควรแก้ตรง ๆ; expose operation ที่รักษากฎของ domain
+- **Abstraction**: เปิดเผย contract เท่าที่ consumer ต้องรู้; อย่าสร้าง abstraction ก่อนรู้ change/substitution boundary จริง
+- **Polymorphism**: ใช้ interface/trait/protocol เมื่อมีหลาย implementation จริงหรือ boundary ต้องสลับได้ เช่น payment provider, clock, message bus, persistence adapter
+- **Inheritance**: ใช้เมื่อเป็น **is-a relationship** ที่มั่นคงและ framework/domain ได้ประโยชน์จริง; ห้ามใช้เป็น default reuse mechanism
+- **Composition over inheritance**: เป็น default สำหรับ reuse/behavior assembly เพราะ coupling ต่ำกว่าและเปลี่ยนง่ายกว่า
+- **SOLID**: ใช้เป็น **heuristic** เพื่อ reasoning เรื่อง responsibility/dependency ไม่ใช่ checklist ที่ต้องสร้าง interface/class จำนวนมาก
+- **Dependency Inversion / DI**: business logic ไม่ควรผูกกับ HTTP framework, DB driver, cloud SDK หรือ provider โดยตรงเมื่อ boundary นั้นมีเหตุผลต้องแยก
+- **Domain Modeling**: Entity / Value Object / Aggregate / Domain Service ใช้เมื่อ complexity และ invariant สมควร; CRUD ธรรมดาไม่ต้องยกระดับเป็น DDD ทั้งระบบ
+
+### Object Design Rules
+
+- Class/struct/object ที่มี state ต้องระบุ **owner, mutation boundary, lifecycle และ thread/concurrency semantics** ให้ชัด
+- Prefer immutable/value objects สำหรับ identifier, money, status, validated input และ data ที่ไม่ควรถูกเปลี่ยนหลังสร้าง
+- Constructor/factory ต้องป้องกัน invalid state เมื่อทำได้; อย่าสร้าง object invalid แล้วหวังให้ caller เรียก `validate()` ภายหลังโดยไม่จำเป็น
+- Behavior ที่ไม่มี state และเป็น deterministic transformation มักเหมาะกับ pure function/static-free module มากกว่าการสร้าง class เปล่า ๆ
+- Interface/trait/protocol ควรอยู่ที่ **consumer/change boundary** ไม่ใช่สร้าง “interface ต่อทุก class”
+- Dependency Injection ใช้เพื่อ explicit dependency และ testability; ห้ามใช้ service locator/global container เพื่อซ่อน dependency
+- Stateful singleton ต้องพิสูจน์ thread safety; ห้ามเก็บ request/user mutable state ใน singleton/shared service
+- Persistence entity/ORM model ไม่ควรกลายเป็น domain/API model โดยอัตโนมัติ
+
+### Language / Ecosystem Guidance
+
+**Rust**
+- ห้ามพยายามเขียน Java-style OOP
+- ใช้ `struct` + `impl` + `enum` + `trait` + composition เป็นหลัก
+- ใช้ trait เมื่อมี polymorphic boundary จริง; concrete type เป็น default เมื่อ abstraction ยังไม่จำเป็น
+- ใช้ enum/state machine เมื่อ state transition สำคัญ แทน inheritance hierarchy
+- ownership/borrowing/type system เป็นส่วนหนึ่งของ design — ใช้เพื่อป้องกัน invalid sharing/mutation
+
+**Java / Spring Boot**
+- OOP + DI เป็น first-class และเหมาะกับ rich domain/service boundaries
+- constructor injection, immutable fields และ composition เป็น default
+- interface ใช้เมื่อมี contract/substitution/boundary จริง; ไม่บังคับ interface ต่อ service ทุกตัว
+- inheritance ใช้อย่างระวัง โดยเฉพาะ JPA entity hierarchy/proxy semantics
+- records/value objects เหมาะกับ immutable DTO/value data
+
+**C# / ASP.NET Core**
+- classes/interfaces/DI เป็น first-class; composition และ policy-based abstractions เหมาะกับ application boundary
+- ใช้ `record`/value types เมื่อ identity/value semantics เหมาะสม
+- interface segregation ต้องตาม consumer จริง ไม่แตก interface จน fragmentation
+- inheritance ใช้เมื่อ lifecycle/polymorphic model ชัด ไม่ใช่เพื่อ reuse method อย่างเดียว
+
+**TypeScript / NestJS / Fastify**
+- NestJS ใช้ class/DI/decorator ได้ดีใน controller/provider/module boundary
+- domain/helper ไม่จำเป็นต้องเป็น class; pure functions, discriminated unions และ plain typed objects มักเหมาะกว่า
+- ใช้ interface/type เพื่อ contract ที่ compile-time; runtime boundary ยังต้อง validate จริง
+- อย่าสร้าง BaseService/BaseRepository inheritance tree ถ้า composition/generic helper ชัดกว่า
+
+**Python / FastAPI**
+- ใช้ class เมื่อมี state/invariant/lifecycle จริง
+- `dataclass`, immutable model, protocol และ pure function เหมาะกับ domain/data transformation จำนวนมาก
+- หลีกเลี่ยง manager/service class ที่มีแต่ static-like methods และไม่มี state
+- duck typing/Protocol ใช้ตาม boundary จริง; อย่าเพิ่ม abstract base class โดยไม่จำเป็น
+
+**Go**
+- composition + small interfaces เป็น idiomatic กว่า class inheritance
+- concrete types เป็น default; define interface ที่ consumer side เมื่อมี substitution/test boundary จริง
+- อย่าสร้าง Java-style repository/service interface hierarchy โดยอัตโนมัติ
+- stateful type ต้อง explicit synchronization/ownership เมื่อ share ข้าม goroutine
+
+### SOLID — Practical Interpretation
+
+- **S — Single Responsibility**: เปลี่ยนด้วยเหตุผลหลักที่สัมพันธ์กัน; ไม่ได้แปลว่า 1 class/function ต้องเล็กที่สุดเสมอ
+- **O — Open/Closed**: extension point สร้างเมื่อ variation มีจริง; อย่า speculative-generalize
+- **L — Liskov Substitution**: implementation ที่แทนกันได้ต้องรักษา contract/invariant/side effect ที่ caller พึ่งพา
+- **I — Interface Segregation**: consumer ไม่ควร depend บน method ที่ไม่ใช้; แต่อย่าแตก interface เล็กจน navigation/maintenance แย่
+- **D — Dependency Inversion**: high-level policy ควรพึ่ง stable contract เมื่อ external mechanism มีแนวโน้มเปลี่ยนหรือจำเป็นต้อง isolate
+
+### Anti-Patterns ที่ Agent ต้องหลีกเลี่ยง
+
+- God Class / God Service / `Manager` ที่รวมทุก concern
+- deep inheritance tree / fragile base class
+- interface/trait ต่อทุก implementation โดยไม่มี second implementation หรือ boundary reason
+- getter/setter-only “OOP” ที่ไม่มี invariant/behavior
+- global mutable state / hidden singleton state
+- service locator ที่ทำให้ dependency มองไม่เห็นจาก constructor/function signature
+- anemic domain model ในระบบที่ business invariant ซับซ้อนมากจน rule กระจายหลาย service
+- rich domain model ในระบบ CRUD ง่ายจน abstraction แพงกว่าประโยชน์
+- design pattern cargo cult เช่น Factory/Strategy/Observer/CQRS เพราะ “best practice” โดยไม่มี requirement
+
+### Agent Decision Rule
+
+ก่อนเพิ่ม class/interface/trait/protocol/base class ให้ตอบได้ว่า:
+
+1. มันป้องกัน invariant หรือ state lifecycle อะไร?
+2. มันสร้าง change/substitution boundary ที่มีอยู่จริงหรือไม่?
+3. composition/pure function/concrete type ที่ง่ายกว่าพอหรือไม่?
+4. abstraction นี้ทำให้ testing/correctness/security/maintainability ดีขึ้นอย่างมีนัยสำคัญหรือแค่เพิ่ม ceremony?
+5. ถ้าเอา abstraction นี้ออก code จะเสีย contract ที่สำคัญจริงหรือไม่?
+
+ถ้าตอบไม่ได้ **อย่าเพิ่ม abstraction เพียงเพราะต้องการให้ code “ดูเป็น OOP / SOLID”**
+
+---
+
 ## ⚙️ Rust / Axum Backend (Performance / Systems First-Class Option)
 
 ### Technical Stack
