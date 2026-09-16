@@ -2994,6 +2994,8 @@ Branch 19 uses PostgreSQL-backed staff identities, many-to-many roles, role perm
 
 Staff passwords use Argon2id and are provisioned only through the local `staff_admin bootstrap|create` CLI with a hidden confirmed password prompt. There is no public registration endpoint or default credential. Staff authentication uses the separate `x_fly_staff_session` cookie scoped to `/admin`; it does not reuse or alter customer hold or Manage Booking authorization.
 
+Staff login keeps a durable per-normalized-identifier throttle and rejects an actively blocked identifier before any password hashing. Real and dummy Argon2 verification share one process-local bounded admission limit (`STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS`, default four, valid range `1..=4`); saturated requests use the existing throttled response without recording a password failure. Values above four require an explicit reviewed source/configuration change backed by host-capacity and load testing. This process-local limit is not a distributed rate limit. Source-aware admission belongs at a trusted edge after proxy header sanitization; application authentication does not trust forwarded-IP headers.
+
 The `/admin` workspace provides the shared authentication, authorization, navigation, and visual shell for authorized staff modules. Navigation reflects current effective permissions, while each backend module remains independently authoritative for access control. English and Thai use the shared typed locale system.
 
 Company-managed-device access is not proven by application login or browser checks. Real enforcement remains a Branch 26 identity/network control using an auditable mechanism such as managed-device certificates, Zero Trust device posture, MDM identity, or a private/VPN policy.
@@ -3459,6 +3461,7 @@ Backend configuration names are:
 | `BACKEND_BIND_ADDRESS` | listener address; defaults to `127.0.0.1:8080` |
 | `FRONTEND_ORIGIN` | browser Origin allowlist value; defaults to `http://localhost:3000` |
 | `SEAT_HOLD_TTL_SECONDS` | server hold TTL; defaults to `600` |
+| `STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS` | process-local maximum concurrent real/dummy Argon2 verifications; defaults to `4` and must be between `1` and `4`; higher values require reviewed capacity/load evidence |
 | `APP_ENV` | `production` enables secure browser cookies |
 | `TICKET_QR_SIGNING_SECRET` | required signing secret (at least 32 characters) |
 | `MANAGE_BOOKING_SIGNING_SECRET` | required Manage Booking signing secret (at least 32 characters) |

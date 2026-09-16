@@ -1,5 +1,8 @@
 use std::{env, fmt, net::SocketAddr, time::Duration};
 
+use crate::application::staff_auth::{
+    is_valid_password_verification_limit, DEFAULT_MAX_CONCURRENT_PASSWORD_VERIFICATIONS,
+};
 use crate::domain::external_api::ExternalApiCredentialPepper;
 
 #[derive(Clone)]
@@ -8,6 +11,7 @@ pub struct AppConfig {
     pub bind_address: SocketAddr,
     pub frontend_origin: String,
     pub seat_hold_ttl: Duration,
+    pub staff_auth_max_concurrent_verifications: usize,
     pub secure_cookies: bool,
     pub stripe_secret_key: Option<String>,
     pub stripe_webhook_secret: Option<String>,
@@ -29,6 +33,18 @@ impl AppConfig {
             .parse::<u64>()
             .map(Duration::from_secs)
             .map_err(|error| format!("invalid SEAT_HOLD_TTL_SECONDS: {error}"))?;
+        let staff_auth_max_concurrent_verifications =
+            env::var("STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS")
+                .unwrap_or_else(|_| DEFAULT_MAX_CONCURRENT_PASSWORD_VERIFICATIONS.to_string())
+                .parse::<usize>()
+                .map_err(|error| {
+                    format!("invalid STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS: {error}")
+                })?;
+        if !is_valid_password_verification_limit(staff_auth_max_concurrent_verifications) {
+            return Err(
+                "STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS is outside the supported range".to_owned(),
+            );
+        }
         let secure_cookies = env::var("APP_ENV")
             .map(|value| value.eq_ignore_ascii_case("production"))
             .unwrap_or(false);
@@ -88,6 +104,7 @@ impl AppConfig {
             manage_booking_signing_secret,
             external_api_credential_pepper,
             seat_hold_ttl,
+            staff_auth_max_concurrent_verifications,
             secure_cookies,
         })
     }
@@ -101,6 +118,10 @@ impl fmt::Debug for AppConfig {
             .field("bind_address", &self.bind_address)
             .field("frontend_origin", &self.frontend_origin)
             .field("seat_hold_ttl", &self.seat_hold_ttl)
+            .field(
+                "staff_auth_max_concurrent_verifications",
+                &self.staff_auth_max_concurrent_verifications,
+            )
             .field("secure_cookies", &self.secure_cookies)
             .field(
                 "stripe_secret_key",

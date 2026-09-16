@@ -59,10 +59,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let external_analytics = ExternalAnalyticsService::new(Arc::new(
         SqlxExternalAnalyticsRepository::new(repository.pool().clone()),
     ));
-    let staff_auth = StaffAuthService::new(
+    let staff_auth = StaffAuthService::new_with_max_concurrent_password_verifications(
         Arc::new(SqlxStaffAuthRepository::new(repository.pool().clone())),
         Argon2PasswordService::default(),
         std::time::Duration::from_secs(60 * 60),
+        config.staff_auth_max_concurrent_verifications,
     )?;
     let payments = match config.stripe_secret_key.clone() {
         Some(key) => {
