@@ -19,6 +19,8 @@ REVOKE ALL PRIVILEGES ON TABLE public.api_client_management_audit
 FROM x_fly_runtime, PUBLIC;
 REVOKE INSERT ON TABLE public.api_client_management_audit
 FROM x_fly_runtime, PUBLIC;
+REVOKE ALL PRIVILEGES ON TABLE public.staff_security_audit
+FROM x_fly_runtime, PUBLIC;
 
 REVOKE ALL PRIVILEGES ON TABLE
     public.api_client_credentials,
@@ -111,6 +113,16 @@ GRANT INSERT (
     created_at
 )
 ON TABLE public.api_client_management_audit
+TO x_fly_runtime;
+
+GRANT INSERT (
+    action,
+    actor_staff_user_id,
+    session_id,
+    permission_code,
+    request_id
+)
+ON TABLE public.staff_security_audit
 TO x_fly_runtime;
 
 GRANT SELECT (

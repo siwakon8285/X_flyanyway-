@@ -46,7 +46,8 @@ async fn test_pool() -> PgPool {
 
 async fn clean_staff(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(
-        "DELETE FROM staff_sessions;
+        "DELETE FROM staff_security_audit;
+         DELETE FROM staff_sessions;
          DELETE FROM staff_login_throttles;
          DELETE FROM staff_user_roles;
          DELETE FROM staff_users;",
@@ -351,14 +352,14 @@ async fn authorization_distinguishes_unauthenticated_from_missing_permission() {
         StatusCode::NO_CONTENT
     );
     assert_eq!(
-        AuthenticatedStaff(principal.clone())
+        AuthenticatedStaff::new(principal.clone())
             .require(PermissionCode::FlightsWrite)
             .unwrap_err()
             .into_response()
             .status(),
         StatusCode::FORBIDDEN
     );
-    assert!(AuthenticatedStaff(principal)
+    assert!(AuthenticatedStaff::new(principal)
         .require(PermissionCode::StaffManage)
         .is_ok());
 }

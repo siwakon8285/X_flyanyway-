@@ -154,8 +154,28 @@ fn assert_constraint_error(error: sqlx::Error, code: &str, constraint: &str) {
     assert_eq!(database_error.constraint(), Some(constraint));
 }
 
+async fn insert_staff_security_audit_test_row(
+    pool: &PgPool,
+    action: &str,
+    permission: Option<String>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO staff_security_audit
+            (action, actor_staff_user_id, session_id, permission_code, request_id)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(action)
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .bind(permission)
+    .bind(uuid::Uuid::new_v4())
+    .execute(pool)
+    .await
+    .map(|_| ())
+}
+
 #[tokio::test]
-async fn fresh_schema_counts_35_application_tables() {
+async fn fresh_schema_counts_36_application_tables() {
     let pool = migrated_test_pool().await;
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)
@@ -165,22 +185,22 @@ async fn fresh_schema_counts_35_application_tables() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 35);
+    assert_eq!(count, 36);
 }
 
 #[tokio::test]
-async fn fresh_schema_counts_36_total_public_tables() {
+async fn fresh_schema_counts_37_total_public_tables() {
     let pool = migrated_test_pool().await;
     let count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public'")
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(count, 36);
+    assert_eq!(count, 37);
 }
 
 #[tokio::test]
-async fn fresh_schema_counts_36_migrator_owned_public_tables() {
+async fn fresh_schema_counts_37_migrator_owned_public_tables() {
     let pool = migrated_test_pool().await;
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)
@@ -190,11 +210,11 @@ async fn fresh_schema_counts_36_migrator_owned_public_tables() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 36);
+    assert_eq!(count, 37);
 }
 
 #[tokio::test]
-async fn fresh_schema_has_27_successful_migrations() {
+async fn fresh_schema_has_28_successful_migrations() {
     let pool = migrated_test_pool().await;
     let status: String = sqlx::query_scalar(
         "SELECT COUNT(*) FILTER (WHERE success)::text || '|' || COUNT(*)::text
@@ -203,7 +223,141 @@ async fn fresh_schema_has_27_successful_migrations() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(status, "27|27");
+    assert_eq!(status, "28|28");
+}
+
+#[tokio::test]
+async fn staff_security_audit_schema_is_typed_append_only_snapshot_storage() {
+    let pool = migrated_test_pool().await;
+    let columns: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'staff_security_audit'
+           AND (
+               (column_name = 'id' AND data_type = 'uuid' AND is_nullable = 'NO')
+               OR (column_name = 'action' AND data_type = 'text' AND is_nullable = 'NO')
+               OR (column_name = 'actor_staff_user_id' AND data_type = 'uuid' AND is_nullable = 'NO')
+               OR (column_name = 'session_id' AND data_type = 'uuid' AND is_nullable = 'NO')
+               OR (column_name = 'permission_code' AND data_type = 'text' AND is_nullable = 'YES')
+               OR (column_name = 'request_id' AND data_type = 'uuid' AND is_nullable = 'NO')
+               OR (column_name = 'created_at' AND data_type = 'timestamp with time zone' AND is_nullable = 'NO')
+           )",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(columns, 7);
+
+    let constraints: Vec<String> = sqlx::query_scalar(
+        "SELECT conname
+         FROM pg_constraint
+         WHERE conrelid = 'public.staff_security_audit'::regclass
+         ORDER BY conname",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(constraints.contains(&"staff_security_audit_action_check".to_owned()));
+    assert!(constraints.contains(&"staff_security_audit_action_context_check".to_owned()));
+    assert!(constraints.contains(&"staff_security_audit_pkey".to_owned()));
+    let foreign_keys: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM pg_constraint
+         WHERE conrelid = 'public.staff_security_audit'::regclass
+           AND contype = 'f'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(foreign_keys, 0);
+
+    let indexes: Vec<String> = sqlx::query_scalar(
+        "SELECT indexname
+         FROM pg_indexes
+         WHERE schemaname = 'public' AND tablename = 'staff_security_audit'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    for expected in [
+        "staff_security_audit_login_session_idx",
+        "staff_security_audit_revoked_session_idx",
+        "staff_security_audit_authz_dedup_idx",
+        "staff_security_audit_request_idx",
+        "staff_security_audit_created_idx",
+    ] {
+        assert!(
+            indexes.iter().any(|value| value == expected),
+            "missing {expected}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn staff_security_audit_rejects_invalid_action_context() {
+    let pool = migrated_test_pool().await;
+
+    let mut transaction = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO staff_security_audit
+            (action, actor_staff_user_id, session_id, permission_code, request_id)
+         VALUES ('STAFF_AUTHZ_DENIED', $1, $2, $3, $4)",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .bind("flights:read")
+    .bind(uuid::Uuid::new_v4())
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    transaction.rollback().await.unwrap();
+
+    let error = insert_staff_security_audit_test_row(&pool, "UNKNOWN", None)
+        .await
+        .unwrap_err();
+    assert_constraint_error(error, "23514", "staff_security_audit_action_check");
+    let error = insert_staff_security_audit_test_row(
+        &pool,
+        "STAFF_LOGIN_SUCCEEDED",
+        Some("staff:read".to_owned()),
+    )
+    .await
+    .unwrap_err();
+    assert_constraint_error(error, "23514", "staff_security_audit_action_context_check");
+    let error = insert_staff_security_audit_test_row(&pool, "STAFF_AUTHZ_DENIED", None)
+        .await
+        .unwrap_err();
+    assert_constraint_error(error, "23514", "staff_security_audit_action_context_check");
+    let error = insert_staff_security_audit_test_row(
+        &pool,
+        "STAFF_SESSION_REVOKED",
+        Some("staff:read".to_owned()),
+    )
+    .await
+    .unwrap_err();
+    assert_constraint_error(error, "23514", "staff_security_audit_action_context_check");
+
+    for permission in [
+        "".to_owned(),
+        "   ".to_owned(),
+        "\t".to_owned(),
+        "\n".to_owned(),
+        " \t\n ".to_owned(),
+        " staff:read".to_owned(),
+        "staff:read ".to_owned(),
+        "\tSTAFF_READ".to_owned(),
+        "STAFF_READ\t".to_owned(),
+        "\nSTAFF_READ".to_owned(),
+        "STAFF_READ\n".to_owned(),
+        "x".repeat(65),
+    ] {
+        let error =
+            insert_staff_security_audit_test_row(&pool, "STAFF_AUTHZ_DENIED", Some(permission))
+                .await
+                .unwrap_err();
+        assert_constraint_error(error, "23514", "staff_security_audit_action_context_check");
+    }
 }
 
 #[tokio::test]

@@ -89,6 +89,7 @@ async fn clean_dashboard_fixtures(pool: &PgPool) -> Result<(), sqlx::Error> {
          DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 880');
          DELETE FROM flight_service_seat_templates WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 880');
          DELETE FROM flight_service_cabins WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 880');
+         DELETE FROM staff_security_audit;
          DELETE FROM staff_sessions;
          DELETE FROM staff_login_throttles;
          DELETE FROM staff_user_roles;

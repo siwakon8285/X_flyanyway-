@@ -670,6 +670,31 @@ Table staff_login_throttles {
   '''
 }
 
+Table staff_security_audit {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  action text [not null]
+  actor_staff_user_id uuid [not null]
+  session_id uuid [not null]
+  permission_code text
+  request_id uuid [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  Note: '''
+  Role: Append-only staff authentication and authorization security evidence.
+  actor_staff_user_id and session_id are durable UUID snapshots with no physical foreign keys so account/session cleanup cannot delete audit history.
+  Passwords, password hashes, identifiers, bearer/session tokens, cookies, Authorization headers, request bodies, and arbitrary request data are excluded.
+  PostgreSQL CHECK constraints:
+  - staff_security_audit_action_check: CHECK (action = ANY (ARRAY['STAFF_LOGIN_SUCCEEDED'::text, 'STAFF_SESSION_REVOKED'::text, 'STAFF_AUTHZ_DENIED'::text]))
+  - staff_security_audit_action_context_check: login/revocation actions require NULL permission_code; STAFF_AUTHZ_DENIED requires a non-empty permission_code with no leading/trailing POSIX whitespace and 1-64 bytes
+  PostgreSQL indexes represented by notes because DBML cannot preserve their predicate or advanced definition exactly:
+  - staff_security_audit_login_session_idx: UNIQUE (session_id) WHERE action = 'STAFF_LOGIN_SUCCEEDED'
+  - staff_security_audit_revoked_session_idx: UNIQUE (session_id) WHERE action = 'STAFF_SESSION_REVOKED'
+  - staff_security_audit_authz_dedup_idx: UNIQUE (actor_staff_user_id, session_id, permission_code) WHERE action = 'STAFF_AUTHZ_DENIED'
+  - staff_security_audit_request_idx: CREATE INDEX staff_security_audit_request_idx ON public.staff_security_audit USING btree (request_id)
+  - staff_security_audit_created_idx: CREATE INDEX staff_security_audit_created_idx ON public.staff_security_audit USING btree (created_at DESC, id DESC)
+  '''
+}
+
 Table flight_management_audit {
   id uuid [pk, not null, default: `gen_random_uuid()`]
   actor_staff_user_id uuid [not null]
@@ -983,6 +1008,7 @@ TableGroup Staff_RBAC_Security {
   role_permissions
   staff_sessions
   staff_login_throttles
+  staff_security_audit
 }
 
 TableGroup Management_Audit {

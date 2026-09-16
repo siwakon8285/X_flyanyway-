@@ -193,20 +193,43 @@ impl StaffAuthRepository for SqlxStaffAuthRepository {
         staff_user_id: Uuid,
         token_hash: [u8; 32],
         lifetime: Duration,
+        request_id: Uuid,
     ) -> Result<StaffPrincipal, StaffAuthRepositoryError> {
         let seconds = i64::try_from(lifetime.as_secs())
             .map_err(|_| StaffAuthRepositoryError::InconsistentState)?;
-        sqlx::query(
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(StaffAuthRepositoryError::Infrastructure)?;
+        let session_id: Uuid = sqlx::query_scalar(
             "INSERT INTO staff_sessions (staff_user_id, token_hash, expires_at)
              SELECT id, $2, NOW() + make_interval(secs => $3::double precision)
-             FROM staff_users WHERE id = $1 AND status = 'ACTIVE'",
+             FROM staff_users WHERE id = $1 AND status = 'ACTIVE'
+             RETURNING id",
         )
         .bind(staff_user_id)
         .bind(token_hash.as_slice())
         .bind(seconds as f64)
-        .execute(&self.pool)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(StaffAuthRepositoryError::Infrastructure)?
+        .ok_or(StaffAuthRepositoryError::InconsistentState)?;
+        sqlx::query(
+            "INSERT INTO staff_security_audit
+                (action, actor_staff_user_id, session_id, request_id)
+             VALUES ('STAFF_LOGIN_SUCCEEDED', $1, $2, $3)",
+        )
+        .bind(staff_user_id)
+        .bind(session_id)
+        .bind(request_id)
+        .execute(&mut *transaction)
         .await
         .map_err(StaffAuthRepositoryError::Infrastructure)?;
+        transaction
+            .commit()
+            .await
+            .map_err(StaffAuthRepositoryError::Infrastructure)?;
         self.principal_for_hash(token_hash)
             .await?
             .ok_or(StaffAuthRepositoryError::InconsistentState)
@@ -219,13 +242,62 @@ impl StaffAuthRepository for SqlxStaffAuthRepository {
         self.principal_for_hash(token_hash).await
     }
 
-    async fn revoke_session(&self, token_hash: [u8; 32]) -> Result<(), StaffAuthRepositoryError> {
-        sqlx::query(
+    async fn revoke_session(
+        &self,
+        token_hash: [u8; 32],
+        request_id: Uuid,
+    ) -> Result<(), StaffAuthRepositoryError> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(StaffAuthRepositoryError::Infrastructure)?;
+        let revoked: Option<(Uuid, Uuid)> = sqlx::query_as(
             "UPDATE staff_sessions SET revoked_at = COALESCE(revoked_at, NOW()),
                     revocation_reason = COALESCE(revocation_reason, 'LOGOUT')
-             WHERE token_hash = $1",
+             WHERE token_hash = $1 AND revoked_at IS NULL
+             RETURNING id, staff_user_id",
         )
         .bind(token_hash.as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(StaffAuthRepositoryError::Infrastructure)?;
+        if let Some((session_id, staff_user_id)) = revoked {
+            sqlx::query(
+                "INSERT INTO staff_security_audit
+                    (action, actor_staff_user_id, session_id, request_id)
+                 VALUES ('STAFF_SESSION_REVOKED', $1, $2, $3)",
+            )
+            .bind(staff_user_id)
+            .bind(session_id)
+            .bind(request_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(StaffAuthRepositoryError::Infrastructure)?;
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(StaffAuthRepositoryError::Infrastructure)
+    }
+
+    async fn record_authorization_denied(
+        &self,
+        staff_user_id: Uuid,
+        session_id: Uuid,
+        permission: PermissionCode,
+        request_id: Uuid,
+    ) -> Result<(), StaffAuthRepositoryError> {
+        sqlx::query(
+            "INSERT INTO staff_security_audit
+                (action, actor_staff_user_id, session_id, permission_code, request_id)
+             VALUES ('STAFF_AUTHZ_DENIED', $1, $2, $3, $4)
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(staff_user_id)
+        .bind(session_id)
+        .bind(permission.as_str())
+        .bind(request_id)
         .execute(&self.pool)
         .await
         .map(|_| ())

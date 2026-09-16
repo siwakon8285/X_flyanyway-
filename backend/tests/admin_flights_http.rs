@@ -51,6 +51,7 @@ async fn cleanup(pool: &PgPool) -> Result<(), sqlx::Error> {
          DELETE FROM flight_instances WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number = 'XF 952');
          DELETE FROM flight_service_cabins WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number = 'XF 952');
          DELETE FROM flight_services WHERE flight_number = 'XF 952';
+         DELETE FROM staff_security_audit;
          DELETE FROM staff_sessions; DELETE FROM staff_user_roles; DELETE FROM staff_users WHERE email LIKE '%@flight-http.test';",
     )
     .execute(pool)

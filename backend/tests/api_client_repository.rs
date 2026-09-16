@@ -61,6 +61,8 @@ async fn clean_api_client_fixtures(pool: &PgPool) -> Result<(), sqlx::Error> {
          DELETE FROM api_clients
          WHERE created_by_staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@api-client-repo.test')
             OR updated_by_staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@api-client-repo.test');
+         DELETE FROM staff_security_audit
+         WHERE actor_staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@api-client-repo.test');
          DELETE FROM staff_sessions
          WHERE staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@api-client-repo.test');
          DELETE FROM staff_user_roles

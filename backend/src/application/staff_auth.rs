@@ -3,11 +3,12 @@ use std::{sync::Arc, time::Duration};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 use crate::{
     domain::{
         repositories::{StaffAuthRepository, StaffAuthRepositoryError},
-        staff::{RoleCode, StaffEmail, StaffPrincipal},
+        staff::{PermissionCode, RoleCode, StaffEmail, StaffPrincipal},
     },
     infrastructure::password::Argon2PasswordService,
 };
@@ -245,6 +246,16 @@ impl StaffAuthService {
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<StaffLogin, StaffAuthError> {
+        self.login_with_request_id(email, password, Uuid::new_v4())
+            .await
+    }
+
+    pub async fn login_with_request_id(
+        &self,
+        email: &str,
+        password: &str,
+        request_id: Uuid,
+    ) -> Result<StaffLogin, StaffAuthError> {
         let normalized_identifier = email.trim().to_lowercase();
         let identifier_hash = hash_bytes(normalized_identifier.as_bytes());
         let blocked = self
@@ -317,7 +328,7 @@ impl StaffAuthService {
         let token_hash = hash_bytes(&raw_token);
         let principal = self
             .repository
-            .create_session(credential.id, token_hash, self.session_lifetime)
+            .create_session(credential.id, token_hash, self.session_lifetime, request_id)
             .await
             .map_err(StaffAuthError::from)?;
         Ok(StaffLogin {
@@ -336,13 +347,38 @@ impl StaffAuthService {
     }
 
     pub async fn logout(&self, token: &str) -> Result<(), StaffAuthError> {
+        self.logout_with_request_id(token, Uuid::new_v4()).await
+    }
+
+    pub async fn logout_with_request_id(
+        &self,
+        token: &str,
+        request_id: Uuid,
+    ) -> Result<(), StaffAuthError> {
         if let Ok(raw) = decode_token(token) {
             self.repository
-                .revoke_session(hash_bytes(&raw))
+                .revoke_session(hash_bytes(&raw), request_id)
                 .await
                 .map_err(StaffAuthError::from)?;
         }
         Ok(())
+    }
+
+    pub async fn record_authorization_denied(
+        &self,
+        principal: &StaffPrincipal,
+        permission: PermissionCode,
+        request_id: Uuid,
+    ) -> Result<(), StaffAuthError> {
+        self.repository
+            .record_authorization_denied(
+                principal.staff_user_id(),
+                principal.session_id(),
+                permission,
+                request_id,
+            )
+            .await
+            .map_err(StaffAuthError::from)
     }
 
     pub async fn provision(
@@ -527,6 +563,7 @@ mod tests {
             staff_user_id: Uuid,
             _token_hash: [u8; 32],
             _lifetime: Duration,
+            _request_id: Uuid,
         ) -> Result<StaffPrincipal, StaffAuthRepositoryError> {
             self.state.lock().expect("repository state lock").sessions += 1;
             Ok(StaffPrincipal::new(
@@ -549,6 +586,17 @@ mod tests {
         async fn revoke_session(
             &self,
             _token_hash: [u8; 32],
+            _request_id: Uuid,
+        ) -> Result<(), StaffAuthRepositoryError> {
+            Ok(())
+        }
+
+        async fn record_authorization_denied(
+            &self,
+            _staff_user_id: Uuid,
+            _session_id: Uuid,
+            _permission: PermissionCode,
+            _request_id: Uuid,
         ) -> Result<(), StaffAuthRepositoryError> {
             Ok(())
         }

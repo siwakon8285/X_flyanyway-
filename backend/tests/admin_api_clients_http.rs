@@ -147,6 +147,10 @@ async fn cleanup_actor(pool: &PgPool, actor: Uuid) -> Result<(), sqlx::Error> {
     .bind(actor)
     .execute(pool)
     .await?;
+    sqlx::query("DELETE FROM staff_security_audit WHERE actor_staff_user_id=$1")
+        .bind(actor)
+        .execute(pool)
+        .await?;
     sqlx::query("DELETE FROM staff_sessions WHERE staff_user_id=$1")
         .bind(actor)
         .execute(pool)

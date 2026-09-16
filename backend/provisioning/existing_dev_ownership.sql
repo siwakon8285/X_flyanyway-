@@ -39,6 +39,7 @@ ALTER TABLE public.role_permissions OWNER TO x_fly_migrator;
 ALTER TABLE public.roles OWNER TO x_fly_migrator;
 ALTER TABLE public.seat_holds OWNER TO x_fly_migrator;
 ALTER TABLE public.staff_login_throttles OWNER TO x_fly_migrator;
+ALTER TABLE public.staff_security_audit OWNER TO x_fly_migrator;
 ALTER TABLE public.staff_sessions OWNER TO x_fly_migrator;
 ALTER TABLE public.staff_user_roles OWNER TO x_fly_migrator;
 ALTER TABLE public.staff_users OWNER TO x_fly_migrator;

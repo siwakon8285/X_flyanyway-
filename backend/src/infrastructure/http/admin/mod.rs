@@ -1,18 +1,24 @@
+use std::sync::{Arc, Mutex};
+
 use axum::{
+    body::Body,
     extract::{
         rejection::{JsonRejection, QueryRejection},
-        FromRequestParts, Path, Query, State,
+        Extension, FromRequestParts, Path, Query, State,
     },
-    http::{header, request::Parts, HeaderMap, HeaderValue, StatusCode},
+    http::{header, request::Parts, HeaderMap, HeaderValue, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+use tower_http::request_id::RequestId;
+use uuid::Uuid;
 
 use crate::{
-    application::staff_auth::StaffAuthError,
+    application::staff_auth::{StaffAuthError, StaffAuthService},
     application::{
         analytics::AnalyticsFilter,
         api_client::{
@@ -117,6 +123,7 @@ pub fn router() -> Router<AppState> {
             "/api/v1/admin/api-clients/{client_id}/revoke",
             post(revoke_api_client),
         )
+        .layer(middleware::from_fn(audit_authorization_denial))
 }
 
 #[derive(Deserialize)]
@@ -1346,6 +1353,7 @@ struct LoginRequest {
 
 async fn login(
     State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
     headers: HeaderMap,
     payload: Result<Json<LoginRequest>, JsonRejection>,
 ) -> Response {
@@ -1363,7 +1371,11 @@ async fn login(
             .as_ref()
             .ok_or_else(AdminApiError::internal)?;
         let login = auth
-            .login(&request.email, &request.password)
+            .login_with_request_id(
+                &request.email,
+                &request.password,
+                request_id_uuid(&request_id)?,
+            )
             .await
             .map_err(AdminApiError::from)?;
         let cookie = staff_cookie(
@@ -1383,17 +1395,23 @@ async fn login(
     private_no_store(result.unwrap_or_else(IntoResponse::into_response))
 }
 
-async fn session(AuthenticatedStaff(principal): AuthenticatedStaff) -> Response {
+async fn session(AuthenticatedStaff { principal, .. }: AuthenticatedStaff) -> Response {
     private_no_store(Json(PrincipalResponse::from(&principal)).into_response())
 }
 
-async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
+async fn logout(
+    State(state): State<AppState>,
+    Extension(request_id): Extension<RequestId>,
+    headers: HeaderMap,
+) -> Response {
     let result = async {
         if !browser_mutation_is_trusted(&headers, &state.frontend_origin) {
             return Err(AdminApiError::forbidden_origin());
         }
         if let (Some(auth), Some(token)) = (state.staff_auth.as_ref(), staff_token(&headers)) {
-            auth.logout(token).await.map_err(AdminApiError::from)?;
+            auth.logout_with_request_id(token, request_id_uuid(&request_id)?)
+                .await
+                .map_err(AdminApiError::from)?;
         }
         let cookie = staff_cookie("", 0, state.secure_cookies)?;
         Ok::<_, AdminApiError>(
@@ -1417,16 +1435,106 @@ pub fn permission_response(
     })
 }
 
+fn request_id_uuid(request_id: &RequestId) -> Result<Uuid, AdminApiError> {
+    request_id
+        .header_value()
+        .to_str()
+        .ok()
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .ok_or_else(AdminApiError::internal)
+}
+
+#[derive(Default)]
+struct StaffAuthorizationContext {
+    principal: Mutex<Option<StaffPrincipal>>,
+    auth: Mutex<Option<StaffAuthService>>,
+    denied_permission: Mutex<Option<PermissionCode>>,
+}
+
+impl StaffAuthorizationContext {
+    fn set_authenticated(&self, principal: StaffPrincipal, auth: StaffAuthService) {
+        *self.principal.lock().expect("staff auth context lock") = Some(principal);
+        *self.auth.lock().expect("staff auth context lock") = Some(auth);
+    }
+
+    fn mark_denied(&self, permission: PermissionCode) {
+        let mut denied = self
+            .denied_permission
+            .lock()
+            .expect("staff auth context lock");
+        if denied.is_none() {
+            *denied = Some(permission);
+        }
+    }
+
+    fn denial(&self) -> Option<(StaffAuthService, StaffPrincipal, PermissionCode)> {
+        let permission = (*self
+            .denied_permission
+            .lock()
+            .expect("staff auth context lock"))?;
+        let principal = self
+            .principal
+            .lock()
+            .expect("staff auth context lock")
+            .clone()?;
+        let auth = self.auth.lock().expect("staff auth context lock").clone()?;
+        Some((auth, principal, permission))
+    }
+}
+
+async fn audit_authorization_denial(mut request: Request<Body>, next: Next) -> Response {
+    let context = Arc::new(StaffAuthorizationContext::default());
+    let request_id = request
+        .extensions()
+        .get::<RequestId>()
+        .and_then(|value| request_id_uuid(value).ok());
+    request.extensions_mut().insert(Arc::clone(&context));
+    let response = next.run(request).await;
+    if response.status() == StatusCode::FORBIDDEN {
+        if let (Some(request_id), Some((auth, principal, permission))) =
+            (request_id, context.denial())
+        {
+            if auth
+                .record_authorization_denied(&principal, permission, request_id)
+                .await
+                .is_err()
+            {
+                tracing::error!(
+                    event = "staff_authz_denied_audit_failed",
+                    request_id = %request_id,
+                    "staff authorization audit persistence failed"
+                );
+            }
+        }
+    }
+    response
+}
+
 /// Durable staff authentication extractor for all future human-admin handlers.
 /// Every extraction resolves the opaque session and current account/RBAC state
 /// from PostgreSQL, so disable, revocation, and grant changes take effect at once.
-pub struct AuthenticatedStaff(pub StaffPrincipal);
+pub struct AuthenticatedStaff {
+    principal: StaffPrincipal,
+    context: Option<Arc<StaffAuthorizationContext>>,
+}
+
+impl AuthenticatedStaff {
+    pub fn new(principal: StaffPrincipal) -> Self {
+        Self {
+            principal,
+            context: None,
+        }
+    }
+}
 
 impl AuthenticatedStaff {
     pub fn require(&self, permission: PermissionCode) -> Result<&StaffPrincipal, PermissionDenied> {
-        if self.0.can(permission) {
-            Ok(&self.0)
+        if self.principal.can(permission) {
+            Ok(&self.principal)
         } else {
+            if let Some(context) = &self.context {
+                context.mark_denied(permission);
+            }
             Err(PermissionDenied)
         }
     }
@@ -1448,16 +1556,24 @@ impl FromRequestParts<AppState> for AuthenticatedStaff {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let result = async {
+        let result: Result<AuthenticatedStaff, AdminApiError> = async {
             let token = staff_token(&parts.headers).ok_or_else(AdminApiError::unauthenticated)?;
             let auth = state
                 .staff_auth
                 .as_ref()
                 .ok_or_else(AdminApiError::internal)?;
-            auth.authenticate(token)
+            let principal = auth
+                .authenticate(token)
                 .await
-                .map(AuthenticatedStaff)
-                .map_err(AdminApiError::from)
+                .map_err(AdminApiError::from)?;
+            let context = parts
+                .extensions
+                .get::<Arc<StaffAuthorizationContext>>()
+                .cloned();
+            if let Some(context) = &context {
+                context.set_authenticated(principal.clone(), auth.clone());
+            }
+            Ok(AuthenticatedStaff { principal, context })
         }
         .await;
         result.map_err(|error| private_no_store(error.into_response()))
@@ -2069,7 +2185,7 @@ mod tests {
 
         let response = super::cancel_booking(
             State(test_state()),
-            AuthenticatedStaff(staff),
+            AuthenticatedStaff::new(staff),
             Path("XF23456789".to_owned()),
             headers,
         )

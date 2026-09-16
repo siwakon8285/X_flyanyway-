@@ -18,7 +18,7 @@ use crate::domain::{
     passengers::{BookingContactInput, PassengerContext, PassengerFieldError, PassengerInput},
     payment::{PaymentAttempt, PaymentAttemptTransition, PaymentContext, PaymentRepositoryCommand},
     review::ReviewContext,
-    staff::{RoleCode, StaffCredential, StaffPrincipal},
+    staff::{PermissionCode, RoleCode, StaffCredential, StaffPrincipal},
     ticket::{Ticket, TicketVerification},
     ticket_operations::{TicketOperationsFilter, TicketOperationsPage, TicketOperationsRecord},
 };
@@ -67,12 +67,24 @@ pub trait StaffAuthRepository: Send + Sync {
         staff_user_id: Uuid,
         token_hash: [u8; 32],
         lifetime: Duration,
+        request_id: Uuid,
     ) -> Result<StaffPrincipal, StaffAuthRepositoryError>;
     async fn authenticate_session(
         &self,
         token_hash: [u8; 32],
     ) -> Result<Option<StaffPrincipal>, StaffAuthRepositoryError>;
-    async fn revoke_session(&self, token_hash: [u8; 32]) -> Result<(), StaffAuthRepositoryError>;
+    async fn revoke_session(
+        &self,
+        token_hash: [u8; 32],
+        request_id: Uuid,
+    ) -> Result<(), StaffAuthRepositoryError>;
+    async fn record_authorization_denied(
+        &self,
+        staff_user_id: Uuid,
+        session_id: Uuid,
+        permission: PermissionCode,
+        request_id: Uuid,
+    ) -> Result<(), StaffAuthRepositoryError>;
     async fn provision_staff(
         &self,
         first_only: bool,

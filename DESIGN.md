@@ -2996,6 +2996,8 @@ Staff passwords use Argon2id and are provisioned only through the local `staff_a
 
 Staff login keeps a durable per-normalized-identifier throttle and rejects an actively blocked identifier before any password hashing. Real and dummy Argon2 verification share one process-local bounded admission limit (`STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS`, default four, valid range `1..=4`); saturated requests use the existing throttled response without recording a password failure. Values above four require an explicit reviewed source/configuration change backed by host-capacity and load testing. This process-local limit is not a distributed rate limit. Source-aware admission belongs at a trusted edge after proxy header sanitization; application authentication does not trust forwarded-IP headers.
 
+Branch 26 adds a narrow append-only `staff_security_audit` record for successful staff login, actual self-session revocation, and typed RBAC permission denial. The audit stores only database-generated identity/session UUID snapshots, the server-generated request UUID, bounded action/permission values, and creation time; it never stores passwords, identifiers, tokens, cookies, Authorization headers, request bodies, or arbitrary request data. Login success and self-logout state changes are committed atomically with their audit row. Authorization denial is decided before audit persistence and remains denied if the audit write fails. Repeated denials are deduplicated per staff/session/permission, while failed/unknown/throttled/saturated login attempts and invalid sessions remain outside the durable F03 event stream to avoid audit-storage amplification. The application runtime receives only column-level INSERT for the five supplied fields (`action`, actor/session UUIDs, optional `permission_code`, and `request_id`); database-generated `id`/`created_at` are not insertable, and runtime has no audit SELECT/UPDATE/DELETE/TRUNCATE/DDL path. The process-local audit behavior is not a distributed control and trusted-edge admission remains required.
+
 The `/admin` workspace provides the shared authentication, authorization, navigation, and visual shell for authorized staff modules. Navigation reflects current effective permissions, while each backend module remains independently authoritative for access control. English and Thai use the shared typed locale system.
 
 Company-managed-device access is not proven by application login or browser checks. Real enforcement remains a Branch 26 identity/network control using an auditable mechanism such as managed-device certificates, Zero Trust device posture, MDM identity, or a private/VPN policy.
@@ -3418,12 +3420,13 @@ audit table accepts only its approved seven insert columns. Public has no auth
 table or audit write path. See `backend/provisioning/README.md` and
 `backend/provisioning/runtime_grants.sql` for the executable allowlist.
 
-Branch 25 adds two auth tables. The current migrated schema therefore records
-`26 → 27` migration-ledger entries (`27/27` successful/total), `33 → 35`
-application tables excluding `_sqlx_migrations`, `34 → 36` public tables
-including the ledger, and `34 → 36` public tables owned by `x_fly_migrator`.
+Branch 25 adds two auth tables. Branch 26 F03 adds the append-only
+`staff_security_audit` table. The current migrated schema therefore records
+`27 → 28` migration-ledger entries (`28/28` successful/total), `35 → 36`
+application tables excluding `_sqlx_migrations`, `36 → 37` public tables
+including the ledger, and `36 → 37` public tables owned by `x_fly_migrator`.
 These counts are distinct checks, not interchangeable labels; the current
-values are 27, 35, 36, and 36 respectively.
+values are 28, 36, 37, and 37 respectively.
 
 Developer integration tests use only the disposable TEST target
 `127.0.0.1:5434` / `x_fly_concurrency_test`, with setup through

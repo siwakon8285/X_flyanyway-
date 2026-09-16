@@ -59,6 +59,7 @@ async fn cleanup(pool: &PgPool) -> Result<(), sqlx::Error> {
          DELETE FROM flight_service_seat_templates WHERE flight_service_id IN (SELECT id FROM flight_services WHERE public_id LIKE 'booking-http-%');
          DELETE FROM flight_service_cabins WHERE flight_service_id IN (SELECT id FROM flight_services WHERE public_id LIKE 'booking-http-%');
          DELETE FROM flight_services WHERE public_id LIKE 'booking-http-%';
+         DELETE FROM staff_security_audit WHERE actor_staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@booking-http.test');
          DELETE FROM staff_sessions WHERE staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@booking-http.test');
          DELETE FROM staff_user_roles WHERE staff_user_id IN (SELECT id FROM staff_users WHERE email LIKE '%@booking-http.test');
          DELETE FROM staff_users WHERE email LIKE '%@booking-http.test';",
