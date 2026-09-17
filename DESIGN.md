@@ -3589,8 +3589,13 @@ uses `Pragma: no-cache`.
 
 External routes deliberately emit no browser `Access-Control-Allow-*` headers.
 Request tracing records only request ID, method, matched route template, status,
-latency, and safe diagnostic categories. It excludes Authorization, cookies,
-query strings, request/response bodies, credentials, token hashes, PII, and raw
+latency, and safe diagnostic categories. External authentication diagnostics are
+emitted by the application/HTTP layer from bounded repository outcomes: successful
+token exchange and bearer authentication may include only the authoritative
+public client ID; anonymous and known-client failures remain low-cardinality, and
+unknown bearer tokens are intentionally silent. Credential-unavailable outcomes
+have no dedicated diagnostic. Diagnostics never include Authorization, cookies,
+query strings, request/response bodies, credentials, token hashes, PII, or raw
 database errors. There is no application-level `429` contract. Before exposing
 the namespace publicly, configure TLS and edge/proxy controls (including
 rate-limiting and log redaction) at Nginx/Cloudflare or the equivalent edge.

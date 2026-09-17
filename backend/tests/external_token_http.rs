@@ -1,6 +1,7 @@
 mod common;
 
 use std::{
+    io,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -55,6 +56,23 @@ struct Fixture {
     actor_id: Uuid,
     secret_text: String,
     credential_id: Uuid,
+}
+
+#[derive(Clone)]
+struct CaptureWriter(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl io::Write for CaptureWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .expect("capture writer lock")
+            .extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 struct CountingRepository {
@@ -405,6 +423,26 @@ async fn send_token(
     response_body(response).await
 }
 
+async fn send_token_captured(
+    router: &Router,
+    raw_body: &str,
+    origin: Option<&str>,
+) -> ((StatusCode, HeaderMap, Value), String) {
+    let output = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let writer_output = Arc::clone(&output);
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_max_level(tracing::Level::DEBUG)
+        .with_writer(move || CaptureWriter(Arc::clone(&writer_output)))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let response = send_token(router, raw_body, origin).await;
+    drop(guard);
+    let output = String::from_utf8(output.lock().expect("capture output lock").clone())
+        .expect("trace output is UTF-8");
+    (response, output)
+}
+
 fn token_request(fixture: &Fixture) -> String {
     json!({"clientId": fixture.client_id, "clientSecret": fixture.secret_text}).to_string()
 }
@@ -498,6 +536,26 @@ async fn send_protected(
         .await
         .expect("protected response");
     response_body(response).await
+}
+
+async fn send_protected_captured(
+    router: &Router,
+    values: &[&str],
+    cookies: Option<&str>,
+) -> ((StatusCode, HeaderMap, Value), String) {
+    let output = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let writer_output = Arc::clone(&output);
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_max_level(tracing::Level::DEBUG)
+        .with_writer(move || CaptureWriter(Arc::clone(&writer_output)))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let response = send_protected(router, values, cookies).await;
+    drop(guard);
+    let output = String::from_utf8(output.lock().expect("capture output lock").clone())
+        .expect("trace output is UTF-8");
+    (response, output)
 }
 
 fn assert_external_error(body: &Value, code: &str) {
@@ -1058,6 +1116,268 @@ async fn missing_external_auth_service_fails_closed() {
     let (status, _, body) = send_token(&router, raw, None).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_external_error(&body, "EXTERNAL_AUTH_UNAVAILABLE");
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn token_exchange_success_emits_authoritative_diagnostic() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |_setup, runtime, fixture| async move {
+            let router = app(runtime, true);
+            let ((status, headers, body), output) =
+                send_token_captured(&router, &token_request(&fixture), None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(headers[header::CACHE_CONTROL], "no-store, private");
+            assert_eq!(body["tokenType"], "Bearer");
+            assert!(output.contains("external_auth_diagnostic=\"succeeded\""));
+            assert!(output.contains("external_auth_flow=\"token_exchange\""));
+            assert!(output.contains(&format!("external_client_id=\"{}\"", fixture.client_id)));
+            assert!(!output.contains(&fixture.secret_text));
+            assert!(!output.contains("Authorization"));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn token_exchange_known_bad_secret_emits_safe_attributed_diagnostic() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |_setup, runtime, fixture| async move {
+            let router = app(runtime, true);
+            let secret = "ab".repeat(32);
+            let request = json!({
+                "clientId": fixture.client_id,
+                "clientSecret": secret,
+            })
+            .to_string();
+            let ((status, headers, body), output) =
+                send_token_captured(&router, &request, None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+            assert_external_error(&body, "EXTERNAL_CLIENT_AUTHENTICATION_FAILED");
+            assert!(output.contains("external_auth_diagnostic=\"secret_mismatch\""));
+            assert!(output.contains(&format!("external_client_id=\"{}\"", fixture.client_id)));
+            assert!(!output.contains(&secret));
+            assert!(!output.contains("Authorization"));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn token_exchange_unknown_client_is_unattributed_and_diagnostic() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |_setup, runtime, _fixture| async move {
+            let router = app(runtime, true);
+            let unknown_client_id = unique_client_id();
+            let secret = "cd".repeat(32);
+            let request = json!({
+                "clientId": unknown_client_id,
+                "clientSecret": secret,
+            })
+            .to_string();
+            let ((status, _, body), output) = send_token_captured(&router, &request, None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_external_error(&body, "EXTERNAL_CLIENT_AUTHENTICATION_FAILED");
+            assert!(output.contains("external_auth_diagnostic=\"unknown_client\""));
+            assert!(!output.contains(&unknown_client_id));
+            assert!(!output.contains(&secret));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn malformed_token_exchange_emits_only_bounded_diagnostic() {
+    let (_, runtime) = pools().await;
+    let router = app(runtime, false);
+    let sentinel = "malformed-client-sentinel";
+    let ((status, _, body), output) = send_token_captured(
+        &router,
+        &json!({"clientId": sentinel, "clientSecret": "not-a-secret"}).to_string(),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_external_error(&body, "EXTERNAL_REQUEST_INVALID");
+    assert!(output.contains("external_auth_diagnostic=\"malformed\""));
+    assert!(!output.contains(sentinel));
+    assert!(!output.contains("not-a-secret"));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn bearer_success_emits_authoritative_diagnostic() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |_setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token_router = build_router(state.clone());
+            let token = exchange(&token_router, &fixture).await;
+            let protected = protected_app(state);
+            let ((status, _, body), output) =
+                send_protected_captured(&protected, &[&format!("Bearer {token}")], None).await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["clientId"], fixture.client_id);
+            assert!(output.contains("external_auth_diagnostic=\"succeeded\""));
+            assert!(output.contains("external_auth_flow=\"bearer\""));
+            assert!(output.contains(&format!("external_client_id=\"{}\"", fixture.client_id)));
+            assert!(!output.contains(&token));
+            assert!(!output.contains("Authorization"));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn expired_bearer_emits_attributed_diagnostic_without_token_material() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |setup, runtime, fixture| async move {
+            let token = insert_expired_token(&setup, &fixture).await;
+            let protected = protected_app(state_with_auth(runtime));
+            let authorization = format!("Bearer {token}");
+            let ((status, headers, body), output) =
+                send_protected_captured(&protected, &[&authorization], None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+            assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+            assert!(output.contains("external_auth_diagnostic=\"expired\""));
+            assert!(output.contains(&format!("external_client_id=\"{}\"", fixture.client_id)));
+            assert!(!output.contains(&token));
+            assert!(!output.contains("Authorization"));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn suspended_bearer_emits_attributed_diagnostic_without_changing_contract() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token_router = build_router(state.clone());
+            let token = exchange(&token_router, &fixture).await;
+            mark_client_status(&setup, &fixture, "SUSPENDED").await;
+            let protected = protected_app(state);
+            let authorization = format!("Bearer {token}");
+            let ((status, headers, body), output) =
+                send_protected_captured(&protected, &[&authorization], None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+            assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+            assert!(output.contains("external_auth_diagnostic=\"suspended\""));
+            assert!(output.contains(&format!("external_client_id=\"{}\"", fixture.client_id)));
+            assert!(!output.contains(&token));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn revoked_client_token_exchange_emits_attributed_diagnostic() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "REVOKED",
+        move |_setup, runtime, fixture| async move {
+            let router = app(runtime, true);
+            let ((status, headers, body), output) =
+                send_token_captured(&router, &token_request(&fixture), None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+            assert_external_error(&body, "EXTERNAL_CLIENT_AUTHENTICATION_FAILED");
+            assert!(output.contains("external_auth_diagnostic=\"revoked\""));
+            assert!(output.contains(&format!("external_client_id=\"{}\"", fixture.client_id)));
+            assert!(!output.contains(&fixture.secret_text));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn token_exchange_without_live_credential_has_no_dedicated_diagnostic() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |setup, runtime, fixture| async move {
+            revoke_fixture_credential(&setup, &fixture).await;
+            let router = app(runtime, true);
+            let ((status, headers, body), output) =
+                send_token_captured(&router, &token_request(&fixture), None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert!(headers.get(header::WWW_AUTHENTICATE).is_none());
+            assert_external_error(&body, "EXTERNAL_CLIENT_AUTHENTICATION_FAILED");
+            assert!(!output.contains("credential_unavailable"));
+            assert!(!output.contains("secret_mismatch"));
+            assert!(!output.contains(&fixture.secret_text));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn revoked_bearer_emits_attributed_diagnostic_without_token_material() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        "ACTIVE",
+        move |setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token_router = build_router(state.clone());
+            let token = exchange(&token_router, &fixture).await;
+            revoke_fixture_credential(&setup, &fixture).await;
+            let protected = protected_app(state);
+            let authorization = format!("Bearer {token}");
+            let ((status, headers, body), output) =
+                send_protected_captured(&protected, &[&authorization], None).await;
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+            assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+            assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+            assert!(output.contains("external_auth_diagnostic=\"revoked\""));
+            assert!(output.contains(&format!("external_client_id=\"{}\"", fixture.client_id)));
+            assert!(!output.contains(&token));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn unknown_valid_format_bearer_has_no_extra_diagnostic() {
+    let (_, runtime) = pools().await;
+    let protected = protected_app(state_with_auth(runtime));
+    let unknown = "Bearer xfa_v1_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    let ((status, headers, body), output) =
+        send_protected_captured(&protected, &[unknown], None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(headers[header::WWW_AUTHENTICATE], "Bearer");
+    assert_external_error(&body, "EXTERNAL_AUTHENTICATION_FAILED");
+    assert!(!output.contains("external_auth_diagnostic"));
+    assert!(!output.contains(unknown));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn missing_and_malformed_bearer_emit_bounded_diagnostics() {
+    let (_, runtime) = pools().await;
+    let protected = protected_app(state_with_auth(runtime));
+    let ((missing_status, _, missing_body), missing_output) =
+        send_protected_captured(&protected, &[], None).await;
+    assert_eq!(missing_status, StatusCode::UNAUTHORIZED);
+    assert_external_error(&missing_body, "EXTERNAL_AUTHENTICATION_FAILED");
+    assert!(missing_output.contains("external_auth_diagnostic=\"missing\""));
+
+    let ((malformed_status, _, malformed_body), malformed_output) =
+        send_protected_captured(&protected, &["Basic malformed-sentinel"], None).await;
+    assert_eq!(malformed_status, StatusCode::UNAUTHORIZED);
+    assert_external_error(&malformed_body, "EXTERNAL_AUTHENTICATION_FAILED");
+    assert!(malformed_output.contains("external_auth_diagnostic=\"malformed\""));
+    assert!(!malformed_output.contains("malformed-sentinel"));
 }
 
 impl Clone for Fixture {

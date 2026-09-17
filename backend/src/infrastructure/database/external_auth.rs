@@ -7,7 +7,10 @@ use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 use crate::{
-    application::external_auth::ExternalAuthRepository,
+    application::external_auth::{
+        BearerRejection, BearerRepositoryOutcome, ExternalAuthRepository, TokenExchangeRejection,
+        TokenExchangeRepositoryOutcome,
+    },
     domain::{
         api_client::{ApiClientScope, ApiClientStatus},
         external_api::{
@@ -213,21 +216,62 @@ impl ExternalAuthRepository for SqlxExternalAuthRepository {
         issued_at: DateTime<Utc>,
         expires_at: DateTime<Utc>,
     ) -> Result<(), ExternalTokenExchangeError> {
+        match self
+            .issue_access_token_outcome(client_id, digest, token_hash, issued_at, expires_at)
+            .await?
+        {
+            TokenExchangeRepositoryOutcome::Issued { .. } => Ok(()),
+            TokenExchangeRepositoryOutcome::Rejected { .. } => {
+                Err(ExternalTokenExchangeError::InvalidCredential)
+            }
+        }
+    }
+
+    async fn issue_access_token_outcome(
+        &self,
+        client_id: &str,
+        digest: &CredentialDigest,
+        token_hash: &AccessTokenHash,
+        issued_at: DateTime<Utc>,
+        expires_at: DateTime<Utc>,
+    ) -> Result<TokenExchangeRepositoryOutcome, ExternalTokenExchangeError> {
         let mut transaction = self
             .pool
             .begin()
             .await
             .map_err(|_| ExternalTokenExchangeError::Unavailable)?;
         let client = sqlx::query_as::<_, ClientLockRow>(
-            "SELECT id,status FROM api_clients WHERE client_id=$1 FOR UPDATE",
+            "SELECT id,client_id,status
+             FROM api_clients
+             WHERE client_id=$1
+             FOR UPDATE",
         )
         .bind(client_id)
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|_| ExternalTokenExchangeError::Unavailable)?
-        .ok_or(ExternalTokenExchangeError::InvalidCredential)?;
-        if client.status() != ApiClientStatus::Active {
-            return Err(ExternalTokenExchangeError::InvalidCredential);
+        .map_err(|_| ExternalTokenExchangeError::Unavailable)?;
+        let Some(client) = client else {
+            return Ok(TokenExchangeRepositoryOutcome::rejected(
+                TokenExchangeRejection::UnknownClient,
+                None,
+            ));
+        };
+        let resolved_client_id = client.client_id.clone();
+        let client_id = Some(resolved_client_id.clone());
+        match client.status() {
+            ApiClientStatus::Suspended => {
+                return Ok(TokenExchangeRepositoryOutcome::rejected(
+                    TokenExchangeRejection::Suspended,
+                    client_id,
+                ));
+            }
+            ApiClientStatus::Revoked => {
+                return Ok(TokenExchangeRepositoryOutcome::rejected(
+                    TokenExchangeRejection::Revoked,
+                    client_id,
+                ));
+            }
+            ApiClientStatus::Active => {}
         }
         let credential = sqlx::query_as::<_, CredentialVerifierRow>(
             "SELECT id,secret_digest
@@ -240,10 +284,18 @@ impl ExternalAuthRepository for SqlxExternalAuthRepository {
         .bind(client.id)
         .fetch_optional(&mut *transaction)
         .await
-        .map_err(|_| ExternalTokenExchangeError::Unavailable)?
-        .ok_or(ExternalTokenExchangeError::InvalidCredential)?;
+        .map_err(|_| ExternalTokenExchangeError::Unavailable)?;
+        let Some(credential) = credential else {
+            return Ok(TokenExchangeRepositoryOutcome::rejected(
+                TokenExchangeRejection::CredentialUnavailable,
+                client_id,
+            ));
+        };
         if !digest_matches(digest.as_bytes(), credential.secret_digest.as_slice()) {
-            return Err(ExternalTokenExchangeError::InvalidCredential);
+            return Ok(TokenExchangeRepositoryOutcome::rejected(
+                TokenExchangeRejection::SecretMismatch,
+                client_id,
+            ));
         }
 
         sqlx::query(
@@ -261,7 +313,8 @@ impl ExternalAuthRepository for SqlxExternalAuthRepository {
         transaction
             .commit()
             .await
-            .map_err(|_| ExternalTokenExchangeError::Unavailable)
+            .map_err(|_| ExternalTokenExchangeError::Unavailable)?;
+        Ok(TokenExchangeRepositoryOutcome::issued(resolved_client_id))
     }
 
     async fn authenticate_access_token(
@@ -269,8 +322,28 @@ impl ExternalAuthRepository for SqlxExternalAuthRepository {
         token_hash: &AccessTokenHash,
         now: DateTime<Utc>,
     ) -> Result<ExternalPrincipal, ExternalAuthenticationError> {
-        let row = sqlx::query_as::<_, PrincipalRow>(
+        match self
+            .authenticate_access_token_outcome(token_hash, now)
+            .await?
+        {
+            BearerRepositoryOutcome::Authenticated { principal, .. } => Ok(principal),
+            BearerRepositoryOutcome::Rejected { .. } => {
+                Err(ExternalAuthenticationError::InvalidToken)
+            }
+        }
+    }
+
+    async fn authenticate_access_token_outcome(
+        &self,
+        token_hash: &AccessTokenHash,
+        now: DateTime<Utc>,
+    ) -> Result<BearerRepositoryOutcome, ExternalAuthenticationError> {
+        let row = sqlx::query_as::<_, BearerStateRow>(
             "SELECT client.id AS api_client_id,client.client_id,
+                    token.revoked_at AS token_revoked_at,
+                    token.expires_at AS token_expires_at,
+                    credential.revoked_at AS credential_revoked_at,
+                    client.status AS client_status,
                     ARRAY(
                         SELECT assignment.scope_code
                         FROM api_client_allowed_scopes assignment
@@ -282,20 +355,50 @@ impl ExternalAuthRepository for SqlxExternalAuthRepository {
                ON credential.id=token.api_client_credential_id
              JOIN api_clients client ON client.id=credential.api_client_id
              WHERE token.token_hash=$1
-               AND token.revoked_at IS NULL
-               AND token.expires_at > $2
-               AND credential.revoked_at IS NULL
-               AND client.status='ACTIVE'
              LIMIT 1",
         )
         .bind(token_hash.as_bytes().as_slice())
-        .bind(now)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|_| ExternalAuthenticationError::Unavailable)?
-        .ok_or(ExternalAuthenticationError::InvalidToken)?;
-        row.principal()
-            .map_err(|_| ExternalAuthenticationError::Unavailable)
+        .map_err(|_| ExternalAuthenticationError::Unavailable)?;
+        let Some(row) = row else {
+            return Ok(BearerRepositoryOutcome::rejected(
+                BearerRejection::UnknownToken,
+                None,
+            ));
+        };
+        let resolved_client_id = row.client_id.clone();
+        let client_id = Some(resolved_client_id.clone());
+        let client_status =
+            ApiClientStatus::parse(&row.client_status).unwrap_or(ApiClientStatus::Revoked);
+        if row.token_revoked_at.is_some()
+            || row.credential_revoked_at.is_some()
+            || client_status == ApiClientStatus::Revoked
+        {
+            return Ok(BearerRepositoryOutcome::rejected(
+                BearerRejection::Revoked,
+                client_id,
+            ));
+        }
+        if client_status == ApiClientStatus::Suspended {
+            return Ok(BearerRepositoryOutcome::rejected(
+                BearerRejection::Suspended,
+                client_id,
+            ));
+        }
+        if row.token_expires_at <= now {
+            return Ok(BearerRepositoryOutcome::rejected(
+                BearerRejection::Expired,
+                client_id,
+            ));
+        }
+        let principal = row
+            .principal()
+            .map_err(|_| ExternalAuthenticationError::Unavailable)?;
+        Ok(BearerRepositoryOutcome::authenticated_from_database(
+            principal,
+            resolved_client_id,
+        ))
     }
 }
 
@@ -478,6 +581,7 @@ impl ClientRow {
 #[derive(FromRow)]
 struct ClientLockRow {
     id: Uuid,
+    client_id: String,
     status: String,
 }
 
@@ -517,13 +621,17 @@ struct CredentialVerifierRow {
 }
 
 #[derive(FromRow)]
-struct PrincipalRow {
+struct BearerStateRow {
     api_client_id: Uuid,
     client_id: String,
+    token_revoked_at: Option<DateTime<Utc>>,
+    token_expires_at: DateTime<Utc>,
+    credential_revoked_at: Option<DateTime<Utc>>,
+    client_status: String,
     scopes: Vec<String>,
 }
 
-impl PrincipalRow {
+impl BearerStateRow {
     fn principal(self) -> Result<ExternalPrincipal, ()> {
         let scopes = self
             .scopes
