@@ -1,6 +1,12 @@
 mod common;
 
-use std::{collections::BTreeSet, future::Future, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    future::Future,
+    io,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use axum::{
     body::{Body, Bytes},
@@ -16,6 +22,7 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 use tokio::sync::oneshot;
 use tower::ServiceExt;
 use tower_http::request_id::RequestId;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use x_fly_api::{
@@ -52,6 +59,23 @@ struct Fixture {
     client_id: String,
     actor_id: Uuid,
     secret_text: String,
+}
+
+#[derive(Clone)]
+struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+impl io::Write for CaptureWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .expect("capture writer lock")
+            .extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 async fn pools() -> (PgPool, PgPool) {
@@ -327,6 +351,30 @@ async fn send_bearer(router: &Router, token: Option<&str>) -> (StatusCode, Heade
     response_body(response).await
 }
 
+async fn send_bearer_captured(
+    router: &Router,
+    token: Option<&str>,
+) -> ((StatusCode, HeaderMap, Value), String) {
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let writer_output = Arc::clone(&output);
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_max_level(tracing::Level::DEBUG)
+        .with_writer(move || CaptureWriter(Arc::clone(&writer_output)))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let span = tracing::info_span!(
+        "http_request",
+        request_id = REQUEST_ID,
+        external_auth_diagnostic = tracing::field::Empty,
+    );
+    let response = send_bearer(router, token).instrument(span).await;
+    drop(guard);
+    let output = String::from_utf8(output.lock().expect("capture output lock").clone())
+        .expect("trace output is UTF-8");
+    (response, output)
+}
+
 async fn exchange(state: &AppState, fixture: &Fixture) -> String {
     let token_router = build_router(state.clone());
     let request = Request::builder()
@@ -594,6 +642,53 @@ async fn scope_denial_error_has_authoritative_request_id_and_no_sensitive_state(
     assert!(!serialized.contains(&internal_id.to_string()));
     assert!(!serialized.contains("FlightsRead"));
     assert!(!serialized.contains("flights:read"));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn typed_scope_denial_emits_authoritative_client_and_scope() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        move |_setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token = exchange(&state, &fixture).await;
+            let bearer = format!("Bearer {token}");
+            let required = ApiClientScope::AnalyticsRead;
+            let ((status, _, body), output) =
+                send_bearer_captured(&authenticated_scope_app(state, required), Some(&bearer))
+                    .await;
+            assert_eq!(status, StatusCode::FORBIDDEN);
+            assert_error(&body, "EXTERNAL_SCOPE_DENIED");
+            assert!(output.contains("external_auth_diagnostic=\"scope_denied\""));
+            assert!(output.contains(&format!("external_client_id=\"{}\"", fixture.client_id)));
+            assert!(output.contains("external_required_scope=\"analytics:read\""));
+            assert!(!output.contains(&token));
+            assert!(!output.contains("Authorization"));
+        },
+    )
+    .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn successful_typed_scope_check_emits_no_scope_denial() {
+    run_fixture_test(
+        vec![ApiClientScope::FlightsRead],
+        move |_setup, runtime, fixture| async move {
+            let state = state_with_auth(runtime);
+            let token = exchange(&state, &fixture).await;
+            let bearer = format!("Bearer {token}");
+            let ((status, _, body), output) = send_bearer_captured(
+                &authenticated_scope_app(state, ApiClientScope::FlightsRead),
+                Some(&bearer),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(body["authorized"], true);
+            assert!(!output.contains("external_auth_diagnostic=\"scope_denied\""));
+            assert!(output.contains("external_auth_diagnostic=\"succeeded\""));
+            assert!(!output.contains(&token));
+        },
+    )
+    .await;
 }
 
 async fn error_response(code: ExternalErrorCode) -> (StatusCode, HeaderMap, Value) {

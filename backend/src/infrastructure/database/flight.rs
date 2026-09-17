@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveTime};
 use serde_json::Value;
@@ -12,15 +14,25 @@ use crate::domain::flight::{
     FlightCommand, FlightManagementError, FlightRecord, FlightStatus, ManagedCabin,
     ValidatedFlightCommand,
 };
+use crate::domain::{
+    cancellation::{Clock, SystemClock},
+    travel_date::CustomerTravelDatePolicy,
+};
+use crate::infrastructure::database::travel_date::origin_local_today;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SqlxFlightRepository {
     pool: PgPool,
+    clock: Arc<dyn Clock>,
 }
 
 impl SqlxFlightRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self::new_with_clock(pool, Arc::new(SystemClock))
+    }
+
+    pub fn new_with_clock(pool: PgPool, clock: Arc<dyn Clock>) -> Self {
+        Self { pool, clock }
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -315,6 +327,22 @@ impl FlightRepository for SqlxFlightRepository {
         &self,
         filter: PublicFlightFilter,
     ) -> Result<Vec<PublicFlight>, FlightManagementError> {
+        let origin_time_zone: Option<String> =
+            sqlx::query_scalar("SELECT time_zone FROM airports WHERE code=$1")
+                .bind(&filter.origin)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(infrastructure)?;
+        let Some(origin_time_zone) = origin_time_zone else {
+            return Ok(Vec::new());
+        };
+        let origin_local_today =
+            origin_local_today(&self.pool, self.clock.now(), &origin_time_zone)
+                .await
+                .map_err(infrastructure)?;
+        if !CustomerTravelDatePolicy::is_supported(filter.departure, origin_local_today) {
+            return Err(FlightManagementError::TravelDateOutsideWindow);
+        }
         let rows = sqlx::query_as::<_, PublicFlightRow>(
             "SELECT service.public_id,service.flight_number,service.origin_code,service.destination_code,
                 service.departure_time,service.arrival_time,service.arrival_day_offset,service.duration_minutes,
@@ -345,6 +373,26 @@ impl FlightRepository for SqlxFlightRepository {
         departure: NaiveDate,
         cabin: crate::domain::value_objects::CabinClass,
     ) -> Result<PublicFlight, FlightManagementError> {
+        let origin_time_zone = sqlx::query_as::<_, (Option<String>,)>(
+            "SELECT COALESCE(service.origin_time_zone,
+                    (SELECT airport.time_zone FROM airports airport
+                     WHERE airport.code = service.origin_code)) AS origin_time_zone
+             FROM flight_services service
+             WHERE service.public_id=$1 AND service.status='SCHEDULED'",
+        )
+        .bind(public_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(infrastructure)?
+        .and_then(|(origin_time_zone,)| origin_time_zone)
+        .ok_or(FlightManagementError::NotFound)?;
+        let origin_local_today =
+            origin_local_today(&self.pool, self.clock.now(), &origin_time_zone)
+                .await
+                .map_err(infrastructure)?;
+        if !CustomerTravelDatePolicy::is_supported(departure, origin_local_today) {
+            return Err(FlightManagementError::TravelDateOutsideWindow);
+        }
         let row = sqlx::query_as::<_, PublicFlightRow>(
             "SELECT service.public_id,service.flight_number,service.origin_code,service.destination_code,
                 service.departure_time,service.arrival_time,service.arrival_day_offset,service.duration_minutes,

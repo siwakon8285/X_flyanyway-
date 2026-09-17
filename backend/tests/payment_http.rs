@@ -196,13 +196,10 @@ async fn post_webhook(
 }
 
 async fn departure_date() -> NaiveDate {
-    common::allocate_test_departure_date(
-        "xf-201",
-        NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
-        NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
-    )
-    .await
-    .unwrap()
+    let earliest = chrono::Utc::now().date_naive() + ChronoDuration::days(30);
+    common::allocate_test_departure_date("xf-201", earliest, earliest + ChronoDuration::days(300))
+        .await
+        .unwrap()
 }
 
 async fn body(response: axum::response::Response) -> Value {

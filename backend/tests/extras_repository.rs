@@ -35,11 +35,11 @@ async fn complete_hold(
         .execute(repository.pool())
         .await
         .unwrap();
-    let earliest = Utc::now().date_naive() + ChronoDuration::days(1_000);
+    let earliest = Utc::now().date_naive() + ChronoDuration::days(30);
     let departure = common::allocate_test_departure_date(
         "xf-201",
         earliest,
-        earliest + ChronoDuration::days(365),
+        earliest + ChronoDuration::days(300),
     )
     .await
     .unwrap();

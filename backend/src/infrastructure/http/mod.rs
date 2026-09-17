@@ -171,7 +171,12 @@ async fn search_flights(
     let results = flights
         .search_public(public_flight_filter(query)?)
         .await
-        .map_err(|_| ApiError::public_flight_unavailable())?;
+        .map_err(|error| match error {
+            crate::domain::flight::FlightManagementError::TravelDateOutsideWindow => {
+                ApiError::public_flight_validation()
+            }
+            _ => ApiError::public_flight_unavailable(),
+        })?;
     Ok(Json(results))
 }
 
@@ -193,6 +198,9 @@ async fn flight_detail(
         .map_err(|error| match error {
             crate::domain::flight::FlightManagementError::NotFound => {
                 ApiError::public_flight_not_found()
+            }
+            crate::domain::flight::FlightManagementError::TravelDateOutsideWindow => {
+                ApiError::public_flight_validation()
             }
             _ => ApiError::public_flight_unavailable(),
         })?;
@@ -1313,6 +1321,13 @@ impl From<SeatHoldRepositoryError> for ApiError {
                 status: StatusCode::NOT_FOUND,
                 code: "FLIGHT_NOT_FOUND",
                 message: "The selected flight could not be found.",
+                conflicting_seats: Vec::new(),
+                field_errors: Vec::new(),
+            },
+            SeatHoldRepositoryError::TravelDateOutsideWindow => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: "TRAVEL_DATE_UNAVAILABLE",
+                message: "The selected travel date is outside the currently bookable window.",
                 conflicting_seats: Vec::new(),
                 field_errors: Vec::new(),
             },

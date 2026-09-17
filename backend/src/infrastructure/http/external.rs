@@ -19,8 +19,11 @@ use crate::{
             ExternalAnalyticsFilter, ExternalAnalyticsFilterError, ExternalAnalyticsService,
         },
         external_auth::{
-            record_external_auth_diagnostic, require_scope, ExternalAuthDiagnostic,
-            ExternalAuthService, ExternalScopeError,
+            record_external_auth_anonymous, record_external_auth_attributed,
+            record_external_auth_succeeded, record_external_scope_denied, require_scope,
+            AnonymousExternalAuthDiagnostic, AttributedExternalAuthDiagnostic, BearerRejection,
+            ExternalAuthFlow, ExternalAuthService, ExternalBearerDecision, ExternalScopeError,
+            ExternalTokenExchangeDecision, TokenExchangeRejection,
         },
         external_flights::ExternalFlightService,
         flight::PublicFlightFilter,
@@ -176,8 +179,8 @@ fn external_error(code: ExternalErrorCode, request_id: Uuid) -> Response {
     ExternalErrorEnvelope::new(code, request_id).into_response()
 }
 
-fn record_auth_diagnostic(diagnostic: ExternalAuthDiagnostic) {
-    record_external_auth_diagnostic(&Span::current(), diagnostic);
+fn record_auth_diagnostic(flow: ExternalAuthFlow, diagnostic: AnonymousExternalAuthDiagnostic) {
+    record_external_auth_anonymous(&Span::current(), flow, diagnostic);
 }
 
 fn request_id_from_extension(request_id: Option<&RequestId>) -> Uuid {
@@ -339,6 +342,9 @@ async fn search_external_flights(
     };
     match service.search(filter).await {
         Ok(page) => Json(page).into_response(),
+        Err(FlightManagementError::TravelDateOutsideWindow) => {
+            external_error(ExternalErrorCode::ExternalRequestInvalid, request_id)
+        }
         Err(_) => external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id),
     }
 }
@@ -367,6 +373,9 @@ async fn detail_external_flight(
         Err(FlightManagementError::NotFound) => {
             external_error(ExternalErrorCode::ExternalResourceNotFound, request_id)
         }
+        Err(FlightManagementError::TravelDateOutsideWindow) => {
+            external_error(ExternalErrorCode::ExternalRequestInvalid, request_id)
+        }
         Err(_) => external_error(ExternalErrorCode::ExternalServiceUnavailable, request_id),
     }
 }
@@ -379,17 +388,30 @@ async fn exchange_token(
     let request_id = request_id_from_extension(request_id.as_ref().map(|extension| &extension.0));
     let request = match payload {
         Ok(Json(request)) if valid_token_exchange_request(&request) => request,
-        _ => return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id),
+        _ => {
+            record_auth_diagnostic(
+                ExternalAuthFlow::TokenExchange,
+                AnonymousExternalAuthDiagnostic::Malformed,
+            );
+            return external_error(ExternalErrorCode::ExternalRequestInvalid, request_id);
+        }
     };
 
     let Some(service) = state.external_auth.as_ref() else {
         return external_error(ExternalErrorCode::ExternalAuthUnavailable, request_id);
     };
     match service
-        .exchange(&request.client_id, &request.client_secret, Utc::now())
+        .exchange_with_outcome(&request.client_id, &request.client_secret, Utc::now())
         .await
     {
-        Ok(issued) => {
+        Ok(ExternalTokenExchangeDecision::Issued { issued, client_id }) => {
+            if let Some(client_id) = client_id {
+                record_external_auth_succeeded(
+                    &Span::current(),
+                    ExternalAuthFlow::TokenExchange,
+                    &client_id,
+                );
+            }
             let payload = TokenExchangeResponse::from_issued(issued);
             (
                 StatusCode::OK,
@@ -400,6 +422,49 @@ async fn exchange_token(
                 Json(payload),
             )
                 .into_response()
+        }
+        Ok(ExternalTokenExchangeDecision::Rejected { reason, client_id }) => {
+            match reason {
+                TokenExchangeRejection::UnknownClient => record_auth_diagnostic(
+                    ExternalAuthFlow::TokenExchange,
+                    AnonymousExternalAuthDiagnostic::UnknownClient,
+                ),
+                TokenExchangeRejection::SecretMismatch => {
+                    if let Some(client_id) = client_id.as_ref() {
+                        record_external_auth_attributed(
+                            &Span::current(),
+                            ExternalAuthFlow::TokenExchange,
+                            AttributedExternalAuthDiagnostic::SecretMismatch,
+                            client_id,
+                        );
+                    }
+                }
+                TokenExchangeRejection::Suspended => {
+                    if let Some(client_id) = client_id.as_ref() {
+                        record_external_auth_attributed(
+                            &Span::current(),
+                            ExternalAuthFlow::TokenExchange,
+                            AttributedExternalAuthDiagnostic::Suspended,
+                            client_id,
+                        );
+                    }
+                }
+                TokenExchangeRejection::Revoked => {
+                    if let Some(client_id) = client_id.as_ref() {
+                        record_external_auth_attributed(
+                            &Span::current(),
+                            ExternalAuthFlow::TokenExchange,
+                            AttributedExternalAuthDiagnostic::Revoked,
+                            client_id,
+                        );
+                    }
+                }
+                TokenExchangeRejection::CredentialUnavailable => {}
+            }
+            external_error(
+                ExternalErrorCode::ExternalClientAuthenticationFailed,
+                request_id,
+            )
         }
         Err(ExternalTokenExchangeError::InvalidCredential) => external_error(
             ExternalErrorCode::ExternalClientAuthenticationFailed,
@@ -416,25 +481,47 @@ pub async fn authenticate_external_request(
     authorization_header: &str,
     now: DateTime<Utc>,
 ) -> Result<ExternalPrincipal, ExternalAuthenticationError> {
+    match authenticate_external_request_with_outcome(state, authorization_header, now).await? {
+        ExternalBearerDecision::Authenticated { principal, .. } => Ok(principal),
+        ExternalBearerDecision::Rejected { .. } => Err(ExternalAuthenticationError::InvalidToken),
+    }
+}
+
+async fn authenticate_external_request_with_outcome(
+    state: &AppState,
+    authorization_header: &str,
+    now: DateTime<Utc>,
+) -> Result<ExternalBearerDecision, ExternalAuthenticationError> {
     if authorization_header.len() > MAX_AUTHORIZATION_LENGTH || !authorization_header.is_ascii() {
-        record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
+        record_auth_diagnostic(
+            ExternalAuthFlow::Bearer,
+            AnonymousExternalAuthDiagnostic::Malformed,
+        );
         return Err(ExternalAuthenticationError::InvalidToken);
     }
     let token_text = authorization_header
         .strip_prefix("Bearer ")
         .ok_or_else(|| {
-            record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
+            record_auth_diagnostic(
+                ExternalAuthFlow::Bearer,
+                AnonymousExternalAuthDiagnostic::Malformed,
+            );
             ExternalAuthenticationError::InvalidToken
         })?;
     PlaintextAccessToken::parse_bearer_text(token_text).map_err(|_| {
-        record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
+        record_auth_diagnostic(
+            ExternalAuthFlow::Bearer,
+            AnonymousExternalAuthDiagnostic::Malformed,
+        );
         ExternalAuthenticationError::InvalidToken
     })?;
     let service: &ExternalAuthService = state
         .external_auth
         .as_ref()
         .ok_or(ExternalAuthenticationError::Unavailable)?;
-    service.authenticate_bearer(authorization_header, now).await
+    service
+        .authenticate_bearer_with_outcome(authorization_header, now)
+        .await
 }
 
 #[derive(Clone)]
@@ -489,7 +576,7 @@ async fn external_scope_middleware(
         return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     };
     if let Err(ExternalScopeError::Missing) = require_scope(principal, required) {
-        record_auth_diagnostic(ExternalAuthDiagnostic::ScopeDenied);
+        record_external_scope_denied(&Span::current(), principal.client_id(), required);
         return external_error(ExternalErrorCode::ExternalScopeDenied, request_id);
     }
     next.run(request).await
@@ -503,21 +590,70 @@ async fn external_bearer_middleware(
     let request_id = request_id_from_extension(request.extensions().get::<RequestId>());
     let mut values = request.headers().get_all(header::AUTHORIZATION).iter();
     let Some(value) = values.next() else {
-        record_auth_diagnostic(ExternalAuthDiagnostic::Missing);
+        record_auth_diagnostic(
+            ExternalAuthFlow::Bearer,
+            AnonymousExternalAuthDiagnostic::Missing,
+        );
         return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     };
     if values.next().is_some() {
-        record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
+        record_auth_diagnostic(
+            ExternalAuthFlow::Bearer,
+            AnonymousExternalAuthDiagnostic::Malformed,
+        );
         return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     }
     let Ok(value) = value.to_str() else {
-        record_auth_diagnostic(ExternalAuthDiagnostic::Malformed);
+        record_auth_diagnostic(
+            ExternalAuthFlow::Bearer,
+            AnonymousExternalAuthDiagnostic::Malformed,
+        );
         return external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id);
     };
-    match authenticate_external_request(&state, value, Utc::now()).await {
-        Ok(principal) => {
+    match authenticate_external_request_with_outcome(&state, value, Utc::now()).await {
+        Ok(ExternalBearerDecision::Authenticated {
+            principal,
+            client_id,
+        }) => {
+            record_external_auth_succeeded(&Span::current(), ExternalAuthFlow::Bearer, &client_id);
             request.extensions_mut().insert(principal);
             next.run(request).await
+        }
+        Ok(ExternalBearerDecision::Rejected { reason, client_id }) => {
+            match reason {
+                BearerRejection::UnknownToken => {}
+                BearerRejection::Expired => {
+                    if let Some(client_id) = client_id.as_ref() {
+                        record_external_auth_attributed(
+                            &Span::current(),
+                            ExternalAuthFlow::Bearer,
+                            AttributedExternalAuthDiagnostic::Expired,
+                            client_id,
+                        );
+                    }
+                }
+                BearerRejection::Suspended => {
+                    if let Some(client_id) = client_id.as_ref() {
+                        record_external_auth_attributed(
+                            &Span::current(),
+                            ExternalAuthFlow::Bearer,
+                            AttributedExternalAuthDiagnostic::Suspended,
+                            client_id,
+                        );
+                    }
+                }
+                BearerRejection::Revoked => {
+                    if let Some(client_id) = client_id.as_ref() {
+                        record_external_auth_attributed(
+                            &Span::current(),
+                            ExternalAuthFlow::Bearer,
+                            AttributedExternalAuthDiagnostic::Revoked,
+                            client_id,
+                        );
+                    }
+                }
+            }
+            external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id)
         }
         Err(ExternalAuthenticationError::InvalidToken) => {
             external_error(ExternalErrorCode::ExternalAuthenticationFailed, request_id)

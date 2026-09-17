@@ -6,7 +6,7 @@ use axum::{
     body::Body,
     http::{header, Request, StatusCode},
 };
-use chrono::{NaiveDate, NaiveTime};
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -19,8 +19,8 @@ use x_fly_api::{
         staff_auth::StaffAuthService,
     },
     domain::{
-        entities::FlightSelection, flight::FlightCommand, repositories::SeatHoldRepository,
-        value_objects::CabinClass,
+        cancellation::Clock, entities::FlightSelection, flight::FlightCommand,
+        repositories::SeatHoldRepository, value_objects::CabinClass,
     },
     infrastructure::{
         database::{
@@ -34,6 +34,23 @@ use x_fly_api::{
 };
 
 const PASSWORD: &str = "change_me_for_local_development";
+
+#[derive(Clone)]
+struct FixedClock(DateTime<Utc>);
+
+impl Clock for FixedClock {
+    fn now(&self) -> DateTime<Utc> {
+        self.0
+    }
+}
+
+fn historical_clock() -> Arc<dyn Clock> {
+    Arc::new(FixedClock(
+        DateTime::parse_from_rfc3339("2098-05-01T00:00:00Z")
+            .expect("valid historical reference instant")
+            .with_timezone(&Utc),
+    ))
+}
 
 async fn fixture_guard() -> common::TestFixtureLock {
     common::acquire_test_fixture_lock().await
@@ -72,6 +89,7 @@ async fn clean_dashboard_fixtures(pool: &PgPool) -> Result<(), sqlx::Error> {
          DELETE FROM flight_management_audit WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 880');
          DELETE FROM flight_service_seat_templates WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 880');
          DELETE FROM flight_service_cabins WHERE flight_service_id IN (SELECT id FROM flight_services WHERE flight_number='XF 880');
+         DELETE FROM staff_security_audit;
          DELETE FROM staff_sessions;
          DELETE FROM staff_login_throttles;
          DELETE FROM staff_user_roles;
@@ -820,7 +838,7 @@ async fn managed_network_flights_preserve_zero_booking_and_cancelled_history_sem
         )
         .await
         .unwrap();
-    let inventory = SqlxSeatHoldRepository::new(pool.clone());
+    let inventory = SqlxSeatHoldRepository::new_with_clock(pool.clone(), historical_clock());
     inventory
         .seat_map(
             &FlightSelection {

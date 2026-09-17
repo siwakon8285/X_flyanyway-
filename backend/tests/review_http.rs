@@ -6,7 +6,7 @@ use axum::{
     body::Body,
     http::{header, Request, StatusCode},
 };
-use chrono::NaiveDate;
+use chrono::{Duration as ChronoDuration, NaiveDate, Utc};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -40,13 +40,10 @@ async fn app() -> (axum::Router, PgPool) {
 }
 
 async fn departure_date() -> NaiveDate {
-    common::allocate_test_departure_date(
-        "xf-201",
-        NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
-        NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
-    )
-    .await
-    .unwrap()
+    let earliest = Utc::now().date_naive() + ChronoDuration::days(30);
+    common::allocate_test_departure_date("xf-201", earliest, earliest + ChronoDuration::days(300))
+        .await
+        .unwrap()
 }
 
 async fn body(response: axum::response::Response) -> Value {

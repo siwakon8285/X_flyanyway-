@@ -319,6 +319,7 @@ fn map_hold_error(error: SeatHoldRepositoryError) -> PassengerRepositoryError {
             PassengerRepositoryError::Infrastructure(error)
         }
         SeatHoldRepositoryError::FlightNotFound
+        | SeatHoldRepositoryError::TravelDateOutsideWindow
         | SeatHoldRepositoryError::CabinUnavailable
         | SeatHoldRepositoryError::SeatNotFound(_)
         | SeatHoldRepositoryError::SeatConflict(_) => PassengerRepositoryError::SeatCountMismatch,

@@ -26,7 +26,7 @@ async fn test_pool() -> PgPool {
 }
 
 async fn test_date() -> NaiveDate {
-    let earliest = Utc::now().date_naive() + ChronoDuration::days(400);
+    let earliest = Utc::now().date_naive() + ChronoDuration::days(30);
     common::allocate_test_departure_date("xf-201", earliest, earliest + ChronoDuration::days(300))
         .await
         .unwrap()

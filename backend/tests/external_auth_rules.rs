@@ -3,6 +3,7 @@ use std::{collections::BTreeSet, env, net::SocketAddr, sync::Mutex, time::Durati
 use uuid::Uuid;
 use x_fly_api::{
     application::external_auth::ACCESS_TOKEN_TTL,
+    application::staff_auth::DEFAULT_MAX_CONCURRENT_PASSWORD_VERIFICATIONS,
     config::AppConfig,
     domain::{
         api_client::ApiClientScope,
@@ -45,6 +46,7 @@ fn with_config_environment<T>(operation: impl FnOnce() -> T) -> T {
         "DATABASE_URL",
         "BACKEND_BIND_ADDRESS",
         "SEAT_HOLD_TTL_SECONDS",
+        "STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS",
         "APP_ENV",
         "FRONTEND_ORIGIN",
         "STRIPE_SECRET_KEY",
@@ -150,6 +152,50 @@ fn config_rejects_missing_or_malformed_external_pepper() {
 }
 
 #[test]
+fn config_validates_staff_password_verifier_concurrency() {
+    with_config_environment(|| {
+        env::set_var("EXTERNAL_API_CREDENTIAL_PEPPER_V1", valid_secret_text());
+        assert_eq!(
+            AppConfig::from_env()
+                .expect("default staff verifier limit")
+                .staff_auth_max_concurrent_verifications,
+            DEFAULT_MAX_CONCURRENT_PASSWORD_VERIFICATIONS
+        );
+
+        env::set_var("STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS", "1");
+        assert_eq!(
+            AppConfig::from_env()
+                .expect("minimum staff verifier limit")
+                .staff_auth_max_concurrent_verifications,
+            1
+        );
+
+        env::set_var("STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS", "4");
+        assert_eq!(
+            AppConfig::from_env()
+                .expect("maximum staff verifier limit")
+                .staff_auth_max_concurrent_verifications,
+            4
+        );
+
+        env::set_var("STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS", "5");
+        assert!(AppConfig::from_env().is_err());
+
+        env::set_var("STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS", "1000");
+        assert!(AppConfig::from_env().is_err());
+
+        env::set_var("STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS", "0");
+        assert!(AppConfig::from_env().is_err());
+
+        env::set_var("STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS", "abc");
+        assert!(AppConfig::from_env().is_err());
+
+        env::set_var("STAFF_AUTH_MAX_CONCURRENT_VERIFICATIONS", "");
+        assert!(AppConfig::from_env().is_err());
+    });
+}
+
+#[test]
 fn sentinel_secret_material_never_appears_in_formatted_config_crypto_or_auth_types() {
     let pepper_bytes = *b"task1-pepper-sentinel-32-bytes!!";
     let pepper_sentinel = std::str::from_utf8(&pepper_bytes)
@@ -167,6 +213,7 @@ fn sentinel_secret_material_never_appears_in_formatted_config_crypto_or_auth_typ
             .expect("valid address"),
         frontend_origin: "https://example.test".to_owned(),
         seat_hold_ttl: Duration::from_secs(600),
+        staff_auth_max_concurrent_verifications: DEFAULT_MAX_CONCURRENT_PASSWORD_VERIFICATIONS,
         secure_cookies: true,
         stripe_secret_key: Some(secret_sentinel.to_owned()),
         stripe_webhook_secret: Some(token_sentinel.to_owned()),

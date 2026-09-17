@@ -184,6 +184,7 @@ fn sentinel_secret_token_and_authorization_never_enter_logs() {
                 ExternalAuthDiagnostic::Suspended,
                 ExternalAuthDiagnostic::Revoked,
                 ExternalAuthDiagnostic::ScopeDenied,
+                ExternalAuthDiagnostic::Succeeded,
             ] {
                 record_external_auth_diagnostic(&span, diagnostic);
             }
@@ -201,6 +202,7 @@ fn sentinel_secret_token_and_authorization_never_enter_logs() {
         "suspended",
         "revoked",
         "scope_denied",
+        "succeeded",
     ] {
         assert!(
             output.contains(category),

@@ -29,6 +29,14 @@ struct AuthFixture {
     staff_id: uuid::Uuid,
 }
 
+fn assert_constraint_error(error: sqlx::Error, code: &str, constraint: &str) {
+    let database_error = error
+        .as_database_error()
+        .expect("expected a PostgreSQL constraint error");
+    assert!(database_error.code().is_some_and(|value| value == code));
+    assert_eq!(database_error.constraint(), Some(constraint));
+}
+
 async fn permission_pools() -> (PgPool, PgPool) {
     let setup_pool = PgPool::connect(&common::test_database_url()).await.unwrap();
     migrate_database(&setup_pool).await.unwrap();
@@ -145,6 +153,10 @@ where
 }
 
 async fn cleanup_staff_actor(setup_pool: &PgPool, staff_id: uuid::Uuid) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM staff_security_audit WHERE actor_staff_user_id=$1")
+        .bind(staff_id)
+        .execute(setup_pool)
+        .await?;
     sqlx::query("DELETE FROM staff_sessions WHERE staff_user_id=$1")
         .bind(staff_id)
         .execute(setup_pool)
@@ -398,10 +410,11 @@ async fn runtime_role_has_required_positive_and_negative_permissions() {
     let cleanup_setup_pool = setup_pool.clone();
     common::run_fixture_body_with_cleanup(
         move || async move {
+            let earliest = chrono::Utc::now().date_naive() + chrono::Duration::days(30);
             let departure_date = common::allocate_test_departure_date(
                 "xf-201",
-                NaiveDate::from_ymd_opt(2100, 1, 1).unwrap(),
-                NaiveDate::from_ymd_opt(2104, 12, 31).unwrap(),
+                earliest,
+                earliest + chrono::Duration::days(300),
             )
             .await
             .unwrap();
@@ -561,6 +574,130 @@ async fn runtime_has_no_table_level_audit_insert() {
         )
         .await
     );
+    assert!(
+        !table_privilege(
+            &runtime_pool,
+            "x_fly_runtime",
+            "public.staff_security_audit",
+            "INSERT"
+        )
+        .await
+    );
+}
+
+#[tokio::test]
+async fn runtime_staff_security_audit_is_append_only_and_column_scoped() {
+    let _fixture_lock = common::acquire_test_fixture_lock_named("x-fly-audit-permissions").await;
+    let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let table = "public.staff_security_audit";
+    for privilege in [
+        "SELECT",
+        "UPDATE",
+        "DELETE",
+        "TRUNCATE",
+        "REFERENCES",
+        "TRIGGER",
+    ] {
+        assert!(
+            !table_privilege(&runtime_pool, "x_fly_runtime", table, privilege).await,
+            "runtime must not have {privilege} on staff security audit"
+        );
+        assert!(
+            !table_privilege(&runtime_pool, "public", table, privilege).await,
+            "PUBLIC must not have {privilege} on staff security audit"
+        );
+    }
+    for column in [
+        "action",
+        "actor_staff_user_id",
+        "session_id",
+        "permission_code",
+        "request_id",
+    ] {
+        assert!(column_privilege(&runtime_pool, "x_fly_runtime", table, column, "INSERT").await);
+        assert!(!column_privilege(&runtime_pool, "x_fly_runtime", table, column, "UPDATE").await);
+        assert!(!column_privilege(&runtime_pool, "public", table, column, "INSERT").await);
+    }
+    for column in ["id", "created_at"] {
+        assert!(!column_privilege(&runtime_pool, "x_fly_runtime", table, column, "INSERT").await);
+        assert!(!column_privilege(&runtime_pool, "public", table, column, "INSERT").await);
+    }
+
+    let request_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO staff_security_audit
+            (action, actor_staff_user_id, session_id, permission_code, request_id)
+         VALUES ('STAFF_AUTHZ_DENIED', $1, $2, 'flights:write', $3)",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .bind(request_id)
+    .execute(&runtime_pool)
+    .await
+    .expect("runtime can insert approved security-audit columns");
+    let persisted: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM staff_security_audit WHERE request_id = $1")
+            .bind(request_id)
+            .fetch_one(&setup_pool)
+            .await
+            .unwrap();
+    assert_eq!(persisted, 1);
+    sqlx::query("DELETE FROM staff_security_audit WHERE request_id = $1")
+        .bind(request_id)
+        .execute(&setup_pool)
+        .await
+        .unwrap();
+
+    let protected_insert = sqlx::query(
+        "INSERT INTO staff_security_audit
+            (id, action, actor_staff_user_id, session_id, request_id)
+         VALUES ($1, 'STAFF_LOGIN_SUCCEEDED', $2, $3, $4)",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .execute(&runtime_pool)
+    .await;
+    assert!(
+        protected_insert.is_err(),
+        "runtime must not supply generated id"
+    );
+
+    let protected_created_at_insert = sqlx::query(
+        "INSERT INTO staff_security_audit
+            (action, actor_staff_user_id, session_id, request_id, created_at)
+         VALUES ('STAFF_LOGIN_SUCCEEDED', $1, $2, $3, NOW())",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .execute(&runtime_pool)
+    .await;
+    assert!(
+        protected_created_at_insert.is_err(),
+        "runtime must not supply generated created_at"
+    );
+
+    for permission in ["\t", "\n"] {
+        let malformed_insert = sqlx::query(
+            "INSERT INTO staff_security_audit
+                (action, actor_staff_user_id, session_id, permission_code, request_id)
+             VALUES ('STAFF_AUTHZ_DENIED', $1, $2, $3, $4)",
+        )
+        .bind(uuid::Uuid::new_v4())
+        .bind(uuid::Uuid::new_v4())
+        .bind(permission)
+        .bind(uuid::Uuid::new_v4())
+        .execute(&runtime_pool)
+        .await
+        .unwrap_err();
+        assert_constraint_error(
+            malformed_insert,
+            "23514",
+            "staff_security_audit_action_context_check",
+        );
+    }
 }
 
 #[tokio::test]

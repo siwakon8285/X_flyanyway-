@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -6,10 +6,12 @@ use sqlx::{FromRow, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::domain::{
+    cancellation::{Clock, SystemClock},
     entities::{
         CreateSeatHold, FlightSelection, SeatAvailability, SeatHold, SeatInventoryItem, SeatMap,
     },
     repositories::{SeatHoldRepository, SeatHoldRepositoryError},
+    travel_date::CustomerTravelDatePolicy,
     value_objects::{CabinClass, PassengerCounts, SeatNumber},
 };
 
@@ -30,6 +32,7 @@ mod review;
 mod staff_auth;
 mod ticket;
 mod ticket_operations;
+mod travel_date;
 
 pub use analytics::SqlxAnalyticsRepository;
 pub use api_client::SqlxApiClientRepository;
@@ -42,14 +45,19 @@ pub use lifecycle::{
 };
 pub use staff_auth::SqlxStaffAuthRepository;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SqlxSeatHoldRepository {
     pool: PgPool,
+    clock: Arc<dyn Clock>,
 }
 
 impl SqlxSeatHoldRepository {
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self::new_with_clock(pool, Arc::new(SystemClock))
+    }
+
+    pub fn new_with_clock(pool: PgPool, clock: Arc<dyn Clock>) -> Self {
+        Self { pool, clock }
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -57,12 +65,18 @@ impl SqlxSeatHoldRepository {
     }
 
     async fn ensure_inventory(
+        &self,
         transaction: &mut Transaction<'_, Postgres>,
         selection: &FlightSelection,
+        authoritative_now: DateTime<Utc>,
     ) -> Result<Uuid, SeatHoldRepositoryError> {
         let service = sqlx::query_as::<_, ServiceRow>(
-            "SELECT id, aircraft_code FROM flight_services
-             WHERE public_id = $1 AND status = 'SCHEDULED'
+            "SELECT service.id, service.aircraft_code,
+                    COALESCE(service.origin_time_zone,
+                        (SELECT airport.time_zone FROM airports airport
+                         WHERE airport.code = service.origin_code)) AS origin_time_zone
+             FROM flight_services service
+             WHERE service.public_id = $1 AND service.status = 'SCHEDULED'
                AND (operating_date IS NULL OR operating_date = $2)
              FOR KEY SHARE",
         )
@@ -72,6 +86,20 @@ impl SqlxSeatHoldRepository {
         .await
         .map_err(SeatHoldRepositoryError::Infrastructure)?
         .ok_or(SeatHoldRepositoryError::FlightNotFound)?;
+
+        let Some(origin_time_zone) = service.origin_time_zone.as_deref() else {
+            return Err(SeatHoldRepositoryError::FlightNotFound);
+        };
+        let origin_local_today = crate::infrastructure::database::travel_date::origin_local_today(
+            &mut **transaction,
+            authoritative_now,
+            origin_time_zone,
+        )
+        .await
+        .map_err(SeatHoldRepositoryError::Infrastructure)?;
+        if !CustomerTravelDatePolicy::is_supported(selection.departure_date, origin_local_today) {
+            return Err(SeatHoldRepositoryError::TravelDateOutsideWindow);
+        }
 
         let cabin_is_sold: bool = sqlx::query_scalar(
             "SELECT EXISTS(
@@ -349,7 +377,9 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
             .begin()
             .await
             .map_err(SeatHoldRepositoryError::Infrastructure)?;
-        let instance_id = Self::ensure_inventory(&mut transaction, selection).await?;
+        let instance_id = self
+            .ensure_inventory(&mut transaction, selection, self.clock.now())
+            .await?;
         let server_time = Self::server_time(&mut transaction).await?;
 
         if let Some((hold_id, token_hash)) = owner {
@@ -437,7 +467,9 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
             .begin()
             .await
             .map_err(SeatHoldRepositoryError::Infrastructure)?;
-        let instance_id = Self::ensure_inventory(&mut transaction, &command.selection).await?;
+        let instance_id = self
+            .ensure_inventory(&mut transaction, &command.selection, self.clock.now())
+            .await?;
         let server_time = Self::server_time(&mut transaction).await?;
         let expires_at = server_time
             + chrono::Duration::from_std(ttl).unwrap_or_else(|_| chrono::Duration::minutes(10));
@@ -611,6 +643,7 @@ impl SeatHoldRepository for SqlxSeatHoldRepository {
 struct ServiceRow {
     id: Uuid,
     aircraft_code: String,
+    origin_time_zone: Option<String>,
 }
 
 #[derive(FromRow)]

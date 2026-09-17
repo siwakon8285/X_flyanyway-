@@ -163,6 +163,7 @@ pub struct FlightRecord {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FlightManagementError {
     NotFound,
+    TravelDateOutsideWindow,
     Validation,
     Duplicate,
     Conflict,
