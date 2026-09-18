@@ -6,7 +6,7 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 export default function TicketLoading() {
   const { t } = useLanguage();
   return (
-    <main className="min-h-screen pt-[calc(var(--header-height)+4rem)]">
+    <div className="min-h-screen pt-[calc(var(--header-height)+4rem)]">
       <Container>
         <div
           aria-label={t("ticket.loading")}
@@ -14,6 +14,6 @@ export default function TicketLoading() {
           role="status"
         />
       </Container>
-    </main>
+    </div>
   );
 }

@@ -223,17 +223,27 @@ describe("TicketPage", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it("copies booking reference and ticket number to clipboard", async () => {
+  it("gives copy controls distinct names and announces successful copies", async () => {
     mockGetTicket.mockResolvedValue(mockTicketResponse);
     renderTicketPage();
 
     await screen.findByTestId("ticket-booking-reference");
-    const copyButtons = screen.getAllByRole("button", { name: "Copy" });
+    const bookingCopy = screen.getByRole("button", { name: "Copy booking reference" });
+    const ticketCopy = screen.getByRole("button", { name: "Copy ticket number" });
+
     await act(async () => {
-      fireEvent.click(copyButtons[0]);
+      fireEvent.click(bookingCopy);
     });
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("XF7K9P");
+    expect(await screen.findByRole("status", { name: "Booking reference copied" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(ticketCopy);
+    });
+
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith("026-1234567890");
+    expect(await screen.findByRole("status", { name: "Ticket number copied" })).toBeInTheDocument();
   });
 
   it("displays payment incomplete error if payment has not succeeded", async () => {

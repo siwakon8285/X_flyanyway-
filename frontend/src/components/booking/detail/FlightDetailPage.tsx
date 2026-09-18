@@ -11,7 +11,7 @@ const FlightDetailPage = ({
   previewCabin,
   query,
 }: FlightDetailRequest) => (
-  <main className="relative min-h-screen overflow-hidden pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]">
+  <div className="relative min-h-screen overflow-hidden pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]">
     <div
       aria-hidden="true"
       className="pointer-events-none absolute inset-x-0 top-0 h-[34rem] bg-[radial-gradient(circle_at_82%_8%,rgba(255,212,0,0.09),transparent_30rem)]"
@@ -28,7 +28,7 @@ const FlightDetailPage = ({
         searchedCabin={criteria.cabin}
       />
     </Container>
-  </main>
+  </div>
 );
 
 export { FlightDetailPage };

@@ -24,7 +24,7 @@ const SeatMapPage = ({
   const hasEnoughSeats = availableSeatCount >= requiredSeatCount;
 
   return (
-    <main className="relative min-h-screen min-w-0 overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]">
+    <div className="relative min-h-screen min-w-0 overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 top-0 h-[36rem] bg-[radial-gradient(circle_at_50%_0%,rgba(255,212,0,0.055),transparent_34rem)]"
@@ -53,7 +53,7 @@ const SeatMapPage = ({
           </section>
         )}
       </Container>
-    </main>
+    </div>
   );
 };
 

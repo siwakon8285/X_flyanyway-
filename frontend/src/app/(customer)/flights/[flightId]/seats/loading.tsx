@@ -9,7 +9,7 @@ export default function SeatMapLoading() {
 
   return (
     <Container>
-      <main
+      <div
         aria-label={t("loading.seatMap")}
         className="min-h-screen py-section-sm pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]"
         role="status"
@@ -28,7 +28,7 @@ export default function SeatMapLoading() {
           <Skeleton className="h-[42rem] rounded-[7rem_7rem_3rem_3rem]" />
           <Skeleton className="h-96" />
         </section>
-      </main>
+      </div>
     </Container>
   );
 }

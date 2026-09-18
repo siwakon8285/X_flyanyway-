@@ -141,7 +141,7 @@ const ReviewPage = ({ backQuery, holdId }: { backQuery: string; holdId: string }
   const actionLabel = reviewState?.action === "passengers" ? "review.action.passengers" : "review.action.seats";
 
   return (
-    <main className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]">
+    <div className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]">
       <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[36rem] bg-[radial-gradient(circle_at_70%_0%,rgba(255,212,0,0.07),transparent_32rem)]" />
       <Container className="relative" ref={page}>
         <div data-review-reveal="navigation">
@@ -159,7 +159,7 @@ const ReviewPage = ({ backQuery, holdId }: { backQuery: string; holdId: string }
 
         {loading ? <div aria-label={t("review.loading")} className="mt-10 min-h-72 animate-pulse rounded-surface border border-border bg-surface/60 motion-reduce:animate-none" role="status" /> : reviewState ? <div className="review-recovery-panel mt-10 rounded-surface border border-destructive/45 bg-destructive/10 p-7" data-review-recovery={reviewState.action}><p role="alert">{t(reviewState.message)}</p>{reviewState.action === "retry" ? <Button className="mt-5" onClick={() => setAttempt((value) => value + 1)}>{t("review.action.retry")}</Button> : <Link className="mt-5 inline-flex min-h-11 items-center gap-2 font-medium text-brand focus-visible:ring-2 focus-visible:ring-focus" href={actionHref}><ArrowLeft aria-hidden="true" />{t(actionLabel)}</Link>}</div> : context ? <div className="mt-10 grid min-w-0 gap-8 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start" data-testid="review-layout"><div data-review-reveal="details"><ReviewDetails context={context} /></div><FareSummary context={context} paymentHref={paymentHref} remainingMilliseconds={remainingMilliseconds} /></div> : null}
       </Container>
-    </main>
+    </div>
   );
 };
 

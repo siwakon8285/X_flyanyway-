@@ -9,7 +9,7 @@ export default function FlightDetailLoading() {
 
   return (
     <Container>
-      <main
+      <div
         aria-label={t("loading.flightDetail")}
         className="min-h-screen py-section-sm pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]"
         role="status"
@@ -33,7 +33,7 @@ export default function FlightDetailLoading() {
           <Skeleton className="mt-8 h-14 w-full" />
           <Skeleton className="mt-8 h-[34rem] w-full" />
         </section>
-      </main>
+      </div>
     </Container>
   );
 }

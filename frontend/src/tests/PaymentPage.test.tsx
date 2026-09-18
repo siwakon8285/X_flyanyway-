@@ -311,6 +311,6 @@ describe("Payment page", () => {
     const { container } = render(<PaymentPage backQuery="flightId=xf-201" holdId="hold-123" />);
 
     expect(await screen.findByText("THB 49,300")).toBeInTheDocument();
-    expect(container.querySelector("main")).toHaveAttribute("data-reduced-motion", "true");
+    expect(container.querySelector("[data-reduced-motion]")).toHaveAttribute("data-reduced-motion", "true");
   });
 });

@@ -1,10 +1,17 @@
 import {
+  INITIAL_HASH_BOOTSTRAP_SCRIPT,
   INITIAL_HASH_POSITIONING_ATTRIBUTE,
   runInitialHashBootstrap,
 } from "@/lib/motion/initialHash";
 
 const hasPositioningMarker = () =>
   document.documentElement.hasAttribute(INITIAL_HASH_POSITIONING_ATTRIBUTE);
+
+const runSerializedHashBootstrap = () => {
+  const executeBootstrap = new Function(INITIAL_HASH_BOOTSTRAP_SCRIPT);
+
+  executeBootstrap();
+};
 
 describe("initial hash bootstrap", () => {
   beforeEach(() => {
@@ -60,4 +67,18 @@ describe("initial hash bootstrap", () => {
 
     expect(hasPositioningMarker()).toBe(false);
   });
+
+  it.each([
+    ["a supported homepage hash", "/#experience", true],
+    ["an unsupported homepage hash", "/#unknown-section", false],
+    ["no hash", "/", false],
+  ])(
+    "executes the serialized bootstrap for %s without a module closure",
+    (_description, location, shouldMarkPositioning) => {
+      window.history.replaceState(null, "", location);
+
+      expect(runSerializedHashBootstrap).not.toThrow();
+      expect(hasPositioningMarker()).toBe(shouldMarkPositioning);
+    },
+  );
 });

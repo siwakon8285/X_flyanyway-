@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { render } from "@/tests/renderWithLanguage";
@@ -398,16 +398,40 @@ describe("scroll storytelling", () => {
     });
   });
 
-  it("keeps Journey mobile and reduced-motion content in normal document flow", () => {
+  it("renders Journey mobile content as an integrated horizontal snap slider", () => {
     const { container } = render(<Home />);
     const journey = container.querySelector("#journey-path");
     const fallback = journey?.querySelector("[data-journey-mobile]");
 
-    expect(fallback).toHaveAttribute("data-mobile-flow", "vertical");
+    expect(fallback).toHaveAttribute("data-mobile-flow", "horizontal");
     expect(fallback).toHaveAttribute("data-reduced-motion-fallback", "true");
     expect(fallback?.querySelectorAll("[data-mobile-chapter]")).toHaveLength(3);
-    expect(journey?.outerHTML).not.toContain("overflow-x-auto");
-    expect(journey?.outerHTML).not.toContain("snap-x");
+    expect(fallback).toHaveClass("overflow-x-auto", "snap-x", "snap-mandatory");
+
+    const pagination = journey?.querySelector("[data-story-mobile-pagination]");
+    expect(pagination).toBeInTheDocument();
+    expect(pagination?.closest("[data-journey-mobile-shell]")).toBeInTheDocument();
+    expect(within(pagination as HTMLElement).getAllByRole("button")).toHaveLength(3);
+    expect(within(pagination as HTMLElement).getAllByRole("button")[0]).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+  });
+
+  it("keeps Journey pagination inside the stable content frame", () => {
+    const { container } = render(<Home />);
+    const journey = container.querySelector("#journey-path");
+    const frame = journey?.querySelector("[data-journey-mobile-content-frame]");
+    const track = frame?.querySelector("[data-journey-mobile-track]");
+    const pagination = frame?.querySelector("[data-story-mobile-pagination]");
+
+    expect(frame).toBeInTheDocument();
+    expect(frame).toHaveAttribute("data-journey-mobile-content-frame");
+    expect(track).toBeInTheDocument();
+    expect(track?.querySelectorAll("[data-story-mobile-slide]")).toHaveLength(3);
+    expect(pagination).toBeInTheDocument();
+    expect(frame).toContainElement(pagination as HTMLElement);
+    expect(pagination?.closest("[data-journey-mobile-track]")).toBeNull();
   });
 
   it("uses the approved interior and service assets without reusing aircraft imagery", () => {
@@ -540,6 +564,88 @@ describe("scroll storytelling", () => {
     expect(cabinImages?.length).toBeGreaterThanOrEqual(2);
     expect(cabins?.querySelectorAll("[data-cabin-atmosphere]")).toHaveLength(2);
     expect(cabins?.querySelector("[data-cabin-media-frame]")).toBeInTheDocument();
+  });
+
+  it("renders the mobile cabin choices as two image-led snap slides", () => {
+    const { container } = render(<Home />);
+    const cabins = container.querySelector("#cabins");
+    const stageStack = cabins?.querySelector("[data-cabin-mobile-track]");
+
+    expect(stageStack).toHaveClass("overflow-x-auto", "snap-x", "snap-mandatory");
+    expect(stageStack?.querySelectorAll("[data-cabin-stage]")).toHaveLength(2);
+
+    const pagination = cabins?.querySelector("[data-story-mobile-pagination]");
+    expect(pagination).toBeInTheDocument();
+    expect(pagination?.closest("[data-cabin-mobile-shell]")).toBeInTheDocument();
+    expect(within(pagination as HTMLElement).getAllByRole("button")).toHaveLength(2);
+    expect(within(pagination as HTMLElement).getAllByRole("button")[0]).toHaveAccessibleName(
+      "Go to Business",
+    );
+  });
+
+  it("keeps Cabin mobile pagination stationary inside one stable frame", () => {
+    const { container } = render(<Home />);
+    const cabins = container.querySelector("#cabins");
+    const frame = cabins?.querySelector("[data-story-mobile-frame]");
+    const track = frame?.querySelector("[data-cabin-mobile-track]");
+    const pagination = frame?.querySelector("[data-story-mobile-pagination]");
+
+    expect(frame).toBeInTheDocument();
+    expect(frame).toHaveAttribute("data-story-mobile-frame");
+    expect(track).toBeInTheDocument();
+    expect(track?.querySelectorAll("[data-story-mobile-slide]")).toHaveLength(2);
+    expect(pagination).toBeInTheDocument();
+    expect(pagination?.closest("[data-cabin-mobile-track]")).toBeNull();
+  });
+
+  it("keeps mobile pagination navigation inside the horizontal story scroller", () => {
+    const { container } = render(<Home />);
+    const cabins = container.querySelector("#cabins");
+    const stageStack = cabins?.querySelector("[data-cabin-mobile-track]") as HTMLElement;
+    const pagination = cabins?.querySelector("[data-story-mobile-pagination]") as HTMLElement;
+    const scrollTo = jest.fn();
+    const scrollIntoView = jest
+      .spyOn(HTMLElement.prototype, "scrollIntoView")
+      .mockImplementation(() => undefined);
+
+    Object.defineProperty(stageStack, "scrollTo", {
+      configurable: true,
+      value: scrollTo,
+    });
+
+    fireEvent.click(
+      within(pagination).getByRole("button", { name: "Go to First" }),
+    );
+
+    expect(scrollTo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        behavior: expect.any(String),
+        left: expect.any(Number),
+      }),
+    );
+    expect(scrollIntoView).not.toHaveBeenCalled();
+
+    scrollIntoView.mockRestore();
+  });
+
+  it("preserves the mobile journey and cabin labels in Thai", () => {
+    const { container } = render(<Home />, { locale: "th" });
+
+    expect(
+      within(container.querySelector("#journey-path") as HTMLElement).getByRole("heading", {
+        name: "หนึ่งการเดินทางที่ต่อเนื่อง",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(container.querySelector("#cabins") as HTMLElement).getByRole("heading", {
+        name: "เลือกวิธีบินในแบบของคุณ",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(container.querySelector("#cabins [data-story-mobile-pagination]") as HTMLElement).getAllByRole(
+        "button",
+      )[0],
+    ).toHaveAccessibleName("ไปยังชั้นธุรกิจ");
   });
 
   it("keeps reduced-motion storytelling visible in normal document flow", () => {
