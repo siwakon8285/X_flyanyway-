@@ -194,7 +194,7 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
   );
 
   return (
-    <main className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]" data-reduced-motion={reducedMotion || undefined}>
+    <div className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]" data-reduced-motion={reducedMotion || undefined}>
       <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-[36rem] bg-[radial-gradient(circle_at_72%_0%,rgba(255,212,0,0.08),transparent_32rem)]" />
       <Container className="relative" ref={page}>
         <div data-payment-reveal="navigation">
@@ -290,7 +290,7 @@ const PaymentPage = ({ backQuery, holdId }: { backQuery: string; holdId: string 
       </div>
     : null}
       </Container>
-    </main>
+    </div>
   );
 };
 

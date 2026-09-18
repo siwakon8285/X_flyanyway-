@@ -9,7 +9,7 @@ export default function PassengerInformationLoading() {
 
   return (
     <Container>
-      <main
+      <div
         aria-label={t("passengerInformation.loading")}
         className="min-h-screen py-section-sm pt-[calc(var(--header-height)+clamp(2rem,5vw,4rem))]"
         role="status"
@@ -22,7 +22,7 @@ export default function PassengerInformationLoading() {
           <Skeleton className="h-[48rem] rounded-surface" />
           <Skeleton className="h-80 rounded-surface" />
         </div>
-      </main>
+      </div>
     </Container>
   );
 }

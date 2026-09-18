@@ -1,8 +1,10 @@
 "use client";
 
 import Image from "next/image";
+import { useRef } from "react";
 
 import { Container } from "@/components/layout/Container";
+import { StoryMobilePagination } from "@/components/home/story/StoryMobilePagination";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import type { TranslationKey } from "@/i18n/types";
 
@@ -44,6 +46,7 @@ const cabins = [
 
 const CabinStory = () => {
   const { t } = useLanguage();
+  const mobileCabinRef = useRef<HTMLDivElement>(null);
 
   return (
   <section
@@ -122,46 +125,66 @@ const CabinStory = () => {
           </p>
         </div>
 
-        {/* Main Cabin Content Stack (Lower-Left Placement on Desktop, Sequential on Mobile) */}
+        {/* Main Cabin Content Stack (Lower-Left Placement on Desktop, Snap Slides on Mobile) */}
         <div
-          className="relative my-auto w-full max-w-xl space-y-12 py-8 md:my-0 md:mb-16 md:space-y-0 md:py-0"
+          className="relative my-auto w-full max-w-xl overflow-hidden rounded-2xl border border-border/60 bg-[#0d0f14]/90 md:my-0 md:mb-16 md:block md:space-y-0 md:overflow-visible md:rounded-none md:border-0 md:bg-transparent md:py-0"
+          data-cabin-mobile-shell
           data-cabin-stage-stack
+          data-story-mobile-frame
         >
-          {cabins.map((cabin, index) => (
-            <article
-              className="relative flex flex-col justify-between rounded-xl border border-border/60 bg-[#0d0f14]/90 p-6 sm:p-8 md:w-full md:min-h-0 md:rounded-none md:border-0 md:bg-transparent md:p-0 md:absolute md:inset-x-0 md:bottom-0 md:flex md:flex-col md:justify-end"
-              data-cabin-id={cabin.id}
-              data-cabin-stage
-              key={cabin.id}
-            >
-              <div>
-                <p className="text-caption text-muted-foreground">
-                  {String(index + 1).padStart(2, "0")} / {String(cabins.length).padStart(2, "0")}
-                </p>
-                <h3 className="mt-4 text-[clamp(2.75rem,7vw,7rem)] font-semibold leading-[0.86] tracking-[-0.07em] text-foreground text-balance">
-                  {t(cabin.labelKey)}
-                </h3>
-                <p className="mt-6 max-w-[26rem] text-body text-muted-foreground sm:text-body-lg">
-                  {t(cabin.copyKey)}
-                </p>
-              </div>
-
-              {/* Mobile-only sequential inline image */}
-              <div
-                className="mt-6 relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-border/50 bg-[#0a0d14] shadow-xl md:hidden"
-                data-cabin-mobile-image
+          <div
+            className="flex snap-x snap-mandatory gap-0 overflow-x-auto overscroll-x-contain scrollbar-none scroll-smooth md:contents"
+            data-cabin-mobile-track
+            ref={mobileCabinRef}
+          >
+            {cabins.map((cabin, index) => (
+              <article
+                className="relative flex flex-[0_0_100%] snap-start flex-col overflow-hidden md:w-full md:min-h-0 md:flex-auto md:rounded-none md:border-0 md:bg-transparent md:p-0 md:absolute md:inset-x-0 md:bottom-0 md:flex md:flex-col md:justify-end"
+                data-cabin-id={cabin.id}
+                data-cabin-stage
+                data-story-mobile-slide={cabin.id}
+                key={cabin.id}
               >
-                <Image
-                  alt={t(cabin.altKey)}
-                  className={`object-cover ${cabin.position}`}
-                  fill
-                  loading="lazy"
-                  sizes="100vw"
-                  src={cabin.image}
-                />
-              </div>
-            </article>
-          ))}
+                <div className="relative z-10 order-2 -mt-14 flex flex-1 flex-col justify-end bg-gradient-to-b from-transparent via-[#0d0f14] to-[#0d0f14] px-6 pb-16 pt-20 sm:px-8 md:relative md:z-auto md:mt-0 md:block md:min-h-0 md:flex-none md:bg-transparent md:px-0 md:pb-0 md:pt-0">
+                  <div>
+                    <p className="text-caption text-muted-foreground">
+                      {String(index + 1).padStart(2, "0")} / {String(cabins.length).padStart(2, "0")}
+                    </p>
+                    <h3 className="mt-4 text-[clamp(2.75rem,7vw,7rem)] font-semibold leading-[0.86] tracking-[-0.07em] text-foreground text-balance">
+                      {t(cabin.labelKey)}
+                    </h3>
+                    <p className="mt-6 max-w-[26rem] text-body text-muted-foreground sm:text-body-lg">
+                      {t(cabin.copyKey)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Mobile-only image-led slide visual */}
+                <div
+                  className="relative order-1 aspect-[16/10] w-full shrink-0 overflow-hidden border-b border-border/50 bg-[#0a0d14] shadow-xl md:hidden"
+                  data-cabin-mobile-image
+                >
+                  <Image
+                    alt={t(cabin.altKey)}
+                    className={`object-cover ${cabin.position}`}
+                    fill
+                    loading="lazy"
+                    sizes="100vw"
+                    src={cabin.image}
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
+          <StoryMobilePagination
+            ariaLabel={t("home.cabins.controlLabel")}
+            className="md:hidden"
+            containerRef={mobileCabinRef}
+            items={cabins.map((cabin) => ({
+              id: cabin.id,
+              label: t("home.cabins.goTo", { label: t(cabin.labelKey) }),
+            }))}
+          />
         </div>
 
         {/* Progress indicator (Desktop only: embedded over bottom-right visual region) */}

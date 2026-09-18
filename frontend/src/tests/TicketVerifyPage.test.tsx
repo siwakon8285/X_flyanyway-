@@ -111,6 +111,26 @@ describe("Ticket Verification URL & Page", () => {
       expect(screen.getByText(/Cryptographically verified via HMAC-SHA256 signature/)).toBeInTheDocument();
     });
 
+    it("announces an asynchronously completed valid result without moving focus", async () => {
+      mockVerifyTicket.mockResolvedValue({
+        departureDate: "2026-10-15",
+        departureTime: "09:15",
+        destinationCode: "HND",
+        flightNumber: "XF 201",
+        originCode: "BKK",
+        seats: [],
+        ticketStatus: "ISSUED",
+        valid: true,
+      });
+
+      renderTicketVerifyPage(validToken);
+      const returnHome = screen.getByRole("link", { name: "Return to Home" });
+      returnHome.focus();
+
+      expect(await screen.findByRole("status", { name: "Ticket Verified" })).toBeInTheDocument();
+      expect(returnHome).toHaveFocus();
+    });
+
     it("renders verification failed state when token is invalid or tampered", async () => {
       const tamperedToken = "v1.c76f62b0-95ad-4d4a-9b1e-624e75124119.tampered_signature";
       mockVerifyTicket.mockResolvedValue({
@@ -140,6 +160,14 @@ describe("Ticket Verification URL & Page", () => {
 
       expect(await screen.findByText("Verification Failed")).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Return to Home" })).toBeInTheDocument();
+    });
+
+    it("announces an asynchronously completed invalid result as an alert", async () => {
+      mockVerifyTicket.mockResolvedValue({ valid: false });
+
+      renderTicketVerifyPage(validToken);
+
+      expect(await screen.findByRole("alert", { name: "Verification Failed" })).toBeInTheDocument();
     });
   });
 });

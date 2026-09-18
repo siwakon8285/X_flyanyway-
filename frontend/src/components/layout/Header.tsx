@@ -53,34 +53,42 @@ const Header = () => {
   );
 
   return (
-    <header className="site-header fixed inset-x-0 top-0 z-40" ref={header}>
-      <Container
-        className="flex h-header items-center justify-between gap-4"
-        data-header-content
+    <>
+      <a
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[70] focus:rounded-control focus:bg-brand focus:px-4 focus:py-3 focus:text-brand-foreground"
+        href="#main-content"
       >
-        <Link
-          aria-label={t("navigation.home")}
-          className="group/brand rounded-control outline-none transition-transform duration-200 focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-4 focus-visible:ring-offset-background motion-safe:active:scale-[0.98] motion-reduce:transform-none"
-          href="/#top"
+        {t("navigation.skipToMain")}
+      </a>
+      <header className="site-header fixed inset-x-0 top-0 z-40" ref={header}>
+        <Container
+          className="flex h-header items-center justify-between gap-4"
+          data-header-content
         >
-          <BrandWordmark className="text-xs sm:text-sm" interactive markSize="header" />
-        </Link>
-
-        <DesktopNavigation />
-
-        <div className="flex items-center gap-3">
-          <a
-            className={cn(buttonVariants({ size: "sm" }), "hidden lg:inline-flex")}
-            href={bookingHref}
+          <Link
+            aria-label={t("navigation.home")}
+            className="group/brand rounded-control outline-none transition-transform duration-200 focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-4 focus-visible:ring-offset-background motion-safe:active:scale-[0.98] motion-reduce:transform-none"
+            href="/#top"
           >
-            {t("navigation.bookFlight")}
-            <ArrowUpRight aria-hidden="true" />
-          </a>
-          <LanguageToggle />
-          <MobileNavigation />
-        </div>
-      </Container>
-    </header>
+            <BrandWordmark className="text-xs sm:text-sm" interactive markSize="header" />
+          </Link>
+
+          <DesktopNavigation />
+
+          <div className="flex items-center gap-3">
+            <a
+              className={cn(buttonVariants({ size: "sm" }), "hidden lg:inline-flex")}
+              href={bookingHref}
+            >
+              {t("navigation.bookFlight")}
+              <ArrowUpRight aria-hidden="true" />
+            </a>
+            <LanguageToggle />
+            <MobileNavigation />
+          </div>
+        </Container>
+      </header>
+    </>
   );
 };
 

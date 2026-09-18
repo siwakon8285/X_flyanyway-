@@ -10,7 +10,7 @@ type SiteShellProps = {
 const SiteShell = ({ children }: SiteShellProps) => (
   <>
     <Header />
-    <main className="flex-1">{children}</main>
+    <main className="flex-1" id="main-content">{children}</main>
     <Footer />
   </>
 );

@@ -12,7 +12,7 @@ const Hero = ({ airports }: { airports: readonly AirportOption[] }) => (
       <HeroContent />
     </div>
     <Container
-      className="relative z-20 -mt-16 pb-12 sm:-mt-20 sm:pb-16 lg:-mt-24 lg:pb-20"
+      className="relative z-20 -mt-16 pb-12 [@media(max-width:39.999rem)_and_(max-height:30rem)]:-mt-2 sm:-mt-4 sm:pb-16 lg:-mt-24 lg:pb-20"
       data-hero-search
       id="flight-search"
     >

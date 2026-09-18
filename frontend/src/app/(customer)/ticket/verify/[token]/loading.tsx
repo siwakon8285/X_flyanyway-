@@ -6,7 +6,7 @@ import { useLanguage } from "@/i18n/LanguageProvider";
 export default function TicketVerifyLoading() {
   const { t } = useLanguage();
   return (
-    <main className="min-h-screen pt-[calc(var(--header-height)+4rem)]">
+    <div className="min-h-screen pt-[calc(var(--header-height)+4rem)]">
       <Container className="max-w-2xl">
         <div
           aria-label={t("ticket.verify.verifying")}
@@ -14,6 +14,6 @@ export default function TicketVerifyLoading() {
           role="status"
         />
       </Container>
-    </main>
+    </div>
   );
 }

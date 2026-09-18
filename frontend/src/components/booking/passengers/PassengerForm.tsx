@@ -78,6 +78,7 @@ const PassengerDateInput = ({
 );
 
 const NativeSelect = ({
+  ariaRequired,
   describedBy,
   error,
   id,
@@ -86,6 +87,7 @@ const NativeSelect = ({
   options,
   value,
 }: {
+  ariaRequired?: boolean;
   describedBy?: string;
   error?: boolean;
   id: string;
@@ -98,6 +100,7 @@ const NativeSelect = ({
     aria-describedby={describedBy}
     aria-invalid={error || undefined}
     aria-label={label}
+    aria-required={ariaRequired || undefined}
     className={cn(
       "h-12 w-full rounded-control border border-border bg-surface px-4 text-base text-foreground outline-none focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-focus/25",
       error && "border-destructive ring-2 ring-destructive/25",
@@ -183,15 +186,18 @@ const PassengerForm = ({
   const controlProps = (field: PassengerFieldName) => {
     const id = `passenger-${passenger.ordinal}-${field}`;
     const error = Boolean(errorFor(field));
+    const required = field !== "middleName";
     return {
       "aria-describedby": error ? `${id}-error` : undefined,
       "aria-invalid": error || undefined,
+      "aria-required": required || undefined,
       id,
     };
   };
   const selectControlProps = (field: PassengerFieldName) => {
     const props = controlProps(field);
     return {
+      ariaRequired: props["aria-required"],
       describedBy: props["aria-describedby"],
       error: Boolean(props["aria-invalid"]),
       id: props.id,
@@ -300,10 +306,10 @@ const PassengerForm = ({
           <h3 className="text-xl font-semibold" id="contact-details-heading">{t("passengerInformation.contact")}</h3>
           <div className="mt-5 grid gap-5 sm:grid-cols-2" data-booking-contact-layout="balanced">
             <PassengerField error={contactPhoneCountryCodeError ? t("passengerInformation.validation.invalidPhone") : undefined} id="booking-contact-phone-country" label={t("passengerInformation.field.phoneCountryCode")}>
-              <CountrySelect error={contactPhoneCountryCodeError} {...countrySelectState("booking-contact-phone-country")} id="booking-contact-phone-country" label={t("passengerInformation.field.phoneCountryCode")} mode="callingCode" onChange={onContactPhoneCountryCodeChange} value={contactPhoneCountryCode} />
+              <CountrySelect ariaRequired describedBy={contactPhoneCountryCodeError ? "booking-contact-phone-country-error" : undefined} error={contactPhoneCountryCodeError} {...countrySelectState("booking-contact-phone-country")} id="booking-contact-phone-country" label={t("passengerInformation.field.phoneCountryCode")} mode="callingCode" onChange={onContactPhoneCountryCodeChange} value={contactPhoneCountryCode} />
             </PassengerField>
             <PassengerField error={contactPhoneNumberError ? t("passengerInformation.validation.invalidPhone") : undefined} id="booking-contact-phone-number" label={t("passengerInformation.field.phoneNumber")}>
-              <Input aria-invalid={contactPhoneNumberError || undefined} autoComplete="tel-national" id="booking-contact-phone-number" inputMode="tel" onChange={(event) => onContactPhoneNumberChange(event.target.value)} value={contactPhoneNumber} />
+              <Input aria-describedby={contactPhoneNumberError ? "booking-contact-phone-number-error" : undefined} aria-invalid={contactPhoneNumberError || undefined} aria-required="true" autoComplete="tel-national" id="booking-contact-phone-number" inputMode="tel" onChange={(event) => onContactPhoneNumberChange(event.target.value)} value={contactPhoneNumber} />
             </PassengerField>
           </div>
         </div>

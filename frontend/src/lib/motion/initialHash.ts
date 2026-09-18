@@ -8,21 +8,27 @@ const SUPPORTED_HOME_HASHES = new Set([
   "#top",
 ]);
 
-const applyInitialHashBootstrap = (attribute: string) => {
+const applyInitialHashBootstrap = (
+  attribute: string,
+  supportedHashes: readonly string[],
+) => {
   window.history.scrollRestoration = "manual";
 
   if (
     window.location.pathname === "/" &&
-    SUPPORTED_HOME_HASHES.has(window.location.hash)
+    supportedHashes.includes(window.location.hash)
   ) {
     document.documentElement.setAttribute(attribute, "");
   }
 };
 
-const INITIAL_HASH_BOOTSTRAP_SCRIPT = `(${applyInitialHashBootstrap.toString()})(${JSON.stringify(INITIAL_HASH_POSITIONING_ATTRIBUTE)});`;
+const INITIAL_HASH_BOOTSTRAP_SCRIPT = `(${applyInitialHashBootstrap.toString()})(${JSON.stringify(INITIAL_HASH_POSITIONING_ATTRIBUTE)}, ${JSON.stringify([...SUPPORTED_HOME_HASHES])});`;
 
 const runInitialHashBootstrap = () =>
-  applyInitialHashBootstrap(INITIAL_HASH_POSITIONING_ATTRIBUTE);
+  applyInitialHashBootstrap(
+    INITIAL_HASH_POSITIONING_ATTRIBUTE,
+    [...SUPPORTED_HOME_HASHES],
+  );
 
 const clearInitialHashPositioning = () =>
   document.documentElement.removeAttribute(INITIAL_HASH_POSITIONING_ATTRIBUTE);

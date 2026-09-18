@@ -1,9 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties } from "react";
 
 import { Container } from "@/components/layout/Container";
+import { StoryMobilePagination } from "@/components/home/story/StoryMobilePagination";
 import {
   journeyChapters,
   journeyDepthRoles,
@@ -132,6 +133,7 @@ const JourneyStage = ({ side }: JourneyStageProps) => {
 
 const LayeredJourneyStory = () => {
   const { t } = useLanguage();
+  const mobileJourneyRef = useRef<HTMLDivElement>(null);
 
   return (
   <section
@@ -219,45 +221,77 @@ const LayeredJourneyStory = () => {
       </div>
 
       <div
-        className="flex flex-col gap-20 px-page-gutter lg:hidden"
-        data-mobile-flow="vertical"
-        data-journey-mobile
-        data-reduced-motion-fallback="true"
+        className="relative px-page-gutter lg:hidden"
+        data-journey-mobile-shell
       >
-        {journeyChapters.map((chapter) => (
-          <article
-            className="flex flex-col text-center"
-            data-mobile-chapter={chapter.id}
-            key={chapter.id}
+        <div
+          className="relative overflow-hidden rounded-2xl border border-border/60 bg-[#0d1017]"
+          data-journey-mobile-content-frame
+          data-story-mobile-frame
+        >
+          <div
+            className="flex snap-x snap-mandatory gap-0 overflow-x-auto overscroll-x-contain scrollbar-none scroll-smooth"
+            data-journey-mobile
+            data-journey-mobile-track
+            data-mobile-flow="horizontal"
+            data-reduced-motion-fallback="true"
+            ref={mobileJourneyRef}
           >
-            <p className="mb-3 text-caption text-brand">{t(chapter.labelKey)}</p>
-            <h3 className="text-h3 font-semibold text-foreground">
-              {t(chapter.headlineKey)}
-            </h3>
-            <p className="mx-auto mt-4 max-w-sm text-body-sm leading-relaxed text-muted-foreground">
-              {t(chapter.bodyKey)}
-            </p>
-            <div className="mt-8 grid gap-6">
-              {chapter.images.map((image, index) => (
-                <figure
-                  className={`relative w-full overflow-hidden rounded-xl shadow-xl ${
-                    index === 0 ? "aspect-[3/4]" : "aspect-[4/5]"
-                  }`}
-                  key={image.src}
-                >
-                  <Image
-                    alt={t(image.altKey)}
-                    className="object-cover"
-                    fill
-                    loading="lazy"
-                    sizes="(max-width: 47.999rem) 100vw, 1px"
-                    src={image.src}
-                  />
-                </figure>
-              ))}
-            </div>
-          </article>
-        ))}
+            {journeyChapters.map((chapter) => (
+              <article
+                className="relative flex flex-[0_0_100%] snap-start flex-col overflow-hidden"
+                data-mobile-chapter={chapter.id}
+                data-story-mobile-slide={chapter.id}
+                key={chapter.id}
+              >
+                <div className="flex w-full flex-col">
+                  <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden">
+                    <Image
+                      alt={t(chapter.images[0].altKey)}
+                      className="object-cover"
+                      fill
+                      loading="lazy"
+                      sizes="(max-width: 63.999rem) 90vw, 1px"
+                      src={chapter.images[0].src}
+                    />
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-0 bg-gradient-to-t from-[#0d1017] via-transparent to-black/10"
+                    />
+                    <div className="absolute right-5 top-5 aspect-[4/5] w-[29%] overflow-hidden rounded-lg border border-white/20 bg-[#0a0d14] shadow-xl">
+                      <Image
+                        alt={t(chapter.images[1].altKey)}
+                        className="object-cover"
+                        fill
+                        loading="lazy"
+                        sizes="(max-width: 63.999rem) 28vw, 1px"
+                        src={chapter.images[1].src}
+                      />
+                    </div>
+                  </div>
+                  <div className="relative z-10 -mt-14 flex flex-1 flex-col justify-end bg-gradient-to-b from-transparent via-[#0d1017] to-[#0d1017] px-6 pb-6 pt-20">
+                    <p className="text-caption text-brand">{t(chapter.labelKey)}</p>
+                    <h3 className="mt-3 text-h3 font-semibold leading-tight text-foreground text-balance">
+                      {t(chapter.headlineKey)}
+                    </h3>
+                    <p className="mt-4 max-w-sm text-body-sm leading-relaxed text-muted-foreground">
+                      {t(chapter.bodyKey)}
+                    </p>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          <StoryMobilePagination
+            ariaLabel={t("home.journey.controlLabel")}
+            containerRef={mobileJourneyRef}
+            items={journeyChapters.map((chapter) => ({
+              id: chapter.id,
+              label: t("home.journey.goTo", { label: t(chapter.labelKey) }),
+            }))}
+            className="relative inset-auto bottom-auto z-auto w-full shrink-0 py-3 lg:hidden"
+          />
+        </div>
       </div>
     </div>
   </section>

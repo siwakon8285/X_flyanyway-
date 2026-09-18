@@ -234,7 +234,7 @@ const TicketPage = ({
     : null;
 
   return (
-    <main
+    <div
       className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(1.5rem,4vw,3.5rem))] print:p-0"
       data-ticket-page
     >
@@ -245,6 +245,16 @@ const TicketPage = ({
       />
 
       <Container className="relative print:max-w-none print:p-0" ref={containerRef}>
+        <p
+          aria-label={copiedKey === "bookingReference"
+            ? t("ticket.bookingReferenceCopied")
+            : copiedKey === "ticketNumber"
+              ? t("ticket.ticketNumberCopied")
+              : undefined}
+          aria-live="polite"
+          className="sr-only"
+          role="status"
+        />
         {/* Navigation & Header (Hidden during print) */}
         <div className="print:hidden" data-ticket-reveal="nav">
           <Link
@@ -505,7 +515,7 @@ const TicketPage = ({
                           {data.ticket.bookingReference}
                         </span>
                         <button
-                          aria-label={t("ticket.copyReference")}
+                          aria-label={t("ticket.copyBookingReference")}
                           className="inline-flex size-7 items-center justify-center rounded-control text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus print:hidden"
                           onClick={() =>
                             copyToClipboard(
@@ -537,7 +547,7 @@ const TicketPage = ({
                           {data.ticket.ticketNumber}
                         </span>
                         <button
-                          aria-label={t("ticket.copyReference")}
+                          aria-label={t("ticket.copyTicketNumber")}
                           className="inline-flex size-7 items-center justify-center rounded-control text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus print:hidden"
                           onClick={() =>
                             copyToClipboard(data.ticket.ticketNumber, "ticketNumber")
@@ -659,7 +669,7 @@ const TicketPage = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </main>
+    </div>
   );
 };
 

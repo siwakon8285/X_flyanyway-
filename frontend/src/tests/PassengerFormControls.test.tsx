@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 
 import { PassengerForm } from "@/components/booking/passengers/PassengerForm";
@@ -23,7 +23,11 @@ const passenger = (overrides: Partial<PassengerFormValue> = {}): PassengerFormVa
 
 const renderForm = (
   value = passenger(),
-  options?: { locale?: "en" | "th" },
+  options?: {
+    contactPhoneCountryCodeError?: boolean;
+    contactPhoneNumberError?: boolean;
+    locale?: "en" | "th";
+  },
 ) => {
   const onValuesChange = jest.fn();
   render(
@@ -33,6 +37,8 @@ const renderForm = (
       errors={[]}
       onContactPhoneCountryCodeChange={jest.fn()}
       onContactPhoneNumberChange={jest.fn()}
+      contactPhoneCountryCodeError={options?.contactPhoneCountryCodeError}
+      contactPhoneNumberError={options?.contactPhoneNumberError}
       onSave={jest.fn()}
       onValuesChange={onValuesChange}
       ready={false}
@@ -90,6 +96,56 @@ describe("Passenger form controls", () => {
 
     expect(screen.getAllByText("Required")[0]).toHaveClass("text-destructive");
     expect(screen.getAllByText("Optional")[0]).toHaveClass("text-muted-foreground");
+  });
+
+  it("exposes required state without making optional fields required", () => {
+    renderForm();
+
+    expect(screen.getByLabelText("Given name")).toHaveAttribute("aria-required", "true");
+    expect(screen.getByLabelText("Family name")).toHaveAttribute("aria-required", "true");
+    expect(screen.getByLabelText("Middle name")).not.toHaveAttribute("aria-required", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Nationality" }));
+    expect(screen.getByRole("combobox", { name: "Search countries" })).toHaveAttribute("aria-required", "true");
+  });
+
+  it("associates contact phone errors with each affected control", () => {
+    renderForm(undefined, {
+      contactPhoneCountryCodeError: true,
+      contactPhoneNumberError: true,
+    });
+
+    expect(screen.getByRole("button", { name: "Phone country code" })).toHaveAttribute(
+      "aria-describedby",
+      "booking-contact-phone-country-error",
+    );
+    expect(screen.getByLabelText("Phone number")).toHaveAttribute(
+      "aria-describedby",
+      "booking-contact-phone-number-error",
+    );
+  });
+
+  it("exposes CountrySelect invalid state on the searchable combobox", async () => {
+    renderForm(undefined, { contactPhoneCountryCodeError: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Phone country code" }));
+
+    const search = await screen.findByRole("combobox", { name: "Search countries" });
+    const error = document.getElementById("booking-contact-phone-country-error");
+
+    expect(search).toHaveAttribute("aria-invalid", "true");
+    expect(search).toHaveAttribute("aria-describedby", "booking-contact-phone-country-error");
+    expect(error).toBeInTheDocument();
+  });
+
+  it("does not mark a valid CountrySelect combobox as invalid", async () => {
+    renderForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "Nationality" }));
+
+    const search = await screen.findByRole("combobox", { name: "Search countries" });
+
+    expect(search).not.toHaveAttribute("aria-invalid");
   });
 
   it("uses bounded searchable listboxes for country and calling-code fields", () => {
@@ -151,6 +207,126 @@ describe("Passenger form controls", () => {
     expect(listbox).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
     expect(listbox).toHaveAttribute("data-lenis-prevent-wheel");
     expect(search.closest('[role="listbox"]')).toBeNull();
+  });
+
+  it("keeps DOM focus on the searchable combobox while options use active descendant navigation", async () => {
+    renderForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "Nationality" }));
+
+    const search = screen.getByRole("combobox", { name: "Search countries" });
+    const options = within(screen.getByRole("listbox", { name: "Nationality" })).getAllByRole("option");
+    await waitFor(() => expect(search).toHaveFocus());
+    options.forEach((option) => expect(option).toHaveAttribute("tabindex", "-1"));
+    expect(search).toHaveAttribute("aria-activedescendant", options[0].id);
+
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+
+    expect(search).toHaveFocus();
+    expect(search).toHaveAttribute("aria-activedescendant", options[1].id);
+  });
+
+  it("keeps the closed trigger tabbable and removes it while open", async () => {
+    renderForm();
+
+    const trigger = screen.getByRole("button", { name: "Nationality" });
+    expect(trigger).toHaveProperty("tabIndex", 0);
+
+    fireEvent.click(trigger);
+
+    const search = await screen.findByRole("combobox", { name: "Search countries" });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    expect(trigger).toHaveProperty("tabIndex", -1);
+    within(screen.getByRole("listbox", { name: "Nationality" }))
+      .getAllByRole("option")
+      .forEach((option) => expect(option).toHaveAttribute("tabindex", "-1"));
+  });
+
+  it("closes without restoring trigger focus on forward Tab", async () => {
+    renderForm();
+
+    const trigger = screen.getByRole("button", { name: "Nationality" });
+    fireEvent.click(trigger);
+    const search = await screen.findByRole("combobox", { name: "Search countries" });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    const tabEvent = createEvent.keyDown(search, { key: "Tab" });
+    fireEvent(search, tabEvent);
+
+    expect(tabEvent.defaultPrevented).toBe(false);
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Nationality" })).not.toBeInTheDocument());
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it("closes without restoring trigger focus on reverse Shift+Tab", async () => {
+    renderForm();
+
+    const trigger = screen.getByRole("button", { name: "Nationality" });
+    fireEvent.click(trigger);
+    const search = await screen.findByRole("combobox", { name: "Search countries" });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    const tabEvent = createEvent.keyDown(search, { key: "Tab", shiftKey: true });
+    fireEvent(search, tabEvent);
+
+    expect(tabEvent.defaultPrevented).toBe(false);
+    await waitFor(() => expect(screen.queryByRole("listbox", { name: "Nationality" })).not.toBeInTheDocument());
+    expect(trigger).not.toHaveFocus();
+  });
+
+  it("preserves arrow boundaries, Enter selection, and Escape dismissal", async () => {
+    const onValuesChange = renderForm();
+    const trigger = screen.getByRole("button", { name: "Nationality" });
+
+    fireEvent.click(trigger);
+    const search = await screen.findByRole("combobox", { name: "Search countries" });
+    const listbox = screen.getByRole("listbox", { name: "Nationality" });
+    const options = within(listbox).getAllByRole("option");
+    await waitFor(() => expect(search).toHaveFocus());
+
+    fireEvent.keyDown(search, { key: "ArrowUp" });
+    expect(search).toHaveAttribute("aria-activedescendant", options[options.length - 1].id);
+
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    expect(search).toHaveAttribute("aria-activedescendant", options[0].id);
+
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(screen.queryByRole("listbox", { name: "Nationality" })).not.toBeInTheDocument();
+    expect(onValuesChange).toHaveBeenCalled();
+
+    fireEvent.click(trigger);
+    const reopenedSearch = await screen.findByRole("combobox", { name: "Search countries" });
+    fireEvent.keyDown(reopenedSearch, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "Nationality" })).not.toBeInTheDocument();
+  });
+
+  it("keeps the active descendant valid when filtering options", async () => {
+    renderForm();
+
+    fireEvent.click(screen.getByRole("button", { name: "Nationality" }));
+    const search = await screen.findByRole("combobox", { name: "Search countries" });
+    const listbox = screen.getByRole("listbox", { name: "Nationality" });
+    await waitFor(() => expect(search).toHaveFocus());
+
+    fireEvent.change(search, { target: { value: "Japan" } });
+    await waitFor(() => {
+      const filteredOption = within(listbox).getByRole("option");
+      const activeId = search.getAttribute("aria-activedescendant");
+
+      expect(activeId).toBe(filteredOption.id);
+      expect(document.getElementById(activeId ?? "")).toBe(filteredOption);
+    });
+
+    fireEvent.change(search, { target: { value: "not-a-country" } });
+    await waitFor(() => {
+      expect(within(listbox).queryAllByRole("option")).toHaveLength(0);
+      expect(search).not.toHaveAttribute("aria-activedescendant");
+    });
+
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(screen.queryByRole("combobox", { name: "Search countries" })).not.toBeInTheDocument();
+    expect(document.querySelector('[aria-activedescendant]')).not.toBeInTheDocument();
   });
 
   it("keeps passenger nationality independent from booking-level contact details", () => {

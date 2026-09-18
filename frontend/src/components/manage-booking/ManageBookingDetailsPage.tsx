@@ -56,10 +56,10 @@ const ManageBookingDetailsPage = () => {
     return () => { active = false; window.clearInterval(timer); };
   }, [refundPollingStatus]);
   if (!booking) {
-    return <main className="min-h-screen bg-background pb-24 pt-28"><Container>
+    return <div className="min-h-screen bg-background pb-24 pt-28"><Container>
       {failure ? <section role="alert"><h1 className="text-display-sm">{t("manageBooking.yourBooking")}</h1><p className="mt-4">{t(failure === "authorization" ? "manageBooking.error.authorization" : "manageBooking.error.unavailable")}</p><Link className={buttonVariants({ variant: "primary" })} href="/manage-booking">{t("manageBooking.find")}</Link></section>
         : <div aria-label={t("manageBooking.loading")} role="status" />}
-    </Container></main>;
+    </Container></div>;
   }
     const money = formatPrice(booking.payment.amount.amount, locale, booking.payment.amount.currencyCode);
     const cutoff = booking.cancellation.cutoffAt
@@ -69,7 +69,7 @@ const ManageBookingDetailsPage = () => {
     const refundLabel = refundStatus === "SUCCEEDED" ? "manageBooking.refundCompleted" : refundStatus === "REQUIRES_ATTENTION" ? "manageBooking.refundAttention" : "manageBooking.refundProcessing";
     const cancel = async () => { setCancelling(true); setCancelError(false); try { await cancelCurrentManageBooking(); setBooking(await getCurrentManageBooking()); } catch { setCancelError(true); } finally { setCancelling(false); } };
     return (
-      <main className="min-h-screen bg-background pb-24 pt-28">
+      <div className="min-h-screen bg-background pb-24 pt-28">
         <Container>
           <Link
             className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none"
@@ -107,7 +107,7 @@ const ManageBookingDetailsPage = () => {
             <Card className="p-6"><h2 className="flex items-center gap-3 text-h3"><CheckCircle2 aria-hidden="true" className="text-brand" />{t("manageBooking.cancellation")}</h2>{booking.status === "CANCELLED" ? <><p className="mt-5 font-medium">{t("manageBooking.status.cancelled")}</p><p className="mt-2 text-muted-foreground">{t(refundLabel)}</p></> : <><p className="mt-5 font-medium">{t(booking.cancellation.eligibility === "ELIGIBLE" ? "manageBooking.cancellationEligible" : "manageBooking.cancellationUnavailable")}</p>{booking.cancellation.eligibility === "ELIGIBLE" && cutoff ? <p className="mt-2 text-sm text-muted-foreground">{t("manageBooking.freeCancellationUntil", { date: cutoff })}</p> : null}<p className="mt-4 text-sm text-muted-foreground">{t("manageBooking.cancellationFuture")}</p>{booking.cancellation.eligibility === "ELIGIBLE" ? <Dialog><DialogTrigger asChild><Button className="mt-5" variant="destructive">{t("manageBooking.cancelBooking")}</Button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>{t("manageBooking.cancelTitle")}</DialogTitle><DialogDescription>{t("manageBooking.cancelDescription")}</DialogDescription></DialogHeader><dl className="space-y-3"><div><dt className="text-muted-foreground">{t("manageBooking.cancelFlight")}</dt><dd>{booking.journey.flightNumber} · {booking.journey.originCode} → {booking.journey.destinationCode}</dd></div><div><dt className="text-muted-foreground">{t("manageBooking.cancelSeats")}</dt><dd>{booking.seats.join(", ")}</dd></div><div><dt className="text-muted-foreground">{t("manageBooking.cancellationFee")}</dt><dd>{formatPrice(0, locale, booking.payment.amount.currencyCode)}</dd></div><div><dt className="text-muted-foreground">{t("manageBooking.fullRefund")}</dt><dd>{money}</dd></div></dl>{cancelError ? <p role="alert">{t("manageBooking.cancellationError")}</p> : null}<DialogFooter><DialogClose asChild><Button variant="outline">{t("manageBooking.keepBooking")}</Button></DialogClose><Button loading={cancelling} onClick={cancel} variant="destructive">{t(cancelling ? "manageBooking.cancelling" : "manageBooking.confirmCancellation")}</Button></DialogFooter></DialogContent></Dialog> : null}</>}</Card>
           </div>
         </Container>
-      </main>
+      </div>
     );
 };
 

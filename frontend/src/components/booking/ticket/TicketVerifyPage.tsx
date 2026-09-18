@@ -61,7 +61,7 @@ export function TicketVerifyPage({ token }: TicketVerifyPageProps) {
   const isCancelled = !fetchError && verification?.ticketStatus === "CANCELLED";
 
   return (
-    <main className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(1.5rem,4vw,3.5rem))]">
+    <div className="relative min-h-screen overflow-x-clip pb-section-md pt-[calc(var(--header-height)+clamp(1.5rem,4vw,3.5rem))]">
       {/* Background radial highlight */}
       <div
         aria-hidden="true"
@@ -100,10 +100,19 @@ export function TicketVerifyPage({ token }: TicketVerifyPageProps) {
               <p className="text-label text-brand">
                 {t("ticket.verify.eyebrow")}
               </p>
-              <h1 className="mt-2 text-h2 font-bold tracking-tight text-foreground">
-                {t("ticket.verify.heading")}
-              </h1>
-            </div>
+            <h1 className="mt-2 text-h2 font-bold tracking-tight text-foreground">
+              {t("ticket.verify.heading")}
+            </h1>
+          </div>
+
+          {!loading ? (
+            <p
+              aria-label={t(isValid ? "ticket.verify.validTitle" : isCancelled ? "ticket.verify.cancelledTitle" : "ticket.verify.invalidTitle")}
+              aria-live={isValid ? "polite" : "assertive"}
+              className="sr-only"
+              role={isValid ? "status" : "alert"}
+            />
+          ) : null}
 
             {/* State Rendering */}
             {loading ? (
@@ -262,6 +271,6 @@ export function TicketVerifyPage({ token }: TicketVerifyPageProps) {
           </div>
         </div>
       </Container>
-    </main>
+    </div>
   );
 }

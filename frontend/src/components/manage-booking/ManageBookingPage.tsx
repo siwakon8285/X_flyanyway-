@@ -61,7 +61,7 @@ const ManageBookingPage = () => {
 
 
   return (
-    <main className="min-h-screen bg-background pb-24 pt-28">
+    <div className="min-h-screen bg-background pb-24 pt-28">
       <Container className="max-w-3xl">
         <p className="text-label text-brand">{t("manageBooking.eyebrow")}</p>
         <h1 className="mt-3 text-display-sm">{t("manageBooking.heading")}</h1>
@@ -77,7 +77,7 @@ const ManageBookingPage = () => {
           </form>
         </Card>
       </Container>
-    </main>
+    </div>
   );
 };
 

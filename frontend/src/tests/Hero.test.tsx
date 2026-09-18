@@ -33,7 +33,6 @@ describe("cinematic hero", () => {
       "relative",
       "z-20",
       "-mt-16",
-      "sm:-mt-20",
       "lg:-mt-24",
     );
     expect(heroVisual?.compareDocumentPosition(heroSearch as Node)).toBe(
@@ -63,6 +62,27 @@ describe("cinematic hero", () => {
       "/images/hero/x-fly-aircraft-hero-sharp-v1.png",
     );
     expect(aircraft?.getAttribute("style")).not.toContain("filter");
+  });
+
+  it("uses compact breakpoint spacing that preserves hero text clearance", () => {
+    const { container } = render(<Home />);
+    const heroSearch = container.querySelector("[data-hero-search]");
+    const responsiveClasses = new Set(heroSearch?.className.split(/\s+/));
+
+    expect(responsiveClasses).toContain("sm:-mt-4");
+  });
+
+  it("reduces only short-mobile search overlap while preserving other spacing contracts", () => {
+    const { container } = render(<Home />);
+    const heroSearch = container.querySelector("[data-hero-search]");
+    const responsiveClasses = new Set(heroSearch?.className.split(/\s+/));
+
+    expect(responsiveClasses).toContain(
+      "[@media(max-width:39.999rem)_and_(max-height:30rem)]:-mt-2",
+    );
+    expect(responsiveClasses).toContain("-mt-16");
+    expect(responsiveClasses).toContain("sm:-mt-4");
+    expect(responsiveClasses).toContain("lg:-mt-24");
   });
 
   it("keeps the complete hero usable when reduced motion is requested", () => {
