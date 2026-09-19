@@ -1,0 +1,46 @@
+{
+  "target": {
+    "environment": "TEST",
+    "databaseName": "x_fly_concurrency_test"
+  },
+  "departureDate": "2026-10-18",
+  "airportMinimumCount": 1,
+  "searchCases": [
+    {
+      "origin": "BKK",
+      "destination": "LHR",
+      "cabin": "business"
+    },
+    {
+      "origin": "BKK",
+      "destination": "HND",
+      "cabin": "business"
+    }
+  ],
+  "cases": [
+    {
+      "flightId": "xf-201",
+      "origin": "BKK",
+      "destination": "LHR",
+      "cabin": "business"
+    },
+    {
+      "flightId": "xf-428",
+      "origin": "BKK",
+      "destination": "LHR",
+      "cabin": "business"
+    },
+    {
+      "flightId": "xf-621",
+      "origin": "BKK",
+      "destination": "HND",
+      "cabin": "business"
+    },
+    {
+      "flightId": "xf-637",
+      "origin": "BKK",
+      "destination": "HND",
+      "cabin": "business"
+    }
+  ]
+}
