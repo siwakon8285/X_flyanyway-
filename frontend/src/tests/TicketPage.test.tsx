@@ -135,7 +135,7 @@ describe("TicketPage", () => {
     expect(screen.queryByText("Ticket Verification")).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain(mockTicketResponse.qrToken);
     expect(screen.getByText("Your booking is confirmed and payment has been completed. Keep your booking reference and use it with the passenger last name in Manage Booking for future access.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Manage Booking" })).toHaveAttribute("href", "/manage-booking");
+    expect(screen.getByRole("link", { name: "View / Manage E-ticket" })).toHaveAttribute("href", "/manage-booking");
     expect(document.body.textContent).not.toMatch(/sent.*email|check your email|emailed/i);
 
     // Action buttons
@@ -206,7 +206,7 @@ describe("TicketPage", () => {
     renderTicketPage();
 
     await screen.findByRole("heading", { name: "Booking Confirmed" });
-    const manageBooking = screen.getByRole("link", { name: "Manage Booking" });
+    const manageBooking = screen.getByRole("link", { name: "View / Manage E-ticket" });
     manageBooking.addEventListener("click", (event) => event.preventDefault(), { once: true });
     fireEvent.click(manageBooking);
 

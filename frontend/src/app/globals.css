@@ -19,6 +19,12 @@
     break-after: auto;
   }
 
+  [data-ticket-content] {
+    max-width: 100%;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
   [data-ticket-content] [data-ticket-reveal] {
     opacity: 1 !important;
     transform: none !important;

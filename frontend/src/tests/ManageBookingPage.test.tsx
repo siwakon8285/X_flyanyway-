@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { BookingApiError } from "@/components/booking/api/bookingApiClient";
 import { ManageBookingDetailsPage } from "@/components/manage-booking/ManageBookingDetailsPage";
@@ -151,14 +151,14 @@ describe("ManageBookingPage", () => {
       "/manage-booking",
     );
     expect(screen.queryByRole("link", { name: "Return Home" })).not.toBeInTheDocument();
-    expect(screen.getByText("XFABCDEFGH")).toBeInTheDocument();
-    expect(screen.getByText("BKK")).toBeInTheDocument();
-    expect(screen.getByText("LHR")).toBeInTheDocument();
-    expect(screen.getByText("XF 201")).toBeInTheDocument();
-    expect(screen.getAllByText(/04 Nov 2026/)).toHaveLength(2);
+    expect(screen.getByTestId("e-ticket-booking-reference")).toHaveTextContent("XFABCDEFGH");
+    expect(screen.getByTestId("e-ticket-origin")).toHaveTextContent("BKK");
+    expect(screen.getByTestId("e-ticket-destination")).toHaveTextContent("LHR");
+    expect(screen.getByTestId("e-ticket-flight-number")).toHaveTextContent("XF 201");
+    expect(screen.getAllByText(/04 Nov 2026/).length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("2026-11-04")).not.toBeInTheDocument();
-    expect(screen.getByText("Nara Van der Meer")).toBeInTheDocument();
-    expect(screen.getByText("20A")).toBeInTheDocument();
+    expect(screen.getByTestId("e-ticket-passengers")).toHaveTextContent("Nara Van der Meer");
+    expect(screen.getByTestId("e-ticket-seats")).toHaveTextContent("20A");
     expect(screen.getByText("+30 kg")).toBeInTheDocument();
     expect(screen.getByText("THB 49,300")).toBeInTheDocument();
     expect(screen.getByText("XFTABCDEFGHIJKL")).toBeInTheDocument();
@@ -168,6 +168,97 @@ describe("ManageBookingPage", () => {
     expect(screen.queryByText(/check-in/i)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("passport");
     expect(document.body.textContent).not.toContain("example.com");
+  });
+
+  it("renders the Manage Booking E-Ticket as a responsive horizontal travel document", async () => {
+    mockCurrent.mockResolvedValue(booking);
+    renderPage("en", true);
+
+    expect(await screen.findByRole("heading", { name: "E-Ticket" })).toBeInTheDocument();
+    expect(screen.getByText("Boarding-pass style travel document")).toBeInTheDocument();
+
+    expect(screen.getByTestId("customer-e-ticket-layout")).toHaveClass(
+      "grid",
+      "grid-cols-1",
+      "md:grid-cols-[minmax(0,1fr)_17rem]",
+    );
+    expect(screen.getByTestId("e-ticket-origin")).toHaveTextContent("BKK");
+    expect(screen.getByTestId("e-ticket-destination")).toHaveTextContent("LHR");
+    expect(screen.getByTestId("e-ticket-flight-number")).toHaveTextContent("XF 201");
+    expect(screen.getByTestId("e-ticket-departure-date")).toHaveTextContent("04 Nov 2026");
+    expect(screen.getByTestId("e-ticket-departure-time")).toHaveTextContent("09:15");
+    expect(screen.getByTestId("e-ticket-cabin")).toHaveTextContent("Economy");
+    expect(screen.getByTestId("e-ticket-passengers")).toHaveTextContent("Nara Van der Meer");
+    expect(screen.getByTestId("e-ticket-passengers")).toHaveTextContent("Mali Van der Meer");
+    expect(screen.getByTestId("e-ticket-seats")).toHaveTextContent("20A");
+    expect(screen.getByTestId("e-ticket-seats")).toHaveTextContent("20B");
+    expect(screen.getByTestId("e-ticket-booking-reference")).toHaveTextContent("XFABCDEFGH");
+    expect(screen.getByTestId("e-ticket-ticket-number")).toHaveTextContent("XFTABCDEFGHIJKL");
+    expect(screen.getByTestId("e-ticket-status")).toHaveTextContent("Ticket Issued");
+    expect(screen.getByTestId("ticket-qr-container")).toHaveAttribute(
+      "data-verification-url",
+      expect.stringContaining(booking.qrToken),
+    );
+    expect(screen.getByTestId("e-ticket-print-action")).toHaveClass("print:hidden");
+    const qrStub = screen.getByRole("complementary", { name: "Ticket Verification" });
+    for (const label of ["Seats", "Booking Reference", "Flight"]) {
+      expect(within(qrStub).getByText(label, { selector: "dt" })).toHaveClass(
+        "text-white/70",
+        "print:text-neutral-600",
+      );
+    }
+    expect(within(qrStub).getByText("Scan this QR code to verify ticket authenticity.")).toHaveClass(
+      "text-white/70",
+      "print:text-neutral-700",
+    );
+    expect(within(qrStub).getByText("Cryptographically signed · Zero personal data encoded")).toHaveClass(
+      "text-white/70",
+      "print:text-neutral-700",
+    );
+    expect(screen.queryByText(/gate|terminal|boarding time|checked in|boarding authorized/i)).not.toBeInTheDocument();
+  });
+
+  it("prints the redesigned E-Ticket through the browser print flow", async () => {
+    const printSpy = jest.spyOn(window, "print").mockImplementation(() => {});
+    mockCurrent.mockResolvedValue(booking);
+    renderPage("en", true);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Print E-ticket" }));
+
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    printSpy.mockRestore();
+  });
+
+  it("keeps optional values safe and preserves an unfamiliar historical cabin value", async () => {
+    mockCurrent.mockResolvedValue({
+      ...booking,
+      journey: { ...booking.journey, cabin: "premium-suite", departureTime: null },
+      passengers: [{ ...booking.passengers[0], displayName: "A Passenger With A Deliberately Long Name For Layout Coverage" }],
+      seats: [],
+      ticket: { ...booking.ticket, ticketNumber: "XFTICKETNUMBERTHATISLONGERTHANEXPECTED" },
+    });
+    renderPage("en", true);
+
+    expect(await screen.findByTestId("e-ticket-cabin")).toHaveTextContent("premium-suite");
+    expect(screen.queryByTestId("e-ticket-departure-time")).not.toBeInTheDocument();
+    expect(screen.getByTestId("e-ticket-ticket-number")).toHaveTextContent("XFTICKETNUMBERTHATISLONGERTHANEXPECTED");
+    expect(screen.getByTestId("e-ticket-passengers")).toHaveTextContent(
+      "A Passenger With A Deliberately Long Name For Layout Coverage",
+    );
+    expect(document.body.textContent).not.toContain("undefined");
+    expect(document.body.textContent).not.toContain("null");
+  });
+
+  it("renders the E-Ticket labels in Thai without changing authoritative identifiers", async () => {
+    mockCurrent.mockResolvedValue(booking);
+    renderPage("th", true);
+
+    expect(await screen.findByRole("heading", { name: "E-Ticket" })).toBeInTheDocument();
+    expect(screen.getByText("เอกสารการเดินทางในรูปแบบบัตรโดยสาร")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "พิมพ์ตั๋วอิเล็กทรอนิกส์" })).toBeInTheDocument();
+    expect(screen.getByTestId("e-ticket-booking-reference")).toHaveTextContent("XFABCDEFGH");
+    expect(screen.getByText("XFTABCDEFGHIJKL")).toBeInTheDocument();
+    expect(screen.getByTestId("e-ticket-cabin")).toHaveTextContent("ชั้นประหยัด");
   });
 
   it("confirms a full free refund without sending identity or money", async () => {
@@ -217,7 +308,7 @@ describe("ManageBookingPage", () => {
     renderPage("th", true);
 
     expect(await screen.findByRole("heading", { name: "การจองของคุณ" })).toBeInTheDocument();
-    expect(screen.getAllByText(/2026/)).toHaveLength(2);
+    expect(screen.getAllByText(/2026/).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("THB 49,300")).toBeInTheDocument();
     expect(screen.queryByText("2026-11-04")).not.toBeInTheDocument();
   });
@@ -266,9 +357,9 @@ describe("ManageBookingPage", () => {
     const next = { ...booking, bookingReference: "XF23456789", seats: ["21A"], journey: { ...booking.journey, departureDate: "2026-12-05" } };
     mockCurrent.mockResolvedValue(next);
     renderPage("en", true);
-    expect(await screen.findByText(next.bookingReference)).toBeInTheDocument();
+    expect(await screen.findByTestId("e-ticket-booking-reference")).toHaveTextContent(next.bookingReference);
     expect(screen.queryByText(booking.bookingReference)).not.toBeInTheDocument();
     expect(screen.queryByText("20A")).not.toBeInTheDocument();
-    expect(screen.getByText("21A")).toBeInTheDocument();
+    expect(screen.getByTestId("e-ticket-seats")).toHaveTextContent("21A");
   });
 });

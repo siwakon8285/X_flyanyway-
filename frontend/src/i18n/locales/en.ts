@@ -167,6 +167,8 @@ const en = {
   },
   ticket: {
     back: "Back to Home",
+    eTicket: "E-Ticket",
+    eTicketSubtitle: "Boarding-pass style travel document",
     eyebrow: "Purchase complete · X-Fly Anyway",
     heading: "Booking Confirmed",
     intro: "Your booking is confirmed and payment has been completed. Keep your booking reference and use it with the passenger last name in Manage Booking for future access.",
@@ -189,6 +191,8 @@ const en = {
     departure: "Departure",
     arrival: "Arrival",
     cabin: "Cabin",
+    route: "Route",
+    notAvailable: "Not available",
     passengers: "Passengers",
     seats: "Seats",
     amountPaid: "Total Paid",
@@ -213,7 +217,8 @@ const en = {
     },
     actions: {
       print: "Print Booking Summary",
-      manageBooking: "Manage Booking",
+      printETicket: "Print E-ticket",
+      manageBooking: "View / Manage E-ticket",
     },
     error: {
       notFound: "Ticket not found for this booking.",
