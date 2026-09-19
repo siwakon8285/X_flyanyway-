@@ -2,15 +2,25 @@
 
 import { useState } from "react";
 import { useLanguage } from "@/i18n/LanguageProvider";
+import { formatStaffDate } from "@/i18n/formatters";
 import { dashboardCabins, type DashboardFilters as Filters, type DashboardProvider } from "@/lib/admin/dashboardTypes";
 import { cabinKeys } from "./DashboardCharts";
+import { dashboardReportPeriods, resolveDashboardPeriod, type DashboardReportPeriod } from "./dashboardPeriods";
 
-export function presetFilters(preset: "today" | "seven" | "thirty" | "month", current?: Filters): Filters {
-  const to = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-  const date = new Date(`${to}T00:00:00Z`);
-  if (preset === "month") date.setUTCDate(1);
-  else date.setUTCDate(date.getUTCDate() - (preset === "seven" ? 6 : preset === "thirty" ? 29 : 0));
-  return { route: "", cabin: "", provider: "STRIPE", ...current, from: date.toISOString().slice(0, 10), to };
+const periodTranslationKeys = {
+  daily: "dashboard.reportDaily",
+  weekly: "dashboard.reportWeekly",
+  monthly: "dashboard.reportMonthly",
+  custom: "dashboard.reportCustom",
+} as const;
+
+export function presetFilters(preset: DashboardReportPeriod, current?: Filters): Filters {
+  const preserved = {
+    route: current?.route ?? "",
+    cabin: current?.cabin ?? "",
+    provider: current?.provider ?? "STRIPE",
+  };
+  return { ...preserved, ...resolveDashboardPeriod(preset, new Date(), current) };
 }
 
 type DashboardFiltersProps = {
@@ -21,22 +31,36 @@ type DashboardFiltersProps = {
 };
 
 export function DashboardFilters({ initial, loading, routes, onApply }: DashboardFiltersProps) {
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const [draft, setDraft] = useState(initial);
+  const [period, setPeriod] = useState<DashboardReportPeriod>(() => {
+    const matchingPeriod = dashboardReportPeriods.find((key) => {
+      if (key === "custom") return false;
+      const range = presetFilters(key, initial);
+      return range.from === initial.from && range.to === initial.to;
+    });
+    return matchingPeriod ?? "custom";
+  });
   const [invalid, setInvalid] = useState(false);
-  const change = (key: keyof Filters, value: string) => setDraft((old) => ({ ...old, [key]: value }));
+  const change = (key: keyof Filters, value: string) => {
+    setPeriod("custom");
+    setDraft((old) => ({ ...old, [key]: value }));
+  };
   const apply = (filters: Filters) => {
     const days = (Date.parse(filters.to) - Date.parse(filters.from)) / 86400000;
     if (!Number.isFinite(days) || days < 0 || days > 365) { setInvalid(true); return; }
     setInvalid(false); onApply(filters);
   };
-  const activePreset = (["today", "seven", "thirty", "month"] as const).find((key) => {
-    const preset = presetFilters(key, draft);
-    return preset.from === draft.from && preset.to === draft.to;
-  });
+  const selectPeriod = (nextPeriod: DashboardReportPeriod) => {
+    setPeriod(nextPeriod);
+    const next = presetFilters(nextPeriod, draft);
+    setDraft(next);
+    apply(next);
+  };
   return <form className="exec-filters" data-exec-filters aria-busy={loading} onSubmit={(event) => { event.preventDefault(); apply(draft); }}>
     <div className="exec-filter-header"><span>{t("dashboard.cohortControls")}</span>{loading && <span className="exec-filter-pulse" aria-live="polite">{t("dashboard.updating")}</span>}</div>
-    <div className="exec-presets" aria-label={t("dashboard.range")}>{(["today", "seven", "thirty", "month"] as const).map((key) => <button key={key} type="button" aria-pressed={activePreset === key} onClick={() => { const next = presetFilters(key, draft); setDraft(next); apply(next); }}>{t(`dashboard.${key}`)}</button>)}</div>
+    <div className="exec-presets" aria-label={t("dashboard.range")}>{dashboardReportPeriods.map((key) => <button key={key} type="button" aria-pressed={period === key} onClick={() => selectPeriod(key)}>{t(periodTranslationKeys[key])}</button>)}</div>
+    <p className="exec-filter-range"><span>{t("dashboard.resolvedRange")}</span> {formatStaffDate(draft.from, locale)} — {formatStaffDate(draft.to, locale)}</p>
     <div className="exec-filter-fields">
       <label>{t("dashboard.from")}<input className="exec-filter-control" required type="date" value={draft.from} onChange={(e) => change("from", e.target.value)} /></label>
       <label>{t("dashboard.to")}<input className="exec-filter-control" required type="date" value={draft.to} onChange={(e) => change("to", e.target.value)} /></label>

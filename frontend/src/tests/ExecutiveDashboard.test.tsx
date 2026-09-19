@@ -23,7 +23,7 @@ describe("Executive Dashboard", () => {
     expect(container.querySelector(".exec-revenue-chart [data-chart-line]")?.getAttribute("d")).toContain("C");
     expect(screen.getByRole("img", { name: "Active cabin mix by bookings" })).toHaveAttribute("data-values", "2,1");
     expect(screen.getByRole("img", { name: "Recorded occupancy 20%: 4 booked seats from 20 sellable seats" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Monthly" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Stripe · test mode", { selector: "p" })).toBeInTheDocument();
     expect(screen.getAllByText("XF101").length).toBeGreaterThan(0);
   });
@@ -70,6 +70,18 @@ describe("Executive Dashboard", () => {
     fireEvent.change(screen.getByLabelText("Payment records"), { target: { value: "MOCK_BITCOIN" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith("/admin/api/dashboard?from=2026-09-01&to=2026-09-02&route=BKK-NRT&cabin=business&provider=MOCK_BITCOIN", expect.objectContaining({ cache: "no-store" })));
+  });
+  it("uses the existing dashboard endpoint for the formal Weekly period", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-09-16T05:00:00.000Z"));
+    try {
+      render(<ExecutiveDashboard />);
+      await screen.findByRole("region", { name: "Executive summary" });
+      fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
+      await waitFor(() => expect(fetch).toHaveBeenLastCalledWith("/admin/api/dashboard?from=2026-09-14&to=2026-09-16&provider=STRIPE", expect.objectContaining({ cache: "no-store" })));
+    } finally {
+      jest.useRealTimers();
+    }
   });
   it("offers only active cabins and makes the unfiltered cohort explicit", async () => {
     render(<ExecutiveDashboard />);
@@ -164,7 +176,7 @@ describe("Executive Dashboard", () => {
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve; }));
     render(<ExecutiveDashboard />);
     await screen.findByRole("region", { name: "Executive summary" });
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     expect(screen.getAllByText("THB 30,000").length).toBeGreaterThan(0);
     expect(screen.getByText("Updating intelligence")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Updating" })).toBeDisabled();
@@ -182,7 +194,7 @@ describe("Executive Dashboard", () => {
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockResolvedValueOnce(response(refreshed));
     render(<ExecutiveDashboard />);
     await screen.findByRole("region", { name: "Executive summary" });
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     await waitFor(() => expect(screen.getByRole("img", { name: "Gross booking revenue trend" })).toHaveAttribute("data-values", "41000"));
     expect(screen.getByRole("img", { name: "Booking demand trend" })).toHaveAttribute("data-values", "5");
     expect(screen.getByText("Germany")).toBeInTheDocument();
@@ -203,7 +215,7 @@ describe("Executive Dashboard", () => {
     setChartBounds(initialChart);
     fireChartPointer(initialChart, "pointermove", 70, "mouse");
     expect(screen.getByTestId("revenue-inspection")).toHaveTextContent("01 Sept 2026");
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     expect(screen.queryByTestId("revenue-inspection")).not.toBeInTheDocument();
     await act(async () => resolveRefresh(response(refreshed)));
     await waitFor(() => expect(screen.getByRole("img", { name: "Gross booking revenue trend" })).toHaveAttribute("data-values", "41000"));
@@ -218,7 +230,7 @@ describe("Executive Dashboard", () => {
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockResolvedValueOnce(response(dashboardFixture, 403));
     render(<ExecutiveDashboard />);
     await screen.findByRole("region", { name: "Executive summary" });
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("You do not have permission");
     expect(screen.queryByText("THB 30,000")).not.toBeInTheDocument();
   });
@@ -269,7 +281,7 @@ describe("Executive Dashboard", () => {
     let resolveFirst!: (value: Response) => void;
     jest.mocked(fetch).mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
     render(<ExecutiveDashboard />);
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     await screen.findByRole("region", { name: "Executive summary" });
     await act(async () => resolveFirst(response({ ...dashboardFixture, summary: { ...dashboardFixture.summary, grossRevenue: 99999 } })));
     expect(screen.queryByText("THB 99,999")).not.toBeInTheDocument();

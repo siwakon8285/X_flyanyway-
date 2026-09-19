@@ -14,7 +14,7 @@ import "./dashboard.css";
 
 export function ExecutiveDashboard() {
   const { t, locale } = useLanguage();
-  const [filters, setFilters] = useState<Filters>(() => presetFilters("thirty"));
+  const [filters, setFilters] = useState<Filters>(() => presetFilters("monthly"));
   const [data, setData] = useState<DashboardData>();
   const [error, setError] = useState<number>();
   const [loading, setLoading] = useState(true);
