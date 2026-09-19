@@ -117,6 +117,142 @@ where
     .await;
 }
 
+#[tokio::test]
+async fn dashboard_aggregates_passenger_nationalities_by_filtered_cohort_without_pii() {
+    let _guard = fixture_guard().await;
+    let pool = test_pool().await;
+    run_fixture_body(pool.clone(), move || async move {
+        let bkk_hnd = insert_service(&pool, "NA901", "BKK", "HND").await;
+        let bkk_lhr = insert_service(&pool, "NA902", "BKK", "LHR").await;
+        insert_successful_nationality_booking(
+            &pool,
+            bkk_hnd,
+            "2026-08-10",
+            "STRIPE",
+            "2026-08-01T04:00:00Z",
+            &["TH", "TH", "JP"],
+        )
+        .await;
+        insert_successful_nationality_booking(
+            &pool,
+            bkk_lhr,
+            "2026-08-10",
+            "STRIPE",
+            "2026-08-01T05:00:00Z",
+            &["AU"],
+        )
+        .await;
+        insert_successful_nationality_booking(
+            &pool,
+            bkk_hnd,
+            "2026-08-10",
+            "MOCK_BITCOIN",
+            "2026-08-01T06:00:00Z",
+            &["US"],
+        )
+        .await;
+        insert_successful_nationality_booking(
+            &pool,
+            bkk_hnd,
+            "2026-08-10",
+            "STRIPE",
+            "2026-08-03T04:00:00Z",
+            &["DE"],
+        )
+        .await;
+
+        let cookie = session_cookie(
+            &pool,
+            "executive_nationality",
+            &["dashboard:read", "analytics:read", "reports:read"],
+        )
+        .await;
+        let router = app(pool.clone());
+        let response = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2026-08-01&to=2026-08-02",
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = body(response).await;
+        assert_eq!(
+            payload["nationalityDistribution"],
+            json!([
+                {"nationalityCode":"TH","passengerCount":2,"percentage":50.0},
+                {"nationalityCode":"AU","passengerCount":1,"percentage":25.0},
+                {"nationalityCode":"JP","passengerCount":1,"percentage":25.0}
+            ])
+        );
+
+        let route_filtered = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2026-08-01&to=2026-08-02&route=BKK-HND",
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(
+            body(route_filtered).await["nationalityDistribution"],
+            json!([
+                {"nationalityCode":"TH","passengerCount":2,"percentage":66.67},
+                {"nationalityCode":"JP","passengerCount":1,"percentage":33.33}
+            ])
+        );
+
+        let provider_filtered = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2026-08-01&to=2026-08-02&provider=MOCK_BITCOIN",
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(
+            body(provider_filtered).await["nationalityDistribution"],
+            json!([{ "nationalityCode": "US", "passengerCount": 1, "percentage": 100.0 }])
+        );
+
+        let date_filtered = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2026-08-03&to=2026-08-03",
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(
+            body(date_filtered).await["nationalityDistribution"],
+            json!([{ "nationalityCode": "DE", "passengerCount": 1, "percentage": 100.0 }])
+        );
+
+        let serialized = payload.to_string();
+        for forbidden in [
+            "givenName",
+            "familyName",
+            "bookingReference",
+            "passportNumber",
+            "phoneNumber",
+            "email",
+            "passengers",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "unexpected PII field: {forbidden}"
+            );
+        }
+        for row in payload["nationalityDistribution"].as_array().unwrap() {
+            assert_eq!(
+                row.as_object()
+                    .unwrap()
+                    .keys()
+                    .cloned()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                ["nationalityCode", "passengerCount", "percentage"]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect()
+            );
+        }
+    })
+    .await;
+}
+
 fn app(pool: PgPool) -> axum::Router {
     let booking = Arc::new(SqlxSeatHoldRepository::new(pool.clone()));
     let auth = StaffAuthService::new(
@@ -285,7 +421,7 @@ async fn insert_booking(
     succeeded_at: Option<&str>,
     ticket_status: Option<&str>,
     refund: Option<(&str, i64)>,
-) {
+) -> (Uuid, Uuid) {
     let instance_id: Uuid = sqlx::query_scalar("INSERT INTO flight_instances (flight_service_id, departure_date) VALUES ($1, $2::date) ON CONFLICT (flight_service_id, departure_date) DO UPDATE SET updated_at=flight_instances.updated_at RETURNING id")
         .bind(service_id).bind(departure).fetch_one(pool).await.unwrap();
     let hold_id: Uuid = sqlx::query_scalar("INSERT INTO seat_holds (flight_instance_id, cabin, adults, children, infants, access_token_hash, expires_at, consumed_at) VALUES ($1, $2, 1, 0, 0, $3, NOW() + INTERVAL '1 hour', NOW()) RETURNING id")
@@ -319,6 +455,58 @@ async fn insert_booking(
                 .bind(ticket_id).bind(attempt_id).bind(provider).bind(refund_status).bind(refund_amount).bind(currency).bind(refunded_at)
                 .execute(pool).await.unwrap();
         }
+    }
+    (hold_id, attempt_id)
+}
+
+async fn insert_successful_nationality_booking(
+    pool: &PgPool,
+    service_id: Uuid,
+    departure: &str,
+    provider: &str,
+    succeeded_at: &str,
+    nationalities: &[&str],
+) {
+    let (hold_id, _) = insert_booking(
+        pool,
+        service_id,
+        departure,
+        "business",
+        provider,
+        "SUCCEEDED",
+        1_000,
+        "THB",
+        Some(succeeded_at),
+        None,
+        None,
+    )
+    .await;
+    sqlx::query("UPDATE seat_holds SET adults = $2 WHERE id = $1")
+        .bind(hold_id)
+        .bind(nationalities.len() as i16)
+        .execute(pool)
+        .await
+        .unwrap();
+    for (ordinal, nationality) in nationalities.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO hold_passengers (
+                 seat_hold_id, ordinal, passenger_type, title, given_name, family_name,
+                 date_of_birth, gender, nationality_code, passport_number,
+                 passport_issuing_country_code, passport_expiry_date
+             ) VALUES ($1, $2, 'ADULT', 'MR', $3, 'Synthetic', '1990-01-01', 'MALE', $4, $5, 'TH', '2099-01-01')",
+        )
+        .bind(hold_id)
+        .bind((ordinal + 1) as i16)
+        .bind(format!("Passenger{}", ordinal + 1))
+        .bind(*nationality)
+        .bind(format!(
+            "NAT{}{}",
+            ordinal + 1,
+            &Uuid::new_v4().simple().to_string()[..8]
+        ))
+        .execute(pool)
+        .await
+        .unwrap();
     }
 }
 
@@ -613,6 +801,7 @@ async fn dashboard_aggregates_literal_cohort_inventory_filters_and_exact_public_
             "from",
             "generatedAt",
             "inventory",
+            "nationalityDistribution",
             "provider",
             "revenueFlights",
             "routes",
@@ -631,6 +820,7 @@ async fn dashboard_aggregates_literal_cohort_inventory_filters_and_exact_public_
     assert_eq!(payload["currency"], "THB");
     assert_eq!(payload["provider"], "STRIPE");
     assert_eq!(payload["activeCabins"], json!(["business", "first"]));
+    assert_eq!(payload["nationalityDistribution"], json!([]));
     assert!(payload["generatedAt"].as_str().is_some());
     assert_eq!(
         payload["summary"],
@@ -796,6 +986,7 @@ async fn dashboard_empty_range_uses_nullable_rates_and_accepts_each_provider() {
             assert_eq!(payload["summary"]["cancellationRatePercent"], Value::Null);
             assert_eq!(payload["summary"]["averageBookingValue"], Value::Null);
             assert_eq!(payload["inventory"]["occupancyPercent"], Value::Null);
+            assert_eq!(payload["nationalityDistribution"], json!([]));
             assert!(payload["availableRoutes"]
                 .as_array()
                 .unwrap()

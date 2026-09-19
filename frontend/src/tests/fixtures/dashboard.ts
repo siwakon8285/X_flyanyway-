@@ -9,6 +9,7 @@ export const dashboardFixture: DashboardData = {
   cabins: [{ cabin: "business", bookings: 2, revenue: 16000 }, { cabin: "first", bookings: 1, revenue: 14000 }],
   flights: [{ flightNumber: "XF101", route: "BKK-NRT", departureDate: "2026-09-02", bookings: 3, revenue: 30000 }],
   revenueFlights: [{ flightNumber: "XF101", route: "BKK-NRT", departureDate: "2026-09-02", bookings: 3, revenue: 30000 }],
+  nationalityDistribution: [{ nationalityCode: "TH", passengerCount: 2, percentage: 66.67 }, { nationalityCode: "JP", passengerCount: 1, percentage: 33.33 }],
   inventory: { bookedSeats: 4, sellableSeats: 20, occupancyPercent: 20, flights: [{ flightNumber: "XF102", route: "BKK-NRT", departureDate: "2026-09-02", bookedSeats: 0, sellableSeats: 10, occupancyPercent: 0 }] },
   availableRoutes: ["BKK-NRT", "BKK-HKT"],
 };

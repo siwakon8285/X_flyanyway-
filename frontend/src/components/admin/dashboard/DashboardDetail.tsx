@@ -15,6 +15,7 @@ export function DashboardDetail({ data }: { data: DashboardData }) {
   const { locale, t } = useLanguage();
   const [ranking, setRanking] = useState<"bookings" | "revenue">("bookings");
   const number = (value: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value);
+  const percentage = (value: number) => `${new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(value)}%`;
   const money = (value: number) => formatPrice(value, locale);
   const percent = (value: number | null) => value === null ? "—" : `${number(value)}%`;
   const summary = data.summary;
@@ -22,6 +23,8 @@ export function DashboardDetail({ data }: { data: DashboardData }) {
   const topCabin = [...data.cabins].sort((a, b) => b.bookings - a.bookings || a.cabin.localeCompare(b.cabin))[0];
   const rankedFlights = ranking === "bookings" ? data.flights : data.revenueFlights;
   const occupancy = Math.max(0, Math.min(data.inventory.occupancyPercent ?? 0, 100));
+  const displayNames = new Intl.DisplayNames([locale], { type: "region" });
+  const nationalityName = (code: string) => code === "UNKNOWN" ? t("dashboard.unknownNationality") : displayNames.of(code) ?? code;
   const changeRankingWithKeyboard = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
@@ -89,6 +92,15 @@ export function DashboardDetail({ data }: { data: DashboardData }) {
         <p>{t("dashboard.inventoryNote")}</p>
       </div>
       <h3>{t("dashboard.lowDemand")}</h3><div className="exec-table-scroll exec-occupancy-board" tabIndex={0} role="region" aria-label={t("dashboard.lowDemand")} data-exec-follow><table><thead><tr><th scope="col">{t("dashboard.flight")}</th><th scope="col">{t("dashboard.route")}</th><th scope="col">{t("dashboard.seats")}</th><th scope="col">{t("dashboard.occupancy")}</th></tr></thead><tbody>{data.inventory.flights.map((flight) => <tr key={`${flight.flightNumber}-${flight.departureDate}`}><th scope="row">{flight.flightNumber}<small>{formatStaffDate(flight.departureDate, locale)}</small></th><td>{flight.route.replace("-", " → ")}</td><td>{number(flight.bookedSeats)} / {number(flight.sellableSeats)}</td><td><span className="exec-row-occupancy"><i style={{ width: `${Math.max(0, Math.min(flight.occupancyPercent ?? 0, 100))}%` }} />{percent(flight.occupancyPercent)}</span></td></tr>)}</tbody></table></div>{!data.inventory.flights.length && <p className="exec-muted">{t("dashboard.noRows")}</p>}
+    </section>
+
+    <section className="exec-panel" data-exec-reveal>
+      <SectionHeading number="06 /" title={t("dashboard.nationalityTitle")} subtitle={t("dashboard.nationalitySubtitle")} />
+      {data.nationalityDistribution.length ? <div className="exec-table-scroll" tabIndex={0} role="region" aria-label={t("dashboard.nationalityTitle")} data-exec-follow>
+        <table aria-label={t("dashboard.nationalityTitle")}><thead><tr><th scope="col">{t("dashboard.nationality")}</th><th scope="col">{t("dashboard.passengerCount")}</th><th scope="col">{t("dashboard.percentage")}</th></tr></thead><tbody>
+          {data.nationalityDistribution.map((row) => <tr key={row.nationalityCode}><th scope="row"><span>{nationalityName(row.nationalityCode)}</span><small>{row.nationalityCode}</small></th><td>{number(row.passengerCount)}</td><td>{percentage(row.percentage)}</td></tr>)}
+        </tbody></table>
+      </div> : <p className="exec-muted">{t("dashboard.noNationality")}</p>}
     </section>
 
     <aside className="exec-insights" data-exec-reveal><div><p className="exec-eyebrow">X-FLY / {t("dashboard.briefCode")}</p><h2>{t("dashboard.insights")}</h2><p className="exec-muted">{t("dashboard.insightsNote")}</p></div><ol>{insights.map((insight, index) => <li key={insight} data-exec-follow><span>{String(index + 1).padStart(2, "0")}</span><p>{insight}</p></li>)}</ol></aside>

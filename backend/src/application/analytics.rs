@@ -141,6 +141,7 @@ pub struct DashboardReport {
     pub cabins: Vec<DashboardCabin>,
     pub flights: Vec<DashboardFlight>,
     pub revenue_flights: Vec<DashboardFlight>,
+    pub nationality_distribution: Vec<DashboardNationality>,
     pub inventory: DashboardInventory,
     pub available_routes: Vec<String>,
 }
@@ -193,6 +194,14 @@ pub struct DashboardFlight {
     pub departure_date: NaiveDate,
     pub bookings: i64,
     pub revenue: i64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardNationality {
+    pub nationality_code: String,
+    pub passenger_count: i64,
+    pub percentage: f64,
 }
 
 #[derive(Clone, Debug, Serialize)]

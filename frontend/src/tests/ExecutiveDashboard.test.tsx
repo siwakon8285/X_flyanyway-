@@ -97,6 +97,17 @@ describe("Executive Dashboard", () => {
     expect(screen.queryByText("Economy")).not.toBeInTheDocument();
     expect(screen.queryByText("Premium Economy")).not.toBeInTheDocument();
   });
+  it("renders aggregate passenger nationalities with accessible counts and percentages only", async () => {
+    render(<ExecutiveDashboard />);
+    expect(await screen.findByRole("heading", { name: "Passenger nationalities" })).toBeInTheDocument();
+    const table = screen.getByRole("table", { name: "Passenger nationalities" });
+    expect(within(table).getByText("Thailand")).toBeInTheDocument();
+    expect(within(table).getByText("TH")).toBeInTheDocument();
+    expect(within(table).getByText("2")).toBeInTheDocument();
+    expect(within(table).getByText("66.67%")).toBeInTheDocument();
+    expect(screen.queryByText("Nara Synthetic")).not.toBeInTheDocument();
+    expect(screen.queryByText("XFABC1234")).not.toBeInTheDocument();
+  });
   it("fails closed when an old backend response mixes hidden legacy cabins into active totals", async () => {
     jest.mocked(fetch).mockResolvedValue(response({
       ...dashboardFixture,
@@ -166,6 +177,7 @@ describe("Executive Dashboard", () => {
       summary: { ...dashboardFixture.summary, grossRevenue: 41000, totalBookings: 5, averageBookingValue: 8200 },
       trends: [{ date: "2026-09-02", bookings: 5, revenue: 41000 }],
       cabins: [{ cabin: "business" as const, bookings: 3, revenue: 25000 }, { cabin: "first" as const, bookings: 2, revenue: 16000 }],
+      nationalityDistribution: [{ nationalityCode: "DE", passengerCount: 5, percentage: 100 }],
     };
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockResolvedValueOnce(response(refreshed));
     render(<ExecutiveDashboard />);
@@ -173,6 +185,8 @@ describe("Executive Dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "7 days" }));
     await waitFor(() => expect(screen.getByRole("img", { name: "Gross booking revenue trend" })).toHaveAttribute("data-values", "41000"));
     expect(screen.getByRole("img", { name: "Booking demand trend" })).toHaveAttribute("data-values", "5");
+    expect(screen.getByText("Germany")).toBeInTheDocument();
+    expect(screen.queryByText("Thailand")).not.toBeInTheDocument();
   });
   it("clears inspected data on filter refresh and only inspects the replacement dataset", async () => {
     const refreshed = {
@@ -209,9 +223,10 @@ describe("Executive Dashboard", () => {
     expect(screen.queryByText("THB 30,000")).not.toBeInTheDocument();
   });
   it("provides an honest empty state and unavailable ratios", async () => {
-    jest.mocked(fetch).mockResolvedValue(response({ ...dashboardFixture, summary: { grossRevenue: 0, totalBookings: 0, ticketsIssued: 0, cancelledBookings: 0, cancellationRatePercent: null, refundCount: 0, refundValue: 0, pendingRefundCount: 0, pendingRefundValue: 0, attentionRefundCount: 0, averageBookingValue: null }, trends: [], routes: [], cabins: [], flights: [], revenueFlights: [], inventory: { bookedSeats: 0, sellableSeats: 0, occupancyPercent: null, flights: [] } }));
+    jest.mocked(fetch).mockResolvedValue(response({ ...dashboardFixture, summary: { grossRevenue: 0, totalBookings: 0, ticketsIssued: 0, cancelledBookings: 0, cancellationRatePercent: null, refundCount: 0, refundValue: 0, pendingRefundCount: 0, pendingRefundValue: 0, attentionRefundCount: 0, averageBookingValue: null }, trends: [], routes: [], cabins: [], flights: [], revenueFlights: [], nationalityDistribution: [], inventory: { bookedSeats: 0, sellableSeats: 0, occupancyPercent: null, flights: [] } }));
     render(<ExecutiveDashboard />);
     expect(await screen.findByText("No successful bookings in this selection.")).toBeInTheDocument();
+    expect(screen.getByText("No passenger nationality records in this selection.")).toBeInTheDocument();
     expect(screen.queryByText(/leading route/i)).not.toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
@@ -226,6 +241,7 @@ describe("Executive Dashboard", () => {
     render(<ExecutiveDashboard />, { locale: "th" });
     expect(await screen.findByRole("region", { name: "สรุปสำหรับผู้บริหาร" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "ผลการดำเนินงานเชิงพาณิชย์" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "สัญชาติผู้โดยสาร" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ใช้ตัวกรอง" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นโดยสารที่เปิดขายทั้งหมด" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นธุรกิจ" })).toBeInTheDocument();

@@ -4,9 +4,9 @@ use sqlx::{FromRow, PgPool};
 
 use crate::application::analytics::{
     AnalyticsFilter, AnalyticsRepository, AnalyticsRepositoryError, DashboardCabin,
-    DashboardFlight, DashboardInventory, DashboardInventoryFlight, DashboardReport, DashboardRoute,
-    DashboardSummary, DashboardTrend, DASHBOARD_ACTIVE_CABINS, DASHBOARD_CURRENCY,
-    DASHBOARD_TIME_ZONE,
+    DashboardFlight, DashboardInventory, DashboardInventoryFlight, DashboardNationality,
+    DashboardReport, DashboardRoute, DashboardSummary, DashboardTrend, DASHBOARD_ACTIVE_CABINS,
+    DASHBOARD_CURRENCY, DASHBOARD_TIME_ZONE,
 };
 
 #[derive(Clone, Debug)]
@@ -37,6 +37,12 @@ struct SummaryRow {
 struct InventorySummaryRow {
     booked_seats: i64,
     sellable_seats: i64,
+}
+
+#[derive(FromRow)]
+struct NationalityCountRow {
+    nationality_code: String,
+    passenger_count: i64,
 }
 
 const COHORT: &str = r#"
@@ -186,6 +192,39 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
         )).bind(filter.from).bind(filter.to).bind(provider).bind(route).bind(cabin)
           .fetch_all(&mut *transaction).await.map_err(AnalyticsRepositoryError::Infrastructure)?;
 
+        let nationality_sql = format!(
+            "WITH cohort AS (
+                 SELECT payment.id AS payment_id, hold.id AS seat_hold_id {COHORT}
+             )
+             SELECT COALESCE(NULLIF(BTRIM(passenger.nationality_code), ''), 'UNKNOWN') AS nationality_code,
+                    COUNT(*)::bigint AS passenger_count
+             FROM cohort
+             JOIN hold_passengers AS passenger ON passenger.seat_hold_id = cohort.seat_hold_id
+             GROUP BY 1
+             ORDER BY passenger_count DESC, nationality_code ASC"
+        );
+        let nationality_counts = sqlx::query_as::<_, NationalityCountRow>(&nationality_sql)
+            .bind(filter.from)
+            .bind(filter.to)
+            .bind(provider)
+            .bind(route)
+            .bind(cabin)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(AnalyticsRepositoryError::Infrastructure)?;
+        let passenger_total: i64 = nationality_counts
+            .iter()
+            .map(|row| row.passenger_count)
+            .sum();
+        let nationality_distribution = nationality_counts
+            .into_iter()
+            .map(|row| DashboardNationality {
+                nationality_code: row.nationality_code,
+                passenger_count: row.passenger_count,
+                percentage: round_percent(row.passenger_count, passenger_total).unwrap_or(0.0),
+            })
+            .collect();
+
         let inventory_where = r#"
             FROM flight_seats AS seat
             JOIN flight_instances AS instance ON instance.id = seat.flight_instance_id
@@ -257,6 +296,7 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
             cabins,
             flights,
             revenue_flights,
+            nationality_distribution,
             inventory: DashboardInventory {
                 booked_seats: inventory_summary.booked_seats,
                 sellable_seats: inventory_summary.sellable_seats,
