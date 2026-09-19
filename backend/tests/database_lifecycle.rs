@@ -214,7 +214,7 @@ async fn fresh_schema_counts_37_migrator_owned_public_tables() {
 }
 
 #[tokio::test]
-async fn fresh_schema_has_28_successful_migrations() {
+async fn fresh_schema_has_29_successful_migrations() {
     let pool = migrated_test_pool().await;
     let status: String = sqlx::query_scalar(
         "SELECT COUNT(*) FILTER (WHERE success)::text || '|' || COUNT(*)::text
@@ -223,7 +223,7 @@ async fn fresh_schema_has_28_successful_migrations() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(status, "28|28");
+    assert_eq!(status, "29|29");
 }
 
 #[tokio::test]

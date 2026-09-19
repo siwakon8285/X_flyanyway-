@@ -701,6 +701,51 @@ async fn runtime_staff_security_audit_is_append_only_and_column_scoped() {
 }
 
 #[tokio::test]
+async fn runtime_can_insert_each_staff_security_audit_action() {
+    let _fixture_lock = common::acquire_test_fixture_lock_named("x-fly-audit-permissions").await;
+    let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let mut request_ids = Vec::new();
+
+    for (action, permission_code) in [
+        ("STAFF_LOGIN_SUCCEEDED", None),
+        ("STAFF_SESSION_REVOKED", None),
+        ("STAFF_AUTHZ_DENIED", Some("flights:write")),
+    ] {
+        let request_id = uuid::Uuid::new_v4();
+        request_ids.push(request_id);
+        sqlx::query(
+            "INSERT INTO staff_security_audit
+                (action, actor_staff_user_id, session_id, permission_code, request_id)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(action)
+        .bind(uuid::Uuid::new_v4())
+        .bind(uuid::Uuid::new_v4())
+        .bind(permission_code)
+        .bind(request_id)
+        .execute(&runtime_pool)
+        .await
+        .expect("runtime can insert each supported security-audit action");
+    }
+
+    for request_id in &request_ids {
+        let persisted: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM staff_security_audit WHERE request_id = $1")
+                .bind(request_id)
+                .fetch_one(&setup_pool)
+                .await
+                .unwrap();
+        assert_eq!(persisted, 1);
+    }
+
+    sqlx::query("DELETE FROM staff_security_audit WHERE request_id = ANY($1)")
+        .bind(&request_ids)
+        .execute(&setup_pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn runtime_has_audit_insert_on_approved_columns() {
     let (_setup_pool, runtime_pool) = permission_pools_only().await;
     for column in [

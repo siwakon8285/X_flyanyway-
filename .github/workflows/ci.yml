@@ -238,7 +238,7 @@ jobs:
             --host 127.0.0.1 --port 5434 \
             --username x_fly_migrator --dbname x_fly_concurrency_test \
             --command "SELECT COUNT(*) FILTER (WHERE success) || '|' || COUNT(*) FROM _sqlx_migrations;")"
-          test "$migration_status" = "28|28"
+          test "$migration_status" = "29|29"
 
           application_table_count="$(psql --no-psqlrc --tuples-only --no-align \
             --host 127.0.0.1 --port 5434 \

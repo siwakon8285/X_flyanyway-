@@ -144,7 +144,7 @@ async fn audit_count(pool: &PgPool) -> i64 {
         .expect("count staff security audit rows")
 }
 
-async fn grant_runtime_audit_insert(pool: &PgPool) -> Result<(), sqlx::Error> {
+async fn restore_runtime_audit_insert(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         "GRANT INSERT (action, actor_staff_user_id, session_id, permission_code, request_id)
          ON TABLE public.staff_security_audit TO x_fly_runtime",
@@ -169,10 +169,12 @@ async fn session_count_for_user(pool: &PgPool, email: &str) -> i64 {
 async fn successful_login_has_a_durable_attributable_audit_event() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
+    let runtime = runtime_pool().await;
     run_fixture_body(pool.clone(), move || async move {
-        let auth = staff_service(pool.clone());
-        provision(&auth, SYSTEM_EMAIL, &[RoleCode::SystemAdmin]).await;
-        let router = app(pool.clone(), auth);
+        let setup_auth = staff_service(pool.clone());
+        provision(&setup_auth, SYSTEM_EMAIL, &[RoleCode::SystemAdmin]).await;
+        let runtime_auth = staff_service(runtime.clone());
+        let router = app(runtime.clone(), runtime_auth);
         let response = router
             .oneshot(login_request(SYSTEM_EMAIL, SYSTEM_PASSWORD, true))
             .await
@@ -207,7 +209,7 @@ async fn successful_login_audit_failure_rolls_back_session_creation() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
     let runtime = runtime_pool().await;
-    run_fixture_body_with_audit_grant_cleanup(pool.clone(), runtime.clone(), move || async move {
+    run_runtime_fixture_body(pool.clone(), runtime.clone(), move || async move {
         let setup_auth = staff_service(pool.clone());
         provision(&setup_auth, SYSTEM_EMAIL, &[RoleCode::SystemAdmin]).await;
         sqlx::query(
@@ -233,7 +235,7 @@ async fn self_logout_audit_failure_rolls_back_revocation() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
     let runtime = runtime_pool().await;
-    run_fixture_body_with_audit_grant_cleanup(pool.clone(), runtime.clone(), move || async move {
+    run_runtime_fixture_body(pool.clone(), runtime.clone(), move || async move {
         let setup_auth = staff_service(pool.clone());
         provision(&setup_auth, SYSTEM_EMAIL, &[RoleCode::SystemAdmin]).await;
         let runtime_auth = staff_service(runtime.clone());
@@ -267,13 +269,13 @@ async fn self_logout_audit_failure_rolls_back_revocation() {
     .await;
 }
 
-async fn run_fixture_body_with_audit_grant_cleanup<F, Fut>(pool: PgPool, runtime: PgPool, body: F)
+async fn run_runtime_fixture_body<F, Fut>(pool: PgPool, runtime: PgPool, body: F)
 where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
     common::run_fixture_body_with_cleanup(body, move || async move {
-        grant_runtime_audit_insert(&pool).await?;
+        restore_runtime_audit_insert(&pool).await?;
         clean_fixture(&pool).await?;
         drop(runtime);
         Ok::<(), sqlx::Error>(())
@@ -464,7 +466,7 @@ async fn authorization_audit_failure_cannot_convert_denial_to_allow() {
     let _guard = fixture_guard().await;
     let pool = test_pool().await;
     let runtime = runtime_pool().await;
-    run_fixture_body_with_audit_grant_cleanup(pool.clone(), runtime.clone(), move || async move {
+    run_runtime_fixture_body(pool.clone(), runtime.clone(), move || async move {
         let setup_auth = staff_service(pool.clone());
         provision(&setup_auth, SYSTEM_EMAIL, &[RoleCode::FlightManager]).await;
         let runtime_auth = staff_service(runtime.clone());
