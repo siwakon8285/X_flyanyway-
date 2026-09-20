@@ -10,3 +10,5 @@ backups/
 !backend/migrations/*.sql
 !backend/seeds/*.sql
 !backend/provisioning/*.sql
+performance/reports/runs/
+performance/data/*.local.json

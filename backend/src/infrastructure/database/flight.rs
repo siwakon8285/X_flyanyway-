@@ -65,11 +65,11 @@ impl SqlxFlightRepository {
             "INSERT INTO flight_services (
                 public_id, flight_number, origin_code, destination_code, aircraft_code,
                 origin_time_zone, departure_time, arrival_time, arrival_day_offset,
-                duration_minutes, stops, status, operating_date
+                duration_minutes, stops, status, operating_date, modeled_operating_cost_amount
              ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,
                 EXTRACT(EPOCH FROM ((($10::date + $9 * INTERVAL '1 day') + $8::time) AT TIME ZONE $11)
                     - (($10::date + $7::time) AT TIME ZONE $6))::int / 60,
-                'DIRECT','SCHEDULED',$10)
+                'DIRECT','SCHEDULED',$10,$12)
              RETURNING id",
         )
         .bind(public_id)
@@ -83,6 +83,7 @@ impl SqlxFlightRepository {
         .bind(command.arrival_day_offset)
         .bind(operating_date)
         .bind(&zones.destination)
+        .bind(command.modeled_operating_cost_amount)
         .fetch_one(&mut *transaction)
         .await
         .map_err(map_insert)?;
@@ -136,6 +137,7 @@ impl SqlxFlightRepository {
                 arrival_time=$9, arrival_day_offset=$10,
                 duration_minutes=EXTRACT(EPOCH FROM (((($7::date + $10 * INTERVAL '1 day') + $9::time) AT TIME ZONE $11)
                     - (($7::date + $8::time) AT TIME ZONE $6)))::int / 60,
+                modeled_operating_cost_amount=$12,
                 version=version+1, updated_at=NOW() WHERE id=$1",
         )
         .bind(id)
@@ -149,14 +151,16 @@ impl SqlxFlightRepository {
         .bind(command.arrival_time)
         .bind(command.arrival_day_offset)
         .bind(&zones.destination)
+        .bind(command.modeled_operating_cost_amount)
             .execute(&mut *transaction)
             .await
             .map_err(map_insert)?;
         } else {
             sqlx::query(
-                "UPDATE flight_services SET version=version+1,updated_at=NOW() WHERE id=$1",
+                "UPDATE flight_services SET modeled_operating_cost_amount=$2, version=version+1,updated_at=NOW() WHERE id=$1",
             )
             .bind(id)
+            .bind(command.modeled_operating_cost_amount)
             .execute(&mut *transaction)
             .await
             .map_err(infrastructure)?;
@@ -257,6 +261,7 @@ impl FlightRepository for SqlxFlightRepository {
                 first_class.base_fare_amount first_price,first_class.currency_code first_currency,
                 COALESCE((SELECT COUNT(*) FROM flight_service_seat_templates template WHERE template.flight_service_id=service.id AND template.cabin='business'),0) business_capacity,
                 COALESCE((SELECT COUNT(*) FROM flight_service_seat_templates template WHERE template.flight_service_id=service.id AND template.cabin='first'),0) first_capacity,
+                service.modeled_operating_cost_amount,
                 service.version,service.updated_at
              FROM flight_services service
              LEFT JOIN airports origin ON origin.code=service.origin_code
@@ -598,6 +603,7 @@ async fn load_record(
             first_class.base_fare_amount first_price,first_class.currency_code first_currency,
             (SELECT COUNT(*) FROM flight_service_seat_templates template WHERE template.flight_service_id=service.id AND template.cabin='business') business_capacity,
             (SELECT COUNT(*) FROM flight_service_seat_templates template WHERE template.flight_service_id=service.id AND template.cabin='first') first_capacity,
+            service.modeled_operating_cost_amount,
             service.version,service.updated_at
          FROM flight_services service
          LEFT JOIN airports origin ON origin.code=service.origin_code
@@ -690,6 +696,7 @@ struct FlightRow {
     first_currency: Option<String>,
     business_capacity: i64,
     first_capacity: i64,
+    modeled_operating_cost_amount: Option<i64>,
     version: i64,
     updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -836,6 +843,7 @@ impl FlightRow {
                 capacity: u16::try_from(self.first_capacity)
                     .map_err(|_| FlightManagementError::Infrastructure)?,
             },
+            modeled_operating_cost_amount: self.modeled_operating_cost_amount,
             version: self.version,
             updated_at: self.updated_at,
         })

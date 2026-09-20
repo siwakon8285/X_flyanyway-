@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { FlightEditor } from "@/components/admin/flights/FlightEditor";
 import { render } from "@/tests/renderWithLanguage";
 
-const flight = { id:"11111111-1111-4111-8111-111111111111",publicId:"xf-951-20261008",flightNumber:"XF 951",originCode:"BKK",destinationCode:"DXB",originTimeZone:"Asia/Bangkok",destinationTimeZone:"Asia/Dubai",operatingDate:"2026-10-08",departureTime:"09:20:00",arrivalTime:"13:05:00",arrivalDayOffset:0,aircraftCode:"Boeing 787-9",status:"SCHEDULED",business:{available:true,priceAmount:46900,currencyCode:"THB",capacity:16},first:{available:true,priceAmount:78900,currencyCode:"THB",capacity:4},version:1,updatedAt:"2026-09-07T00:00:00Z",audit:[] };
+const flight = { id:"11111111-1111-4111-8111-111111111111",publicId:"xf-951-20261008",flightNumber:"XF 951",originCode:"BKK",destinationCode:"DXB",originTimeZone:"Asia/Bangkok",destinationTimeZone:"Asia/Dubai",operatingDate:"2026-10-08",departureTime:"09:20:00",arrivalTime:"13:05:00",arrivalDayOffset:0,aircraftCode:"Boeing 787-9",status:"SCHEDULED",business:{available:true,priceAmount:46900,currencyCode:"THB",capacity:16},first:{available:true,priceAmount:78900,currencyCode:"THB",capacity:4},modeledOperatingCostAmount:null,version:1,updatedAt:"2026-09-07T00:00:00Z",audit:[] };
 const references = { airports:[{code:"BKK",name:"Suvarnabhumi Airport",city:"Bangkok",countryCode:"TH",countryName:"Thailand",timeZone:"Asia/Bangkok"},{code:"DXB",name:"Dubai International Airport",city:"Dubai",countryCode:"AE",countryName:"United Arab Emirates",timeZone:"Asia/Dubai"}],aircraft:["Boeing 787-9"] };
 const createdAudit = { id:"audit-created",actorEmail:"creator@x-fly.test",action:"FLIGHT_CREATED" as const,beforeState:null,afterState:{},createdAt:"2026-09-07T00:00:00Z" };
 const cancelledAudit = { id:"audit-cancelled",actorEmail:"manager@x-fly.test",action:"FLIGHT_CANCELLED" as const,beforeState:{},afterState:{},createdAt:"2026-09-10T02:17:00Z" };
@@ -30,7 +30,7 @@ describe("Flight editor", () => {
     for (const label of [
       "Flight number", "Origin", "Destination", "Departure date", "Departure", "Arrival",
       "Aircraft context", "Business capacity", "First capacity", "Business price (THB)",
-      "First price (THB)",
+      "First price (THB)", "Modeled operating cost (THB)",
     ]) {
       expect(screen.getByLabelText(label)).toHaveClass("xfo-control");
     }
@@ -53,11 +53,73 @@ describe("Flight editor", () => {
     expect(checkbox).toBeChecked();
     expect(departure).toHaveValue("09:20");
   });
+  it("loads and submits the optional modeled operating cost as a whole-THB planning estimate", async () => {
+    render(<FlightEditor canWrite flightId={flight.id} mode="detail" />);
+    expect(await screen.findByRole("heading", { name:"XF 951" })).toBeInTheDocument();
+    const cost = screen.getByLabelText("Modeled operating cost (THB)");
+    expect(cost).toHaveAttribute("type", "number");
+    expect(cost).toHaveAttribute("min", "0");
+    expect(cost).toHaveAttribute("max", "100000000");
+    expect(screen.getByText("Planning estimate for one scheduled operation of this flight.")).toBeInTheDocument();
+    fireEvent.change(cost, { target:{ value:"1250000" } });
+    fireEvent.click(screen.getByRole("button", { name:"Save flight" }));
+    await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining(`/admin/api/flights/${flight.id}`), expect.objectContaining({ body:expect.stringContaining('"modeledOperatingCostAmount":1250000') })));
+  });
+
+  it("maps a structural flight conflict to a plain English operational message", async () => {
+    jest.mocked(fetch).mockImplementation(async (url, init) => {
+      if (init?.method === "PUT") return { ok:false,status:409,json:async()=>({ error:{ code:"FLIGHT_STRUCTURAL_CONFLICT", message:"Structural fields cannot change after inventory has been materialized." } }) } as Response;
+      return { ok:true,status:200,json:async()=>String(url).includes("reference-data") ? references : flight } as Response;
+    });
+    render(<FlightEditor canWrite flightId={flight.id} mode="detail" />);
+    expect(await screen.findByRole("heading", { name:"XF 951" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name:"Save flight" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("This flight's operational details cannot be changed because seat inventory is already in use.");
+    expect(alert).not.toHaveTextContent("Structural fields cannot change after inventory has been materialized.");
+  });
+
+  it("maps structural and stale flight conflicts in Thai without exposing backend text", async () => {
+    jest.mocked(fetch).mockImplementation(async (url, init) => {
+      if (init?.method === "PUT") return { ok:false,status:409,json:async()=>({ error:{ code:"FLIGHT_STRUCTURAL_CONFLICT", message:"Structural fields cannot change after inventory has been materialized." } }) } as Response;
+      return { ok:true,status:200,json:async()=>String(url).includes("reference-data") ? references : flight } as Response;
+    });
+    const view = render(<FlightEditor canWrite flightId={flight.id} mode="detail" />, { locale:"th" });
+    expect(await screen.findByRole("heading", { name:"XF 951" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name:"บันทึกเที่ยวบิน" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("ไม่สามารถแก้ไขข้อมูลการดำเนินงานของเที่ยวบินนี้ได้ เนื่องจากมีการใช้งานข้อมูลที่นั่งแล้ว");
+    expect(alert).not.toHaveTextContent("Structural fields cannot change after inventory has been materialized.");
+    view.unmount();
+
+    jest.mocked(fetch).mockImplementation(async (url, init) => {
+      if (init?.method === "PUT") return { ok:false,status:409,json:async()=>({ error:{ code:"FLIGHT_STALE_VERSION", message:"The flight changed after the page loaded." } }) } as Response;
+      return { ok:true,status:200,json:async()=>String(url).includes("reference-data") ? references : flight } as Response;
+    });
+    render(<FlightEditor canWrite flightId={flight.id} mode="detail" />, { locale:"th" });
+    expect(await screen.findByRole("heading", { name:"XF 951" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name:"บันทึกเที่ยวบิน" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("ข้อมูลเที่ยวบินนี้เปลี่ยนแปลงหลังจากเปิดหน้านี้ โปรดโหลดรายละเอียดล่าสุดก่อนบันทึกอีกครั้ง");
+  });
+
+  it("uses a localized safe fallback for unexpected save failures", async () => {
+    jest.mocked(fetch).mockImplementation(async (url, init) => {
+      if (init?.method === "PUT") throw new Error("private database connection details");
+      return { ok:true,status:200,json:async()=>String(url).includes("reference-data") ? references : flight } as Response;
+    });
+    render(<FlightEditor canWrite flightId={flight.id} mode="detail" />, { locale:"th" });
+    expect(await screen.findByRole("heading", { name:"XF 951" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name:"บันทึกเที่ยวบิน" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("ไม่สามารถบันทึกเที่ยวบินได้ โปรดตรวจสอบข้อมูลแล้วลองอีกครั้ง");
+    expect(alert).not.toHaveTextContent("private database connection details");
+  });
 
   it("keeps critical field labels and the compact checkbox localized in Thai", async () => {
     render(<FlightEditor canWrite mode="new" />, { locale:"th" });
     expect(await screen.findByRole("heading", { name:"สร้างเที่ยวบิน" })).toBeInTheDocument();
     expect(screen.getByLabelText("วันออกเดินทาง")).toHaveClass("xfo-date-input");
+    expect(screen.getByLabelText("ต้นทุนการดำเนินงานโดยประมาณ (บาท)")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name:"ต้นทาง" })).toHaveClass("xfo-airport-input");
     expect(screen.getByRole("checkbox", { name:"ถึงวันถัดไป" })).toHaveClass("xfo-checkbox-input");
   });

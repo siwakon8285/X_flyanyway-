@@ -222,6 +222,7 @@ fn one_off_command(flight_number: &str, operating_date: NaiveDate) -> FlightComm
         currency_code: "THB".to_owned(),
         business_capacity: 16,
         first_capacity: 4,
+        modeled_operating_cost_amount: None,
     }
 }
 

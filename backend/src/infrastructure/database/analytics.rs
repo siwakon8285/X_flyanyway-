@@ -4,7 +4,8 @@ use sqlx::{FromRow, PgPool};
 
 use crate::application::analytics::{
     AnalyticsFilter, AnalyticsRepository, AnalyticsRepositoryError, DashboardCabin,
-    DashboardFlight, DashboardInventory, DashboardInventoryFlight, DashboardReport, DashboardRoute,
+    DashboardFlight, DashboardInventory, DashboardInventoryFlight, DashboardNationality,
+    DashboardProfitability, DashboardProfitabilityFlight, DashboardReport, DashboardRoute,
     DashboardSummary, DashboardTrend, DASHBOARD_ACTIVE_CABINS, DASHBOARD_CURRENCY,
     DASHBOARD_TIME_ZONE,
 };
@@ -39,6 +40,12 @@ struct InventorySummaryRow {
     sellable_seats: i64,
 }
 
+#[derive(FromRow)]
+struct NationalityCountRow {
+    nationality_code: String,
+    passenger_count: i64,
+}
+
 const COHORT: &str = r#"
     FROM payment_attempts AS payment
     JOIN seat_holds AS hold ON hold.id = payment.seat_hold_id
@@ -46,7 +53,7 @@ const COHORT: &str = r#"
     JOIN flight_services AS service ON service.id = instance.flight_service_id
     WHERE payment.status = 'SUCCEEDED'
       AND payment.currency_code = 'THB'
-      AND payment.provider = $3
+      AND ($3::text IS NULL OR payment.provider = $3)
       AND (payment.succeeded_at AT TIME ZONE 'Asia/Bangkok')::date BETWEEN $1 AND $2
       AND ($4::text IS NULL OR service.origin_code || '-' || service.destination_code = $4)
       AND hold.cabin IN ('business', 'first')
@@ -90,7 +97,10 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
     ) -> Result<DashboardReport, AnalyticsRepositoryError> {
         let route = filter.route.as_deref();
         let cabin = filter.cabin.map(|value| value.as_str());
-        let provider = filter.provider.as_str();
+        let provider = match filter.provider {
+            crate::application::analytics::DashboardProvider::All => None,
+            provider => Some(provider.as_str()),
+        };
         let mut transaction = self
             .pool
             .begin()
@@ -186,6 +196,39 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
         )).bind(filter.from).bind(filter.to).bind(provider).bind(route).bind(cabin)
           .fetch_all(&mut *transaction).await.map_err(AnalyticsRepositoryError::Infrastructure)?;
 
+        let nationality_sql = format!(
+            "WITH cohort AS (
+                 SELECT payment.id AS payment_id, hold.id AS seat_hold_id {COHORT}
+             )
+             SELECT COALESCE(NULLIF(BTRIM(passenger.nationality_code), ''), 'UNKNOWN') AS nationality_code,
+                    COUNT(*)::bigint AS passenger_count
+             FROM cohort
+             JOIN hold_passengers AS passenger ON passenger.seat_hold_id = cohort.seat_hold_id
+             GROUP BY 1
+             ORDER BY passenger_count DESC, nationality_code ASC"
+        );
+        let nationality_counts = sqlx::query_as::<_, NationalityCountRow>(&nationality_sql)
+            .bind(filter.from)
+            .bind(filter.to)
+            .bind(provider)
+            .bind(route)
+            .bind(cabin)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(AnalyticsRepositoryError::Infrastructure)?;
+        let passenger_total: i64 = nationality_counts
+            .iter()
+            .map(|row| row.passenger_count)
+            .sum();
+        let nationality_distribution = nationality_counts
+            .into_iter()
+            .map(|row| DashboardNationality {
+                nationality_code: row.nationality_code,
+                passenger_count: row.passenger_count,
+                percentage: round_percent(row.passenger_count, passenger_total).unwrap_or(0.0),
+            })
+            .collect();
+
         let inventory_where = r#"
             FROM flight_seats AS seat
             JOIN flight_instances AS instance ON instance.id = seat.flight_instance_id
@@ -211,6 +254,86 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
              ORDER BY occupancy_percent, sellable_seats DESC, flight_number, departure_date LIMIT 10"
         )).bind(filter.from).bind(filter.to).bind(route).bind(cabin)
           .fetch_all(&mut *transaction).await.map_err(AnalyticsRepositoryError::Infrastructure)?;
+
+        // Profitability is a whole-flight planning view. Its date cohort is the
+        // scheduled/departure date, deliberately distinct from the existing
+        // gross-revenue KPI's payment-success-date cohort.
+        let profitability_available = filter.cabin.is_none()
+            && filter.provider == crate::application::analytics::DashboardProvider::All;
+        let profitability_flights = if profitability_available {
+            sqlx::query_as::<_, DashboardProfitabilityFlight>(
+                "WITH commercial AS (
+                     SELECT service.id AS service_id, instance.departure_date,
+                            COUNT(payment.id)::bigint AS bookings,
+                            COALESCE(SUM(payment.amount), 0)::bigint AS gross_revenue,
+                            COALESCE(SUM(cancellation.refund_amount) FILTER (
+                                WHERE cancellation.refund_status = 'SUCCEEDED'
+                                  AND cancellation.currency_code = 'THB'
+                            ), 0)::bigint AS completed_refund_amount
+                     FROM payment_attempts AS payment
+                     JOIN seat_holds AS hold ON hold.id = payment.seat_hold_id
+                     JOIN flight_instances AS instance ON instance.id = hold.flight_instance_id
+                     JOIN flight_services AS service ON service.id = instance.flight_service_id
+                     LEFT JOIN booking_cancellations AS cancellation
+                       ON cancellation.payment_attempt_id = payment.id
+                     WHERE payment.status = 'SUCCEEDED'
+                       AND payment.currency_code = 'THB'
+                       AND instance.departure_date BETWEEN $1 AND $2
+                       AND ($3::text IS NULL OR service.origin_code || '-' || service.destination_code = $3)
+                       AND hold.cabin IN ('business', 'first')
+                     GROUP BY service.id, instance.departure_date
+                 ), inventory AS (
+                     SELECT service.id AS service_id, instance.departure_date,
+                            COUNT(*) FILTER (WHERE seat.sellable AND seat.booking_status = 'BOOKED')::bigint AS booked_seats,
+                            COUNT(*) FILTER (WHERE seat.sellable)::bigint AS sellable_seats
+                     FROM flight_seats AS seat
+                     JOIN flight_instances AS instance ON instance.id = seat.flight_instance_id
+                     JOIN flight_services AS service ON service.id = instance.flight_service_id
+                     WHERE instance.departure_date BETWEEN $1 AND $2
+                       AND ($3::text IS NULL OR service.origin_code || '-' || service.destination_code = $3)
+                       AND seat.cabin IN ('business', 'first')
+                     GROUP BY service.id, instance.departure_date
+                 )
+                 SELECT service.flight_number,
+                        service.origin_code || '-' || service.destination_code AS route,
+                        service.operating_date AS departure_date,
+                        COALESCE(commercial.bookings, 0)::bigint AS bookings,
+                        COALESCE(inventory.booked_seats, 0)::bigint AS booked_seats,
+                        COALESCE(inventory.sellable_seats, 0)::bigint AS sellable_seats,
+                        ROUND(100.0 * COALESCE(inventory.booked_seats, 0)
+                              / NULLIF(inventory.sellable_seats, 0), 2)::float8 AS occupancy_percent,
+                        COALESCE(commercial.gross_revenue, 0)::bigint AS gross_revenue,
+                        COALESCE(commercial.completed_refund_amount, 0)::bigint AS completed_refund_amount,
+                        (COALESCE(commercial.gross_revenue, 0)
+                         - COALESCE(commercial.completed_refund_amount, 0))::bigint AS net_booking_revenue,
+                        service.modeled_operating_cost_amount,
+                        CASE WHEN service.modeled_operating_cost_amount IS NULL THEN NULL
+                             ELSE (COALESCE(commercial.gross_revenue, 0)
+                                   - COALESCE(commercial.completed_refund_amount, 0)
+                                   - service.modeled_operating_cost_amount)::bigint
+                        END AS estimated_operating_result
+                 FROM flight_services AS service
+                 LEFT JOIN commercial
+                   ON commercial.service_id = service.id
+                  AND commercial.departure_date = service.operating_date
+                 LEFT JOIN inventory
+                   ON inventory.service_id = service.id
+                  AND inventory.departure_date = service.operating_date
+                 WHERE service.status = 'SCHEDULED'
+                   AND service.operating_date IS NOT NULL
+                   AND service.operating_date BETWEEN $1 AND $2
+                   AND ($3::text IS NULL OR service.origin_code || '-' || service.destination_code = $3)
+                 ORDER BY service.operating_date, service.flight_number"
+            )
+            .bind(filter.from)
+            .bind(filter.to)
+            .bind(route)
+            .fetch_all(&mut *transaction)
+            .await
+            .map_err(AnalyticsRepositoryError::Infrastructure)?
+        } else {
+            Vec::new()
+        };
         let available_routes: Vec<String> = sqlx::query_scalar(
             "SELECT DISTINCT origin_code || '-' || destination_code FROM flight_services ORDER BY 1",
         ).fetch_all(&mut *transaction).await.map_err(AnalyticsRepositoryError::Infrastructure)?;
@@ -257,6 +380,7 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
             cabins,
             flights,
             revenue_flights,
+            nationality_distribution,
             inventory: DashboardInventory {
                 booked_seats: inventory_summary.booked_seats,
                 sellable_seats: inventory_summary.sellable_seats,
@@ -264,6 +388,10 @@ impl AnalyticsRepository for SqlxAnalyticsRepository {
                 flights: inventory_flights,
             },
             available_routes,
+            profitability: DashboardProfitability {
+                available: profitability_available,
+                flights: profitability_flights,
+            },
         })
     }
 }

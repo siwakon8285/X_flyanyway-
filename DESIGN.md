@@ -3421,12 +3421,13 @@ table or audit write path. See `backend/provisioning/README.md` and
 `backend/provisioning/runtime_grants.sql` for the executable allowlist.
 
 Branch 25 adds two auth tables. Branch 26 F03 adds the append-only
-`staff_security_audit` table. The current migrated schema therefore records
-`27 → 28` migration-ledger entries (`28/28` successful/total), `35 → 36`
+`staff_security_audit` table, followed by an additive runtime-privilege
+migration. The current migrated schema therefore records
+`29 → 30` migration-ledger entries (`30/30` successful/total), `35 → 36`
 application tables excluding `_sqlx_migrations`, `36 → 37` public tables
 including the ledger, and `36 → 37` public tables owned by `x_fly_migrator`.
 These counts are distinct checks, not interchangeable labels; the current
-values are 28, 36, 37, and 37 respectively.
+values are 30, 36, 37, and 37 respectively.
 
 Developer integration tests use only the disposable TEST target
 `127.0.0.1:5434` / `x_fly_concurrency_test`, with setup through

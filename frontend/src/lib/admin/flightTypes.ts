@@ -3,7 +3,7 @@ type ManagedFlight = {
   id: string; publicId: string; flightNumber: string; originCode: string; destinationCode: string;
   originTimeZone: string; destinationTimeZone: string; operatingDate: string | null;
   departureTime: string | null; arrivalTime: string | null; arrivalDayOffset: number | null;
-  aircraftCode: string; status: "SCHEDULED" | "CANCELLED"; business: ManagedCabin; first: ManagedCabin;
+  aircraftCode: string; status: "SCHEDULED" | "CANCELLED"; business: ManagedCabin; first: ManagedCabin; modeledOperatingCostAmount: number | null;
   version: number; updatedAt: string;
 };
 type FlightPage = { items: ManagedFlight[]; total: number; limit: number; offset: number };

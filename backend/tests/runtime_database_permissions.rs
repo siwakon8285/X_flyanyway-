@@ -10,15 +10,15 @@ use chrono::{NaiveDate, Utc};
 use rand::RngCore;
 use sqlx::{PgPool, Row};
 use x_fly_api::{
-    application::staff_auth::StaffAuthService,
+    application::{api_client::ApiClientRepository, staff_auth::StaffAuthService},
     domain::{
         entities::{CreateSeatHold, FlightSelection},
         repositories::SeatHoldRepository,
         value_objects::{CabinClass, PassengerCounts, SeatNumber},
     },
     infrastructure::database::{
-        migrate_database, prepare_test_database, verify_database_ready, SqlxSeatHoldRepository,
-        SqlxStaffAuthRepository,
+        migrate_database, prepare_test_database, verify_database_ready, SqlxApiClientRepository,
+        SqlxSeatHoldRepository, SqlxStaffAuthRepository,
     },
     infrastructure::password::Argon2PasswordService,
 };
@@ -26,6 +26,7 @@ use x_fly_api::{
 #[derive(Clone)]
 struct AuthFixture {
     client_id: uuid::Uuid,
+    public_client_id: String,
     staff_id: uuid::Uuid,
 }
 
@@ -75,6 +76,7 @@ async fn create_auth_fixture(setup_pool: &PgPool) -> AuthFixture {
     .fetch_one(&mut *transaction)
     .await
     .unwrap();
+    let public_client_id = fixture_public_client_id();
     let client_id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO api_clients (
              client_id, display_name, description, status,
@@ -82,7 +84,7 @@ async fn create_auth_fixture(setup_pool: &PgPool) -> AuthFixture {
          ) VALUES ($1, 'Task 2 permission fixture', NULL, 'ACTIVE', $2, $2)
          RETURNING id",
     )
-    .bind(fixture_public_client_id())
+    .bind(&public_client_id)
     .bind(staff_id)
     .fetch_one(&mut *transaction)
     .await
@@ -90,6 +92,7 @@ async fn create_auth_fixture(setup_pool: &PgPool) -> AuthFixture {
     transaction.commit().await.unwrap();
     AuthFixture {
         client_id,
+        public_client_id,
         staff_id,
     }
 }
@@ -255,6 +258,24 @@ async fn insert_setup_token(setup_pool: &PgPool, credential_id: uuid::Uuid) -> u
 
 async fn permission_pools_only() -> (PgPool, PgPool) {
     permission_pools().await
+}
+
+#[tokio::test]
+async fn runtime_can_load_api_client_detail_with_credential_metadata() {
+    let (setup_pool, runtime_pool) = permission_pools().await;
+    let _fixture_lock = common::acquire_test_fixture_lock().await;
+    let fixture = create_auth_fixture(&setup_pool).await;
+    let fixture_for_body = fixture.clone();
+    run_auth_fixture_body(&setup_pool, vec![fixture], move || async move {
+        let repository = SqlxApiClientRepository::new(runtime_pool);
+        let detail = repository
+            .detail(&fixture_for_body.public_client_id)
+            .await
+            .expect("runtime can read the detail credential metadata query");
+        assert_eq!(detail.client.client_id, fixture_for_body.public_client_id);
+        assert!(!detail.credential_metadata.has_live_credential);
+    })
+    .await;
 }
 
 async fn table_privilege(pool: &PgPool, role: &str, table: &str, privilege: &str) -> bool {
@@ -698,6 +719,51 @@ async fn runtime_staff_security_audit_is_append_only_and_column_scoped() {
             "staff_security_audit_action_context_check",
         );
     }
+}
+
+#[tokio::test]
+async fn runtime_can_insert_each_staff_security_audit_action() {
+    let _fixture_lock = common::acquire_test_fixture_lock_named("x-fly-audit-permissions").await;
+    let (setup_pool, runtime_pool) = permission_pools_only().await;
+    let mut request_ids = Vec::new();
+
+    for (action, permission_code) in [
+        ("STAFF_LOGIN_SUCCEEDED", None),
+        ("STAFF_SESSION_REVOKED", None),
+        ("STAFF_AUTHZ_DENIED", Some("flights:write")),
+    ] {
+        let request_id = uuid::Uuid::new_v4();
+        request_ids.push(request_id);
+        sqlx::query(
+            "INSERT INTO staff_security_audit
+                (action, actor_staff_user_id, session_id, permission_code, request_id)
+             VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(action)
+        .bind(uuid::Uuid::new_v4())
+        .bind(uuid::Uuid::new_v4())
+        .bind(permission_code)
+        .bind(request_id)
+        .execute(&runtime_pool)
+        .await
+        .expect("runtime can insert each supported security-audit action");
+    }
+
+    for request_id in &request_ids {
+        let persisted: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM staff_security_audit WHERE request_id = $1")
+                .bind(request_id)
+                .fetch_one(&setup_pool)
+                .await
+                .unwrap();
+        assert_eq!(persisted, 1);
+    }
+
+    sqlx::query("DELETE FROM staff_security_audit WHERE request_id = ANY($1)")
+        .bind(&request_ids)
+        .execute(&setup_pool)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

@@ -214,7 +214,7 @@ async fn fresh_schema_counts_37_migrator_owned_public_tables() {
 }
 
 #[tokio::test]
-async fn fresh_schema_has_28_successful_migrations() {
+async fn fresh_schema_has_32_successful_migrations() {
     let pool = migrated_test_pool().await;
     let status: String = sqlx::query_scalar(
         "SELECT COUNT(*) FILTER (WHERE success)::text || '|' || COUNT(*)::text
@@ -223,7 +223,35 @@ async fn fresh_schema_has_28_successful_migrations() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(status, "28|28");
+    assert_eq!(status, "32|32");
+}
+
+#[tokio::test]
+async fn flight_services_have_nullable_modeled_operating_cost_in_whole_thb() {
+    let pool = migrated_test_pool().await;
+    let column: (String, String) = sqlx::query_as(
+        "SELECT data_type, is_nullable
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'flight_services'
+           AND column_name = 'modeled_operating_cost_amount'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(column, ("bigint".to_owned(), "YES".to_owned()));
+
+    let definition: String = sqlx::query_scalar(
+        "SELECT pg_get_constraintdef(oid)
+         FROM pg_constraint
+         WHERE conrelid = 'public.flight_services'::regclass
+           AND conname = 'flight_services_modeled_operating_cost_check'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(definition.contains("modeled_operating_cost_amount"));
+    assert!(definition.contains("100000000"));
 }
 
 #[tokio::test]

@@ -44,6 +44,7 @@ pub struct FlightCommand {
     pub currency_code: String,
     pub business_capacity: u16,
     pub first_capacity: u16,
+    pub modeled_operating_cost_amount: Option<i64>,
 }
 
 impl FlightCommand {
@@ -66,6 +67,12 @@ impl FlightCommand {
             || !(1..=MAX_PRICE_AMOUNT).contains(&self.first_price_amount)
         {
             return Err(FlightValidationError::Price);
+        }
+        if self
+            .modeled_operating_cost_amount
+            .is_some_and(|amount| !(0..=MAX_PRICE_AMOUNT).contains(&amount))
+        {
+            return Err(FlightValidationError::OperatingCost);
         }
         if self.business_capacity == 0
             || self.business_capacity > MAX_CABIN_CAPACITY
@@ -90,6 +97,7 @@ impl FlightCommand {
             currency_code: self.currency_code,
             business_capacity: self.business_capacity,
             first_capacity: self.first_capacity,
+            modeled_operating_cost_amount: self.modeled_operating_cost_amount,
         })
     }
 }
@@ -109,6 +117,7 @@ pub struct ValidatedFlightCommand {
     pub currency_code: String,
     pub business_capacity: u16,
     pub first_capacity: u16,
+    pub modeled_operating_cost_amount: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -127,6 +136,7 @@ pub enum FlightValidationError {
     Aircraft,
     Price,
     Capacity,
+    OperatingCost,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -156,6 +166,7 @@ pub struct FlightRecord {
     pub status: FlightStatus,
     pub business: ManagedCabin,
     pub first: ManagedCabin,
+    pub modeled_operating_cost_amount: Option<i64>,
     pub version: i64,
     pub updated_at: DateTime<Utc>,
 }

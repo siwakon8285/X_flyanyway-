@@ -130,6 +130,7 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
   const errorMessage = async (response:Response) => {
     const data = await response.json().catch(() => null);
     switch (data?.error?.code) {
+      case "API_CLIENT_MANAGEMENT_UNAVAILABLE": return t("apiClientManagement.error");
       case "STAFF_PERMISSION_DENIED": return t("apiClientManagement.errors.forbidden");
       case "API_CLIENT_STALE_VERSION": return t("apiClientManagement.errors.conflict");
       case "API_CLIENT_STATUS_CONFLICT": return t("apiClientManagement.errors.status");
@@ -176,7 +177,8 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
         if (response.status === 409) {
           await refreshDetail().catch(() => undefined);
         }
-        throw new Error(message);
+        if (responseReceived) { setError(message); return; }
+        throw new Error("credential-issuance-unavailable");
       }
       const issued = await response.json() as Partial<IssuedCredentialResponse>;
       if (typeof issued.clientId !== "string" || typeof issued.clientSecret !== "string" || typeof issued.issuedAt !== "string") {
@@ -189,7 +191,7 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
       await refreshDetail().catch(() => {
         setError(t("apiClientManagement.errors.synchronization"));
       });
-    } catch (cause) {
+    } catch {
       if (!responseReceived) {
         setIssueRecovery(true);
         setError(t("apiClientManagement.credentialRecovery"));
@@ -201,9 +203,7 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
         } catch {
           setRecoveryHasLiveCredential(false);
         }
-      } else {
-        setError(cause instanceof Error ? cause.message : t("apiClientManagement.errors.credentialUnavailable"));
-      }
+      } else setError(t("apiClientManagement.errors.credentialUnavailable"));
     } finally {
       setIssuePending(false);
     }
@@ -234,7 +234,8 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
       if (!response.ok) {
         const message = await credentialErrorMessage(response);
         if (response.status === 409) await refreshDetail().catch(() => undefined);
-        throw new Error(message);
+        setError(message);
+        return;
       }
       setCredentialActionOpen(false);
       setIssueRecovery(false);
@@ -249,8 +250,8 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
         setMessage(t("apiClientManagement.credentialRevoked"));
         setError(t("apiClientManagement.errors.credentialRevokedRefresh"));
       }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("apiClientManagement.errors.credentialUnavailable"));
+    } catch {
+      setError(t("apiClientManagement.errors.credentialUnavailable"));
     } finally {
       setCredentialRevoking(false);
     }
@@ -282,7 +283,7 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
         headers:{ "content-type":"application/json", "x-x-fly-csrf":"1" },
         body:JSON.stringify(payload),
       });
-      if (!response.ok) throw new Error(await errorMessage(response));
+      if (!response.ok) { setError(await errorMessage(response)); return; }
       const saved = await response.json() as ApiClientRecord;
       if (mode === "new") {
         applyRecord(saved);
@@ -296,7 +297,7 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
       } else if (await synchronizeDetail(saved)) {
         setMessage(t("apiClientManagement.saved"));
       }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t("apiClientManagement.error")); }
+    } catch { setError(t("apiClientManagement.error")); }
     finally { setSaving(false); }
   };
 
@@ -309,11 +310,11 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
         headers:{ "content-type":"application/json", "x-x-fly-csrf":"1" },
         body:JSON.stringify({ version:client.version }),
       });
-      if (!response.ok) throw new Error(await errorMessage(response));
+      if (!response.ok) { setError(await errorMessage(response)); return; }
       const updated = await response.json() as ApiClientRecord;
       setAction(null);
       await synchronizeDetail(updated);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t("apiClientManagement.error")); }
+    } catch { setError(t("apiClientManagement.error")); }
     finally { setSaving(false); }
   };
 

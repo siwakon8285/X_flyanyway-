@@ -23,9 +23,45 @@ describe("Executive Dashboard", () => {
     expect(container.querySelector(".exec-revenue-chart [data-chart-line]")?.getAttribute("d")).toContain("C");
     expect(screen.getByRole("img", { name: "Active cabin mix by bookings" })).toHaveAttribute("data-values", "2,1");
     expect(screen.getByRole("img", { name: "Recorded occupancy 20%: 4 booked seats from 20 sellable seats" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Monthly" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Stripe · test mode", { selector: "p" })).toBeInTheDocument();
     expect(screen.getAllByText("XF101").length).toBeGreaterThan(0);
+  });
+  it("renders server-calculated positive, negative and unavailable flight operating results", async () => {
+    render(<ExecutiveDashboard />);
+    const table = await screen.findByRole("table", { name: "Estimated operating result by flight" });
+    expect(within(table).getByText("Estimated operating profit")).toBeInTheDocument();
+    expect(within(table).getByText("Estimated operating loss")).toBeInTheDocument();
+    expect(within(table).getByText("Cost not configured")).toBeInTheDocument();
+    expect(within(table).getByText("THB 10,000")).toBeInTheDocument();
+    expect(within(table).getByText("THB -5,000")).toBeInTheDocument();
+    expect(within(table).getByText("XF102")).toBeInTheDocument();
+  });
+  it("keeps every profitability column in a keyboard-focusable scroll region", async () => {
+    render(<ExecutiveDashboard />);
+    const table = await screen.findByRole("table", { name: "Estimated operating result by flight" });
+    const scrollRegion = screen.getByRole("region", { name: "Estimated operating result by flight" });
+
+    expect(scrollRegion).toHaveClass("exec-profitability-scroll");
+    expect(scrollRegion).toHaveAttribute("tabindex", "0");
+    expect(within(table).getByRole("columnheader", { name: "Flight / departure" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Bookings" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Occupancy" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Gross revenue" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Completed refunds" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Net revenue" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Modeled cost" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Operating result" })).toBeInTheDocument();
+    expect(within(table).getByText("Estimated operating profit")).toBeInTheDocument();
+    expect(within(table).getByText("Estimated operating loss")).toBeInTheDocument();
+  });
+  it("shows the whole-flight restriction instead of presenting partial profitability", async () => {
+    jest.mocked(fetch).mockResolvedValue(response({ ...dashboardFixture, profitability: { available: false, flights: [] } }));
+    render(<ExecutiveDashboard />);
+    await screen.findByRole("heading", { name: "Estimated operating result by flight" });
+    expect(await screen.findByText(/Profitability is available for whole-flight views/)).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Estimated operating result by flight" })).not.toBeInTheDocument();
   });
   it("snaps revenue inspection to authoritative daily points and updates the exact date and value", async () => {
     render(<ExecutiveDashboard />);
@@ -71,6 +107,18 @@ describe("Executive Dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply filters" }));
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith("/admin/api/dashboard?from=2026-09-01&to=2026-09-02&route=BKK-NRT&cabin=business&provider=MOCK_BITCOIN", expect.objectContaining({ cache: "no-store" })));
   });
+  it("uses the existing dashboard endpoint for the formal Weekly period", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date("2026-09-16T05:00:00.000Z"));
+    try {
+      render(<ExecutiveDashboard />);
+      await screen.findByRole("region", { name: "Executive summary" });
+      fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
+      await waitFor(() => expect(fetch).toHaveBeenLastCalledWith("/admin/api/dashboard?from=2026-09-14&to=2026-09-16&provider=STRIPE", expect.objectContaining({ cache: "no-store" })));
+    } finally {
+      jest.useRealTimers();
+    }
+  });
   it("offers only active cabins and makes the unfiltered cohort explicit", async () => {
     render(<ExecutiveDashboard />);
     await screen.findByRole("region", { name:"Executive summary" });
@@ -83,6 +131,7 @@ describe("Executive Dashboard", () => {
     expect(within(cabin).getByRole("option", { name:"First" })).toHaveValue("first");
     expect(within(cabin).queryByRole("option", { name:"Economy" })).not.toBeInTheDocument();
     expect(within(cabin).queryByRole("option", { name:"Premium Economy" })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText("Payment records")).getByRole("option", { name:"All payment providers" })).toHaveValue("ALL");
     cabin.focus();
     expect(cabin).toHaveFocus();
   });
@@ -96,6 +145,17 @@ describe("Executive Dashboard", () => {
     expect(within(first).getByText("33.3%")).toBeInTheDocument();
     expect(screen.queryByText("Economy")).not.toBeInTheDocument();
     expect(screen.queryByText("Premium Economy")).not.toBeInTheDocument();
+  });
+  it("renders aggregate passenger nationalities with accessible counts and percentages only", async () => {
+    render(<ExecutiveDashboard />);
+    expect(await screen.findByRole("heading", { name: "Passenger nationalities" })).toBeInTheDocument();
+    const table = screen.getByRole("table", { name: "Passenger nationalities" });
+    expect(within(table).getByText("Thailand")).toBeInTheDocument();
+    expect(within(table).getByText("TH")).toBeInTheDocument();
+    expect(within(table).getByText("2")).toBeInTheDocument();
+    expect(within(table).getByText("66.67%")).toBeInTheDocument();
+    expect(screen.queryByText("Nara Synthetic")).not.toBeInTheDocument();
+    expect(screen.queryByText("XFABC1234")).not.toBeInTheDocument();
   });
   it("fails closed when an old backend response mixes hidden legacy cabins into active totals", async () => {
     jest.mocked(fetch).mockResolvedValue(response({
@@ -143,7 +203,8 @@ describe("Executive Dashboard", () => {
     fireEvent.click(highestRevenue);
     expect(highestRevenue).toHaveAttribute("aria-selected", "true");
     expect(mostBooked).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByRole("tabpanel", { name: "Highest revenue" })).toContainElement(screen.getByRole("rowheader", { name: /XF101/ }));
+    const rankingPanel = screen.getByRole("tabpanel", { name: "Highest revenue" });
+    expect(rankingPanel).toContainElement(within(rankingPanel).getByRole("rowheader", { name: /XF101/ }));
     fireEvent.keyDown(highestRevenue, { key: "ArrowLeft" });
     expect(mostBooked).toHaveAttribute("aria-selected", "true");
     expect(mostBooked).toHaveFocus();
@@ -153,7 +214,7 @@ describe("Executive Dashboard", () => {
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve; }));
     render(<ExecutiveDashboard />);
     await screen.findByRole("region", { name: "Executive summary" });
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     expect(screen.getAllByText("THB 30,000").length).toBeGreaterThan(0);
     expect(screen.getByText("Updating intelligence")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Updating" })).toBeDisabled();
@@ -166,13 +227,16 @@ describe("Executive Dashboard", () => {
       summary: { ...dashboardFixture.summary, grossRevenue: 41000, totalBookings: 5, averageBookingValue: 8200 },
       trends: [{ date: "2026-09-02", bookings: 5, revenue: 41000 }],
       cabins: [{ cabin: "business" as const, bookings: 3, revenue: 25000 }, { cabin: "first" as const, bookings: 2, revenue: 16000 }],
+      nationalityDistribution: [{ nationalityCode: "DE", passengerCount: 5, percentage: 100 }],
     };
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockResolvedValueOnce(response(refreshed));
     render(<ExecutiveDashboard />);
     await screen.findByRole("region", { name: "Executive summary" });
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     await waitFor(() => expect(screen.getByRole("img", { name: "Gross booking revenue trend" })).toHaveAttribute("data-values", "41000"));
     expect(screen.getByRole("img", { name: "Booking demand trend" })).toHaveAttribute("data-values", "5");
+    expect(screen.getByText("Germany")).toBeInTheDocument();
+    expect(screen.queryByText("Thailand")).not.toBeInTheDocument();
   });
   it("clears inspected data on filter refresh and only inspects the replacement dataset", async () => {
     const refreshed = {
@@ -189,7 +253,7 @@ describe("Executive Dashboard", () => {
     setChartBounds(initialChart);
     fireChartPointer(initialChart, "pointermove", 70, "mouse");
     expect(screen.getByTestId("revenue-inspection")).toHaveTextContent("01 Sept 2026");
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     expect(screen.queryByTestId("revenue-inspection")).not.toBeInTheDocument();
     await act(async () => resolveRefresh(response(refreshed)));
     await waitFor(() => expect(screen.getByRole("img", { name: "Gross booking revenue trend" })).toHaveAttribute("data-values", "41000"));
@@ -204,14 +268,15 @@ describe("Executive Dashboard", () => {
     jest.mocked(fetch).mockResolvedValueOnce(response()).mockResolvedValueOnce(response(dashboardFixture, 403));
     render(<ExecutiveDashboard />);
     await screen.findByRole("region", { name: "Executive summary" });
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("You do not have permission");
     expect(screen.queryByText("THB 30,000")).not.toBeInTheDocument();
   });
   it("provides an honest empty state and unavailable ratios", async () => {
-    jest.mocked(fetch).mockResolvedValue(response({ ...dashboardFixture, summary: { grossRevenue: 0, totalBookings: 0, ticketsIssued: 0, cancelledBookings: 0, cancellationRatePercent: null, refundCount: 0, refundValue: 0, pendingRefundCount: 0, pendingRefundValue: 0, attentionRefundCount: 0, averageBookingValue: null }, trends: [], routes: [], cabins: [], flights: [], revenueFlights: [], inventory: { bookedSeats: 0, sellableSeats: 0, occupancyPercent: null, flights: [] } }));
+    jest.mocked(fetch).mockResolvedValue(response({ ...dashboardFixture, summary: { grossRevenue: 0, totalBookings: 0, ticketsIssued: 0, cancelledBookings: 0, cancellationRatePercent: null, refundCount: 0, refundValue: 0, pendingRefundCount: 0, pendingRefundValue: 0, attentionRefundCount: 0, averageBookingValue: null }, trends: [], routes: [], cabins: [], flights: [], revenueFlights: [], nationalityDistribution: [], inventory: { bookedSeats: 0, sellableSeats: 0, occupancyPercent: null, flights: [] } }));
     render(<ExecutiveDashboard />);
     expect(await screen.findByText("No successful bookings in this selection.")).toBeInTheDocument();
+    expect(screen.getByText("No passenger nationality records in this selection.")).toBeInTheDocument();
     expect(screen.queryByText(/leading route/i)).not.toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
@@ -219,6 +284,8 @@ describe("Executive Dashboard", () => {
     jest.mocked(fetch).mockResolvedValue(response(dashboardFixture, status));
     render(<ExecutiveDashboard />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("Service status")).toBeInTheDocument();
+    expect(screen.queryByText(`SYS / ${status}`)).not.toBeInTheDocument();
     expect(screen.queryByText("THB 30,000")).not.toBeInTheDocument();
     if (status === 401) expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/admin/login");
   });
@@ -226,10 +293,13 @@ describe("Executive Dashboard", () => {
     render(<ExecutiveDashboard />, { locale: "th" });
     expect(await screen.findByRole("region", { name: "สรุปสำหรับผู้บริหาร" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "ผลการดำเนินงานเชิงพาณิชย์" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "สัญชาติผู้โดยสาร" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ผลการดำเนินงานโดยประมาณรายเที่ยวบิน" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ใช้ตัวกรอง" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นโดยสารที่เปิดขายทั้งหมด" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นธุรกิจ" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นหนึ่ง" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("แหล่งข้อมูลการชำระเงิน")).getByRole("option", { name:"ผู้ให้บริการชำระเงินทั้งหมด" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "แนวโน้มรายได้รวมจากการจอง" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /อัตราการจองที่นั่งที่บันทึก 20%/ })).toBeInTheDocument();
     const chart = screen.getByRole("img", { name: "แนวโน้มจำนวนการจอง" });
@@ -253,7 +323,7 @@ describe("Executive Dashboard", () => {
     let resolveFirst!: (value: Response) => void;
     jest.mocked(fetch).mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
     render(<ExecutiveDashboard />);
-    fireEvent.click(screen.getByRole("button", { name: "7 days" }));
+    fireEvent.click(screen.getByRole("button", { name: "Weekly" }));
     await screen.findByRole("region", { name: "Executive summary" });
     await act(async () => resolveFirst(response({ ...dashboardFixture, summary: { ...dashboardFixture.summary, grossRevenue: 99999 } })));
     expect(screen.queryByText("THB 99,999")).not.toBeInTheDocument();

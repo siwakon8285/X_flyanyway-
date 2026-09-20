@@ -10,13 +10,27 @@ import { TimePickerField } from "@/components/admin/flights/TimePickerField";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/Dialog";
 import { useLanguage } from "@/i18n/LanguageProvider";
 import { formatStaffDate, formatStaffDateTime } from "@/i18n/formatters";
+import type { TranslationKey } from "@/i18n/types";
 import type { FlightDetail, FlightReferenceData, ManagedFlight } from "@/lib/admin/flightTypes";
 import "./flightOperations.css";
 
-type FormState = { flightNumber: string; originCode: string; destinationCode: string; operatingDate: string; departureTime: string; arrivalTime: string; nextDay: boolean; aircraftCode: string; businessPrice: string; firstPrice: string; businessCapacity: string; firstCapacity: string };
-const blank: FormState = { flightNumber: "", originCode: "", destinationCode: "", operatingDate: "", departureTime: "", arrivalTime: "", nextDay: false, aircraftCode: "", businessPrice: "", firstPrice: "", businessCapacity: "16", firstCapacity: "4" };
-const fromFlight = (flight: ManagedFlight): FormState => ({ flightNumber: flight.flightNumber, originCode: flight.originCode, destinationCode: flight.destinationCode, operatingDate: flight.operatingDate ?? "", departureTime: flight.departureTime?.slice(0, 5) ?? "", arrivalTime: flight.arrivalTime?.slice(0, 5) ?? "", nextDay: flight.arrivalDayOffset === 1, aircraftCode: flight.aircraftCode, businessPrice: String(flight.business.priceAmount ?? ""), firstPrice: String(flight.first.priceAmount ?? ""), businessCapacity: String(flight.business.capacity), firstCapacity: String(flight.first.capacity) });
+type FormState = { flightNumber: string; originCode: string; destinationCode: string; operatingDate: string; departureTime: string; arrivalTime: string; nextDay: boolean; aircraftCode: string; businessPrice: string; firstPrice: string; businessCapacity: string; firstCapacity: string; modeledOperatingCost: string };
+const blank: FormState = { flightNumber: "", originCode: "", destinationCode: "", operatingDate: "", departureTime: "", arrivalTime: "", nextDay: false, aircraftCode: "", businessPrice: "", firstPrice: "", businessCapacity: "16", firstCapacity: "4", modeledOperatingCost: "" };
+const fromFlight = (flight: ManagedFlight): FormState => ({ flightNumber: flight.flightNumber, originCode: flight.originCode, destinationCode: flight.destinationCode, operatingDate: flight.operatingDate ?? "", departureTime: flight.departureTime?.slice(0, 5) ?? "", arrivalTime: flight.arrivalTime?.slice(0, 5) ?? "", nextDay: flight.arrivalDayOffset === 1, aircraftCode: flight.aircraftCode, businessPrice: String(flight.business.priceAmount ?? ""), firstPrice: String(flight.first.priceAmount ?? ""), businessCapacity: String(flight.business.capacity), firstCapacity: String(flight.first.capacity), modeledOperatingCost: String(flight.modeledOperatingCostAmount ?? "") });
 const auditAction = { FLIGHT_CREATED: "flightManagement.actionCreated", FLIGHT_EDITED: "flightManagement.actionEdited", FLIGHT_CANCELLED: "flightManagement.actionCancelled" } as const;
+const flightMutationErrorKey = (code: unknown): TranslationKey => {
+  switch (code) {
+    case "STAFF_PERMISSION_DENIED": return "flightManagement.forbidden";
+    case "FLIGHT_STRUCTURAL_CONFLICT": return "flightManagement.structuralConflict";
+    case "FLIGHT_STALE_VERSION": return "flightManagement.conflict";
+    case "FLIGHT_STATUS_CONFLICT": return "flightManagement.statusConflict";
+    case "FLIGHT_NOT_FOUND": return "flightManagement.notFound";
+    case "FLIGHT_VALIDATION_FAILED": return "flightManagement.validation";
+    case "FLIGHT_DUPLICATE": return "flightManagement.duplicate";
+    case "FLIGHT_MANAGEMENT_UNAVAILABLE": return "flightManagement.error";
+    default: return "flightManagement.mutationFailed";
+  }
+};
 
 const FlightEditor = ({ mode, flightId, canWrite }: { mode: "new" | "detail"; flightId?: string; canWrite: boolean }) => {
   const { locale, t } = useLanguage();
@@ -39,23 +53,27 @@ const FlightEditor = ({ mode, flightId, canWrite }: { mode: "new" | "detail"; fl
   }, [flightId, mode, t]);
 
   const set = (key: keyof FormState, value: string | boolean) => setForm(current => ({ ...current, [key]: value }));
-  const valid = () => /^XF\s\d{3}$/i.test(form.flightNumber.trim()) && form.originCode !== form.destinationCode && [form.originCode, form.destinationCode, form.departureTime, form.arrivalTime, form.aircraftCode].every(Boolean) && (mode === "detail" || Boolean(form.operatingDate))
-    && Number(form.businessPrice) > 0 && Number(form.firstPrice) > 0 && Number(form.businessCapacity) > 0 && Number(form.businessCapacity) % 4 === 0 && Number(form.firstCapacity) > 0 && Number(form.firstCapacity) % 2 === 0;
-  const payload = () => ({ flightNumber: form.flightNumber, originCode: form.originCode, destinationCode: form.destinationCode, operatingDate: form.operatingDate || null, departureTime: `${form.departureTime}:00`, arrivalTime: `${form.arrivalTime}:00`, arrivalDayOffset: form.nextDay ? 1 : 0, aircraftCode: form.aircraftCode, businessPriceAmount: Number(form.businessPrice), firstPriceAmount: Number(form.firstPrice), currencyCode: "THB", businessCapacity: Number(form.businessCapacity), firstCapacity: Number(form.firstCapacity) });
+  const valid = () => {
+    const cost = form.modeledOperatingCost.trim();
+    const costIsValid = cost === "" || (/^\d+$/.test(cost) && Number(cost) <= 100_000_000);
+    return /^XF\s\d{3}$/i.test(form.flightNumber.trim()) && form.originCode !== form.destinationCode && [form.originCode, form.destinationCode, form.departureTime, form.arrivalTime, form.aircraftCode].every(Boolean) && (mode === "detail" || Boolean(form.operatingDate))
+      && Number(form.businessPrice) > 0 && Number(form.firstPrice) > 0 && Number(form.businessCapacity) > 0 && Number(form.businessCapacity) % 4 === 0 && Number(form.firstCapacity) > 0 && Number(form.firstCapacity) % 2 === 0 && costIsValid;
+  };
+  const payload = () => ({ flightNumber: form.flightNumber, originCode: form.originCode, destinationCode: form.destinationCode, operatingDate: form.operatingDate || null, departureTime: `${form.departureTime}:00`, arrivalTime: `${form.arrivalTime}:00`, arrivalDayOffset: form.nextDay ? 1 : 0, aircraftCode: form.aircraftCode, businessPriceAmount: Number(form.businessPrice), firstPriceAmount: Number(form.firstPrice), currencyCode: "THB", businessCapacity: Number(form.businessCapacity), firstCapacity: Number(form.firstCapacity), modeledOperatingCostAmount: form.modeledOperatingCost.trim() === "" ? null : Number(form.modeledOperatingCost) });
   const save = async () => {
     setMessage(""); setError(""); if (!valid()) { setError(t("flightManagement.validation")); return; } setSaving(true);
     try {
       const response = await fetch(mode === "new" ? "/admin/api/flights" : `/admin/api/flights/${flightId}`, { method: mode === "new" ? "POST" : "PUT", credentials: "same-origin", headers: { "content-type": "application/json", "X-X-Fly-CSRF": "1" }, body: JSON.stringify(mode === "new" ? payload() : { ...payload(), version: flight?.version }) });
-      if (!response.ok) { const body = await response.json().catch(() => null); const code = body?.error?.code; throw new Error(code === "STAFF_PERMISSION_DENIED" ? t("flightManagement.forbidden") : code?.includes("CONFLICT") || code === "FLIGHT_STALE_VERSION" ? t("flightManagement.conflict") : t("flightManagement.validation")); }
+      if (!response.ok) { const body = await response.json().catch(() => null); setError(t(flightMutationErrorKey(body?.error?.code))); return; }
       const next = await response.json() as ManagedFlight; setFlight({ ...next, audit: flight?.audit ?? [] }); setForm(fromFlight(next)); setMessage(t("flightManagement.saved"));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t("flightManagement.error")); } finally { setSaving(false); }
+    } catch { setError(t("flightManagement.mutationFailed")); } finally { setSaving(false); }
   };
   const cancel = async () => {
     if (!flight) return;
     setSaving(true); setError("");
     try {
       const response = await fetch(`/admin/api/flights/${flight.id}/cancel`, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json", "X-X-Fly-CSRF": "1" }, body: JSON.stringify({ version: flight.version }) });
-      if (!response.ok) throw new Error(t("flightManagement.conflict"));
+      if (!response.ok) { const body = await response.json().catch(() => null); setError(t(flightMutationErrorKey(body?.error?.code))); return; }
       const next = await response.json() as ManagedFlight;
       setFlight({ ...next, audit: flight.audit }); setForm(fromFlight(next)); setCancelOpen(false);
       try {
@@ -66,7 +84,7 @@ const FlightEditor = ({ mode, flightId, canWrite }: { mode: "new" | "detail"; fl
       } catch {
         setError(t("flightManagement.cancelSyncWarning"));
       }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t("flightManagement.error")); } finally { setSaving(false); }
+    } catch { setError(t("flightManagement.mutationFailed")); } finally { setSaving(false); }
   };
 
   if (loading) return <p aria-live="polite">{t("flightManagement.loading")}</p>;
@@ -75,6 +93,7 @@ const FlightEditor = ({ mode, flightId, canWrite }: { mode: "new" | "detail"; fl
   const disabled = !canWrite || flight?.status === "CANCELLED";
   const inputClass = "xfo-control disabled:bg-black/5";
   const label = (text: string, key: keyof FormState, type = "text") => <label>{text}<input aria-label={text} className={inputClass} disabled={disabled} onChange={event => set(key, event.target.value)} required type={type} value={String(form[key])} /></label>;
+  const modeledCost = <label>{t("flightManagement.modeledOperatingCost")}<input aria-label={t("flightManagement.modeledOperatingCost")} className={inputClass} disabled={disabled} min="0" max="100000000" onChange={event => set("modeledOperatingCost", event.target.value)} step="1" type="number" value={form.modeledOperatingCost} /><span className="xfo-field-help">{t("flightManagement.modeledOperatingCostHelp")}</span></label>;
   const airport = (text: string, key: "originCode" | "destinationCode") => <AirportCombobox airports={references?.airports ?? []} disabled={disabled} label={text} onChange={value => set(key, value)} value={form[key]} />;
 
   return <section className="flight-operations"><header className="xfo-editor-header"><div><Link className="xfo-back" href="/admin/flights"><ArrowLeft aria-hidden="true" className="size-4" />{t("flightManagement.back")}</Link><p className="xfo-kicker mt-6">{t("flightManagement.serviceConfiguration")}</p><h1 className="xfo-editor-title">{heading}</h1>{flight ? <p className="xfo-editor-copy">{flight.originCode} → {flight.destinationCode} · {t(flight.status === "SCHEDULED" ? "flightManagement.scheduled" : "flightManagement.cancelled")}</p> : null}{!canWrite ? <p className="xfo-readonly">{t("flightManagement.readOnly")}</p> : null}</div><OperationalSummary aircraftCode={form.aircraftCode} airports={references?.airports ?? []} arrivalTime={form.arrivalTime} businessCapacity={form.businessCapacity} departureTime={form.departureTime} destinationCode={form.destinationCode} firstCapacity={form.firstCapacity} flightNumber={form.flightNumber} operatingDate={form.operatingDate} originCode={form.originCode} status={flight?.status} /></header>
@@ -82,7 +101,7 @@ const FlightEditor = ({ mode, flightId, canWrite }: { mode: "new" | "detail"; fl
       <fieldset className="xfo-form-section"><OperationsSectionLegend index="01" title={t("flightManagement.identity")} />{label(t("flightManagement.flightNumber"), "flightNumber")}{airport(t("flightManagement.origin"), "originCode")}{airport(t("flightManagement.destination"), "destinationCode")}</fieldset>
       <fieldset className="xfo-form-section"><OperationsSectionLegend index="02" title={t("flightManagement.schedule")} /><DatePickerField disabled={disabled} label={t("flightManagement.departureDate")} onChange={value => set("operatingDate", value)} required value={form.operatingDate} /><TimePickerField disabled={disabled} label={t("flightManagement.departure")} onChange={value => set("departureTime", value)} required value={form.departureTime} /><TimePickerField disabled={disabled} label={t("flightManagement.arrival")} onChange={value => set("arrivalTime", value)} required value={form.arrivalTime} /><label className="xfo-checkbox"><input checked={form.nextDay} className="xfo-checkbox-input" disabled={disabled} onChange={e => set("nextDay", e.target.checked)} type="checkbox" />{t("flightManagement.nextDay")}</label></fieldset>
       <fieldset className="xfo-form-section"><OperationsSectionLegend index="03" title={t("flightManagement.inventory")} /><label>{t("flightManagement.aircraftContext")}<select aria-label={t("flightManagement.aircraftContext")} className={inputClass} disabled={disabled} onChange={e => set("aircraftCode", e.target.value)} required value={form.aircraftCode}><option value="">{t("flightManagement.chooseAircraft")}</option>{references?.aircraft.map(item => <option key={item}>{item}</option>)}</select></label>{label(t("flightManagement.businessCapacity"), "businessCapacity", "number")}{label(t("flightManagement.firstCapacity"), "firstCapacity", "number")}</fieldset>
-      <fieldset className="xfo-form-section is-commercial"><OperationsSectionLegend index="04" title={t("flightManagement.commercial")} />{label(t("flightManagement.businessPrice"), "businessPrice", "number")}{label(t("flightManagement.firstPrice"), "firstPrice", "number")}</fieldset>
+      <fieldset className="xfo-form-section is-commercial"><OperationsSectionLegend index="04" title={t("flightManagement.commercial")} />{label(t("flightManagement.businessPrice"), "businessPrice", "number")}{label(t("flightManagement.firstPrice"), "firstPrice", "number")}{modeledCost}</fieldset>
       <div aria-live="polite" className="xfo-feedback">{error ? <p role="alert" className="text-red-700">{error}</p> : null}{message ? <p className="font-semibold text-green-800">{message}</p> : null}</div>
       {canWrite && !disabled ? <div className="xfo-form-actions"><button className="xfo-save" disabled={saving} type="submit">{saving ? t("flightManagement.saving") : t("flightManagement.save")}</button>{mode === "detail" ? <button className="xfo-destructive" onClick={(event) => { cancelTriggerRef.current = event.currentTarget; setCancelOpen(true); }} type="button">{t("flightManagement.cancelFlight")}</button> : null}</div> : null}
     </form>

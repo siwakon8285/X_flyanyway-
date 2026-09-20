@@ -16,6 +16,7 @@ fn valid_command() -> FlightCommand {
         currency_code: "THB".to_owned(),
         business_capacity: 16,
         first_capacity: 4,
+        modeled_operating_cost_amount: None,
     }
 }
 
