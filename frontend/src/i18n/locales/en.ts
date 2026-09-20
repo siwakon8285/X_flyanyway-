@@ -141,7 +141,6 @@ const en = {
     seatsSeparate: "Seats are shown separately because this booking does not store a passenger-to-seat assignment.",
     cancelledSeatsNotice: "Seat records are shown for reference. This booking is not active.",
     extras: "Extras",
-    noExtras: "No optional extras selected.",
     payment: "Payment",
     ticket: "Ticket",
     viewTicket: "View Ticket",

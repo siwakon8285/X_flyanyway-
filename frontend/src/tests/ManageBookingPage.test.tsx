@@ -170,6 +170,28 @@ describe("ManageBookingPage", () => {
     expect(document.body.textContent).not.toContain("example.com");
   });
 
+  it("omits the empty Extras card while preserving the booking details in EN and TH", async () => {
+    const currentBooking = { ...booking, extras: [] };
+    mockCurrent.mockResolvedValue(currentBooking);
+    const english = renderPage("en", true);
+
+    expect(await screen.findByRole("heading", { name: "Your Booking" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Extras" })).not.toBeInTheDocument();
+    for (const heading of ["Passengers", "Seats", "Payment", "Cancellation", "E-Ticket"]) {
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+    }
+
+    english.unmount();
+    mockCurrent.mockResolvedValue(currentBooking);
+    renderPage("th", true);
+
+    expect(await screen.findByRole("heading", { name: "การจองของคุณ" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "บริการเสริม" })).not.toBeInTheDocument();
+    for (const heading of ["ผู้โดยสาร", "ที่นั่ง", "การชำระเงิน", "การยกเลิก", "E-Ticket"]) {
+      expect(screen.getByRole("heading", { name: heading })).toBeInTheDocument();
+    }
+  });
+
   it("renders the Manage Booking E-Ticket as a responsive horizontal travel document", async () => {
     mockCurrent.mockResolvedValue(booking);
     renderPage("en", true);
