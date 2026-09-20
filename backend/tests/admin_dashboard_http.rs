@@ -503,7 +503,7 @@ async fn insert_successful_nationality_booking(
             "NAT{}{}",
             ordinal + 1,
             &Uuid::new_v4().simple().to_string()[..8]
-        ))
+        ).to_ascii_uppercase())
         .execute(pool)
         .await
         .unwrap();
@@ -802,6 +802,7 @@ async fn dashboard_aggregates_literal_cohort_inventory_filters_and_exact_public_
             "generatedAt",
             "inventory",
             "nationalityDistribution",
+            "profitability",
             "provider",
             "revenueFlights",
             "routes",
@@ -971,7 +972,7 @@ async fn dashboard_empty_range_uses_nullable_rates_and_accepts_each_provider() {
         )
         .await;
         let router = app(pool.clone());
-        for provider in ["STRIPE", "MOCK_BITCOIN"] {
+        for provider in ["STRIPE", "MOCK_BITCOIN", "ALL"] {
             let response = get(
                 &router,
                 &format!(
@@ -992,6 +993,154 @@ async fn dashboard_empty_range_uses_nullable_rates_and_accepts_each_provider() {
                 .unwrap()
                 .contains(&json!("BKK-LHR")));
         }
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn profitability_uses_departure_flights_refunds_and_whole_flight_filters() {
+    let _guard = fixture_guard().await;
+    let pool = test_pool().await;
+    run_fixture_body(pool.clone(), move || async move {
+        sqlx::query(
+            "INSERT INTO flight_services
+                (public_id, flight_number, origin_code, destination_code, aircraft_code,
+                 status, operating_date, modeled_operating_cost_amount, cancelled_at)
+             VALUES
+                ('dashboard-xf881-20980915', 'XF 881', 'BKK', 'DXB', 'A320', 'SCHEDULED', '2098-09-15', 5000, NULL),
+                ('dashboard-xf882-20980915', 'XF 882', 'BKK', 'DXB', 'A320', 'SCHEDULED', '2098-09-15', 20000, NULL),
+                ('dashboard-xf883-20980915', 'XF 883', 'BKK', 'DXB', 'A320', 'SCHEDULED', '2098-09-15', NULL, NULL),
+                ('dashboard-xf884-20980915', 'XF 884', 'HND', 'DXB', 'A320', 'SCHEDULED', '2098-09-15', 1000, NULL),
+                ('dashboard-xf885-20980915', 'XF 885', 'BKK', 'DXB', 'A320', 'CANCELLED', '2098-09-15', 5000, NOW())",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let booked: Uuid = sqlx::query_scalar(
+            "SELECT id FROM flight_services WHERE flight_number='XF 882'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        insert_booking(
+            &pool,
+            booked,
+            "2098-09-15",
+            "business",
+            "STRIPE",
+            "SUCCEEDED",
+            30000,
+            "THB",
+            Some("2098-09-10T00:00:00Z"),
+            Some("ISSUED"),
+            Some(("SUCCEEDED", 5000)),
+        )
+        .await;
+        insert_booking(
+            &pool,
+            booked,
+            "2098-09-15",
+            "first",
+            "MOCK_BITCOIN",
+            "SUCCEEDED",
+            10000,
+            "THB",
+            Some("2098-09-11T00:00:00Z"),
+            Some("ISSUED"),
+            Some(("PENDING", 2000)),
+        )
+        .await;
+
+        let cookie = session_cookie(
+            &pool,
+            "executive_profitability",
+            &["dashboard:read", "analytics:read", "reports:read"],
+        )
+        .await;
+        let router = app(pool.clone());
+        let response = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2098-09-15&to=2098-09-15&provider=ALL",
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = body(response).await;
+        assert_eq!(payload["summary"]["grossRevenue"], 0);
+        assert_eq!(payload["profitability"]["available"], true);
+        let flights = payload["profitability"]["flights"].as_array().unwrap();
+        assert!(flights
+            .iter()
+            .all(|row| row["flightNumber"] != "XF 885"));
+        let zero = flights
+            .iter()
+            .find(|row| row["flightNumber"] == "XF 881")
+            .unwrap();
+        assert_eq!(zero["bookings"], 0);
+        assert_eq!(zero["grossRevenue"], 0);
+        assert_eq!(zero["modeledOperatingCostAmount"], 5000);
+        assert_eq!(zero["estimatedOperatingResult"], -5000);
+        let configured = flights
+            .iter()
+            .find(|row| row["flightNumber"] == "XF 882")
+            .unwrap();
+        assert_eq!(configured["bookings"], 2);
+        assert_eq!(configured["grossRevenue"], 40000);
+        assert_eq!(configured["completedRefundAmount"], 5000);
+        assert_eq!(configured["netBookingRevenue"], 35000);
+        assert_eq!(configured["estimatedOperatingResult"], 15000);
+        let missing = flights
+            .iter()
+            .find(|row| row["flightNumber"] == "XF 883")
+            .unwrap();
+        assert_eq!(missing["modeledOperatingCostAmount"], Value::Null);
+        assert_eq!(missing["estimatedOperatingResult"], Value::Null);
+
+        let restricted = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2098-09-15&to=2098-09-15&cabin=business&provider=ALL",
+            Some(&cookie),
+        )
+        .await;
+        assert_eq!(restricted.status(), StatusCode::OK);
+        let restricted_payload = body(restricted).await;
+        assert_eq!(restricted_payload["profitability"]["available"], false);
+        assert!(restricted_payload["profitability"]["flights"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+
+        let provider_restricted = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2098-09-15&to=2098-09-15&provider=STRIPE",
+            Some(&cookie),
+        )
+        .await;
+        let provider_payload = body(provider_restricted).await;
+        assert_eq!(provider_payload["profitability"]["available"], false);
+
+        let route_filtered = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2098-09-15&to=2098-09-15&route=HND-DXB&provider=ALL",
+            Some(&cookie),
+        )
+        .await;
+        let route_payload = body(route_filtered).await;
+        let route_flights = route_payload["profitability"]["flights"].as_array().unwrap();
+        assert_eq!(route_flights.len(), 1);
+        assert_eq!(route_flights[0]["flightNumber"], "XF 884");
+
+        let date_filtered = get(
+            &router,
+            "/api/v1/admin/dashboard?from=2098-09-16&to=2098-09-16&provider=ALL",
+            Some(&cookie),
+        )
+        .await;
+        let date_payload = body(date_filtered).await;
+        assert!(date_payload["profitability"]["flights"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     })
     .await;
 }
@@ -1025,6 +1174,7 @@ async fn managed_network_flights_preserve_zero_booking_and_cancelled_history_sem
                 currency_code: "THB".to_owned(),
                 business_capacity: 16,
                 first_capacity: 4,
+                modeled_operating_cost_amount: None,
             },
         )
         .await
@@ -1101,6 +1251,7 @@ async fn managed_network_flights_preserve_zero_booking_and_cancelled_history_sem
                 currency_code: "THB".to_owned(),
                 business_capacity: 16,
                 first_capacity: 4,
+                modeled_operating_cost_amount: None,
             },
         )
         .await

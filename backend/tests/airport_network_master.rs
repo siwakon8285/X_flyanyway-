@@ -122,6 +122,7 @@ async fn expanded_airports_are_shared_by_management_and_truthful_public_search()
                 currency_code: "THB".to_owned(),
                 business_capacity: 16,
                 first_capacity: 4,
+                modeled_operating_cost_amount: None,
             },
         )
         .await

@@ -81,8 +81,17 @@ export function DashboardDetail({ data }: { data: DashboardData }) {
       </div>{!rankedFlights.length && <p className="exec-muted">{t("dashboard.noRows")}</p>}
     </section>
 
+    <section className="exec-panel exec-profitability" data-exec-reveal>
+      <SectionHeading number="05 /" title={t("dashboard.profitabilityTitle")} subtitle={t("dashboard.profitabilitySubtitle")} />
+      {!data.profitability.available ? <p className="exec-profitability-unavailable" role="status">{t("dashboard.profitabilityWholeFlightOnly")}</p> : data.profitability.flights.length ? <div className="exec-table-scroll exec-profitability-scroll" tabIndex={0} role="region" aria-label={t("dashboard.profitabilityTitle")} data-exec-follow>
+        <table aria-label={t("dashboard.profitabilityTitle")}><thead><tr><th scope="col">{t("dashboard.flight")}</th><th scope="col">{t("dashboard.route")}</th><th scope="col">{t("dashboard.bookingsShort")}</th><th scope="col">{t("dashboard.occupancy")}</th><th scope="col">{t("dashboard.grossRevenueShort")}</th><th scope="col">{t("dashboard.completedRefundsShort")}</th><th scope="col">{t("dashboard.netRevenueShort")}</th><th scope="col">{t("dashboard.operatingCostShort")}</th><th scope="col">{t("dashboard.operatingResultShort")}</th></tr></thead><tbody>
+          {data.profitability.flights.map((flight) => <tr key={`${flight.flightNumber}-${flight.departureDate}`}><th scope="row">{flight.flightNumber}<small>{formatStaffDate(flight.departureDate, locale)}</small></th><td>{flight.route.replace("-", " → ")}</td><td>{number(flight.bookings)}</td><td>{percent(flight.occupancyPercent)}</td><td>{money(flight.grossRevenue)}</td><td>{money(flight.completedRefundAmount)}</td><td>{money(flight.netBookingRevenue)}</td><td>{flight.modeledOperatingCostAmount === null ? t("dashboard.costNotConfigured") : money(flight.modeledOperatingCostAmount)}</td><td>{flight.estimatedOperatingResult === null ? <span>{t("dashboard.unavailable")}</span> : <span className={flight.estimatedOperatingResult < 0 ? "exec-result-loss" : "exec-result-profit"}><strong>{flight.estimatedOperatingResult > 0 ? t("dashboard.estimatedProfit") : flight.estimatedOperatingResult < 0 ? t("dashboard.estimatedLoss") : t("dashboard.estimatedBreakEven")}</strong><span>{money(flight.estimatedOperatingResult)}</span></span>}</td></tr>)}
+        </tbody></table>
+      </div> : <p className="exec-muted">{t("dashboard.profitabilityNoFlights")}</p>}
+    </section>
+
     <section className="exec-inventory exec-panel" data-exec-reveal>
-      <SectionHeading number="05 /" title={t("dashboard.inventoryTitle")} subtitle={t("dashboard.inventorySubtitle")} />
+      <SectionHeading number="06 /" title={t("dashboard.inventoryTitle")} subtitle={t("dashboard.inventorySubtitle")} />
       <div className="exec-inventory-instrument" data-exec-follow>
         <div className="exec-inventory-value"><span>{t("dashboard.occupancy")}</span><strong>{percent(data.inventory.occupancyPercent)}</strong></div>
         <div className="exec-capacity-readout"><span>{number(data.inventory.bookedSeats)} {t("dashboard.booked")}</span><span>{number(data.inventory.sellableSeats)} {t("dashboard.sellable")}</span></div>
@@ -95,7 +104,7 @@ export function DashboardDetail({ data }: { data: DashboardData }) {
     </section>
 
     <section className="exec-panel" data-exec-reveal>
-      <SectionHeading number="06 /" title={t("dashboard.nationalityTitle")} subtitle={t("dashboard.nationalitySubtitle")} />
+      <SectionHeading number="07 /" title={t("dashboard.nationalityTitle")} subtitle={t("dashboard.nationalitySubtitle")} />
       {data.nationalityDistribution.length ? <div className="exec-table-scroll" tabIndex={0} role="region" aria-label={t("dashboard.nationalityTitle")} data-exec-follow>
         <table aria-label={t("dashboard.nationalityTitle")}><thead><tr><th scope="col">{t("dashboard.nationality")}</th><th scope="col">{t("dashboard.passengerCount")}</th><th scope="col">{t("dashboard.percentage")}</th></tr></thead><tbody>
           {data.nationalityDistribution.map((row) => <tr key={row.nationalityCode}><th scope="row"><span>{nationalityName(row.nationalityCode)}</span><small>{row.nationalityCode}</small></th><td>{number(row.passengerCount)}</td><td>{percentage(row.percentage)}</td></tr>)}

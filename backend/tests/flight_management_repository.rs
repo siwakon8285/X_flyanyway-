@@ -174,6 +174,7 @@ fn command(number: &str) -> FlightCommand {
         currency_code: "THB".to_owned(),
         business_capacity: 16,
         first_capacity: 4,
+        modeled_operating_cost_amount: None,
     }
 }
 
@@ -232,6 +233,15 @@ async fn creates_updates_and_cancels_audited_business_first_inventory() {
         FlightManagementError::StructuralConflict
     );
 
+    let mut modeled_cost = command("XF 951");
+    modeled_cost.modeled_operating_cost_amount = Some(1_250_000);
+    let cost_updated = repository
+        .update(actor, created.id, updated.version, modeled_cost)
+        .await
+        .unwrap();
+    assert_eq!(cost_updated.modeled_operating_cost_amount, Some(1_250_000));
+    assert_eq!(cost_updated.version, 3);
+
     let instance_id: Uuid =
         sqlx::query_scalar("SELECT id FROM flight_instances WHERE flight_service_id=$1")
             .bind(created.id)
@@ -267,8 +277,9 @@ async fn creates_updates_and_cancels_audited_business_first_inventory() {
     .unwrap();
     let mut future_price = command("XF 951");
     future_price.business_price_amount = 52_000;
+    future_price.modeled_operating_cost_amount = cost_updated.modeled_operating_cost_amount;
     let repriced = repository
-        .update(actor, created.id, updated.version, future_price)
+        .update(actor, created.id, cost_updated.version, future_price)
         .await
         .unwrap();
     let historical_amount: i64 =
@@ -285,7 +296,7 @@ async fn creates_updates_and_cancels_audited_business_first_inventory() {
         .await
         .unwrap();
     assert_eq!(cancelled.status, FlightStatus::Cancelled);
-    assert_eq!(cancelled.version, 4);
+    assert_eq!(cancelled.version, 5);
     let preserved: (String, String, i64) = sqlx::query_as(
         "SELECT ticket.status,attempt.status,
             (SELECT COUNT(*) FROM booking_cancellations WHERE ticket_id=ticket.id)
@@ -315,6 +326,7 @@ async fn creates_updates_and_cancels_audited_business_first_inventory() {
         actions,
         vec![
             "FLIGHT_CREATED",
+            "FLIGHT_EDITED",
             "FLIGHT_EDITED",
             "FLIGHT_EDITED",
             "FLIGHT_CANCELLED"

@@ -164,6 +164,94 @@ fn create_payload(number: &str) -> Value {
         "businessPriceAmount":46900,"firstPriceAmount":78900,"currencyCode":"THB","businessCapacity":16,"firstCapacity":4})
 }
 
+fn create_payload_with_cost(number: &str, cost: Value) -> Value {
+    let mut payload = create_payload(number);
+    payload["modeledOperatingCostAmount"] = cost;
+    payload
+}
+
+#[tokio::test]
+async fn flight_manager_can_configure_nullable_modeled_operating_cost_without_role_bypass() {
+    let _guard = fixture_guard().await;
+    let pool = test_pool().await;
+    run_fixture_body(pool.clone(), move || async move {
+        let router = app(pool.clone());
+        let executive = cookie(&pool, "EXECUTIVE", "modeled-cost-executive").await;
+        let system_admin = cookie(&pool, "SYSTEM_ADMIN", "modeled-cost-system").await;
+        let manager = cookie(&pool, "FLIGHT_MANAGER", "modeled-cost-manager").await;
+        let payload = create_payload_with_cost("XF 952", json!(1_250_000));
+
+        for staff_cookie in [&executive, &system_admin] {
+            assert_eq!(
+                send(
+                    &router,
+                    "POST",
+                    "/api/v1/admin/flights",
+                    Some(staff_cookie),
+                    Some(payload.clone()),
+                    true,
+                )
+                .await
+                .status(),
+                StatusCode::FORBIDDEN
+            );
+        }
+
+        let created = send(
+            &router,
+            "POST",
+            "/api/v1/admin/flights",
+            Some(&manager),
+            Some(payload),
+            true,
+        )
+        .await;
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let created_body = body(created).await;
+        assert_eq!(created_body["modeledOperatingCostAmount"], 1_250_000);
+
+        let detail_path = format!(
+            "/api/v1/admin/flights/{}",
+            created_body["id"].as_str().expect("created flight id")
+        );
+        let detail = send(&router, "GET", &detail_path, Some(&manager), None, false).await;
+        assert_eq!(body(detail).await["modeledOperatingCostAmount"], 1_250_000);
+
+        let mut cleared = create_payload_with_cost("XF 952", Value::Null);
+        cleared["version"] = json!(1);
+        let updated = send(
+            &router,
+            "PUT",
+            &detail_path,
+            Some(&manager),
+            Some(cleared),
+            true,
+        )
+        .await;
+        assert_eq!(updated.status(), StatusCode::OK);
+        assert_eq!(
+            body(updated).await["modeledOperatingCostAmount"],
+            Value::Null
+        );
+
+        for invalid in [json!(-1), json!(100_000_001)] {
+            let mut request = create_payload_with_cost("XF 953", invalid);
+            request["version"] = json!(1);
+            let response = send(
+                &router,
+                "POST",
+                "/api/v1/admin/flights",
+                Some(&manager),
+                Some(request),
+                true,
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        }
+    })
+    .await;
+}
+
 #[tokio::test]
 async fn flights_use_effective_read_and_write_permissions_without_role_bypasses() {
     let _guard = fixture_guard().await;

@@ -101,6 +101,7 @@
 .xfo-section-legend span:last-child { font-size: .82rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
 .xfo-form-section .xfo-field, .xfo-form-section > label { color: #56574f; font-size: .67rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .xfo-form-section > label { display: flex; flex-direction: column; gap: .48rem; min-width: 0; }
+.xfo-field-help { color: #6d6e65; font-size: .68rem; font-weight: 450; letter-spacing: 0; line-height: 1.45; text-transform: none; }
 .xfo-form-section .xfo-control { appearance: auto; background: rgb(255 255 255 / 62%); border: 1px solid #cac8bb; border-radius: .35rem; color: var(--xfo-black); font-size: .86rem; font-weight: 520; height: var(--xfo-control-height); line-height: 1.25; min-height: var(--xfo-control-height); outline: none; padding: 0 .8rem; text-transform: none; transition: border-color .18s ease, box-shadow .18s ease; width: 100%; }
 .xfo-form-section .xfo-control:hover { border-color: #918f81; }
 .xfo-form-section .xfo-control:focus-visible { border-color: #8b7600; box-shadow: 0 0 0 2px rgb(255 212 0 / 32%); }

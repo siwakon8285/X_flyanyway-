@@ -184,6 +184,19 @@ describe("API Client Management", () => {
     expect(screen.getByRole("button", { name:"ลงทะเบียนไคลเอนต์" })).toBeEnabled();
   });
 
+  it("uses a localized safe fallback for unexpected API client save failures", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(response(scopes))
+      .mockRejectedValueOnce(new Error("private database connection details"));
+    render(<ApiClientEditor canManage mode="new" />, { locale:"th" });
+    await screen.findByText("ข้อมูลวิเคราะห์แบบรวม");
+    fireEvent.change(screen.getByLabelText("ชื่อที่แสดง"), { target:{ value:"Marketing Insights" } });
+    fireEvent.click(screen.getByRole("button", { name:"ลงทะเบียนไคลเอนต์" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("ระบบจัดการไคลเอนต์ API ไม่พร้อมใช้งานชั่วคราว");
+    expect(alert).not.toHaveTextContent("private database connection details");
+  });
+
   it("edits from analytics to flights while keeping Client ID immutable", async () => {
     const saved: ApiClientRecord = {
       ...client,

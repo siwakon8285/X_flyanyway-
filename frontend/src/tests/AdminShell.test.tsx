@@ -67,4 +67,14 @@ describe("AdminShell", () => {
     expect(screen.getByRole("link", { name:"API Clients" })).toHaveAttribute("href", "/admin/api-clients");
     expect(screen.queryByRole("link", { name:"Staff / Access" })).not.toBeInTheDocument();
   });
+
+  it("keeps baggage staff limited to the currently authorized flight context", () => {
+    render(<AdminShell principal={{ ...principal, roles:["BAGGAGE_STAFF"], permissions:["flights:read","bookings:read_limited","passengers:read_limited","baggage_context:read"] }}><p>Bag operations</p></AdminShell>, { locale:"th" });
+    expect(screen.getByRole("link", { name:"เที่ยวบิน" })).toHaveAttribute("href", "/admin/flights");
+    expect(screen.getByText("เจ้าหน้าที่สัมภาระ")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name:"การจอง" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name:"ตั๋ว / ผู้โดยสาร" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name:"แดชบอร์ดผู้บริหาร" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name:"ไคลเอนต์ API" })).not.toBeInTheDocument();
+  });
 });

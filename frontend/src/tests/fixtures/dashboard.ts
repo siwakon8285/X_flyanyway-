@@ -10,6 +10,11 @@ export const dashboardFixture: DashboardData = {
   flights: [{ flightNumber: "XF101", route: "BKK-NRT", departureDate: "2026-09-02", bookings: 3, revenue: 30000 }],
   revenueFlights: [{ flightNumber: "XF101", route: "BKK-NRT", departureDate: "2026-09-02", bookings: 3, revenue: 30000 }],
   nationalityDistribution: [{ nationalityCode: "TH", passengerCount: 2, percentage: 66.67 }, { nationalityCode: "JP", passengerCount: 1, percentage: 33.33 }],
+  profitability: { available: true, flights: [
+    { flightNumber: "XF101", route: "BKK-NRT", departureDate: "2026-09-02", bookings: 3, bookedSeats: 3, sellableSeats: 20, occupancyPercent: 15, grossRevenue: 30000, completedRefundAmount: 8000, netBookingRevenue: 22000, modeledOperatingCostAmount: 12000, estimatedOperatingResult: 10000 },
+    { flightNumber: "XF102", route: "BKK-NRT", departureDate: "2026-09-02", bookings: 0, bookedSeats: 0, sellableSeats: 10, occupancyPercent: 0, grossRevenue: 0, completedRefundAmount: 0, netBookingRevenue: 0, modeledOperatingCostAmount: 5000, estimatedOperatingResult: -5000 },
+    { flightNumber: "XF103", route: "BKK-NRT", departureDate: "2026-09-02", bookings: 0, bookedSeats: 0, sellableSeats: 10, occupancyPercent: 0, grossRevenue: 0, completedRefundAmount: 0, netBookingRevenue: 0, modeledOperatingCostAmount: null, estimatedOperatingResult: null },
+  ] },
   inventory: { bookedSeats: 4, sellableSeats: 20, occupancyPercent: 20, flights: [{ flightNumber: "XF102", route: "BKK-NRT", departureDate: "2026-09-02", bookedSeats: 0, sellableSeats: 10, occupancyPercent: 0 }] },
   availableRoutes: ["BKK-NRT", "BKK-HKT"],
 };

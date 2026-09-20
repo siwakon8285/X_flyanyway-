@@ -1,8 +1,14 @@
-export type DashboardProvider = "STRIPE" | "MOCK_BITCOIN";
+export type DashboardProvider = "STRIPE" | "MOCK_BITCOIN" | "ALL";
 export const dashboardCabins = ["business", "first"] as const;
 export type DashboardCabin = typeof dashboardCabins[number];
 export type DashboardFilters = { from: string; to: string; route: string; cabin: string; provider: DashboardProvider };
 export type FlightPerformance = { flightNumber: string; route: string; departureDate: string; bookings: number; revenue: number };
+export type DashboardProfitabilityFlight = {
+  flightNumber: string; route: string; departureDate: string; bookings: number;
+  bookedSeats: number; sellableSeats: number; occupancyPercent: number | null;
+  grossRevenue: number; completedRefundAmount: number; netBookingRevenue: number;
+  modeledOperatingCostAmount: number | null; estimatedOperatingResult: number | null;
+};
 export type DashboardNationality = { nationalityCode: string; passengerCount: number; percentage: number };
 export type DashboardData = {
   from: string; to: string; timeZone: "Asia/Bangkok"; currency: "THB"; provider: DashboardProvider; generatedAt: string;
@@ -18,6 +24,7 @@ export type DashboardData = {
   cabins: { cabin: DashboardCabin; bookings: number; revenue: number }[];
   flights: FlightPerformance[]; revenueFlights: FlightPerformance[];
   nationalityDistribution: DashboardNationality[];
+  profitability: { available: boolean; flights: DashboardProfitabilityFlight[] };
   inventory: {
     bookedSeats: number; sellableSeats: number; occupancyPercent: number | null;
     flights: { flightNumber: string; route: string; departureDate: string; bookedSeats: number; sellableSeats: number; occupancyPercent: number | null }[];
@@ -26,7 +33,7 @@ export type DashboardData = {
 };
 
 export function dashboardDataReconciles(data: DashboardData): boolean {
-  if (!Array.isArray(data.activeCabins) || !Array.isArray(data.cabins) || !Array.isArray(data.trends) || !Array.isArray(data.nationalityDistribution)) return false;
+  if (!Array.isArray(data.activeCabins) || !Array.isArray(data.cabins) || !Array.isArray(data.trends) || !Array.isArray(data.nationalityDistribution) || !data.profitability || !Array.isArray(data.profitability.flights)) return false;
   if (data.activeCabins.length !== dashboardCabins.length
     || data.activeCabins.some((cabin, index) => cabin !== dashboardCabins[index])) return false;
   if (data.cabins.some((row) => !dashboardCabins.includes(row.cabin))

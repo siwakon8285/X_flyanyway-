@@ -18,6 +18,8 @@ pub enum DashboardProvider {
     Stripe,
     #[serde(rename = "MOCK_BITCOIN")]
     MockBitcoin,
+    #[serde(rename = "ALL")]
+    All,
 }
 
 impl DashboardProvider {
@@ -25,6 +27,7 @@ impl DashboardProvider {
         match self {
             Self::Stripe => "STRIPE",
             Self::MockBitcoin => "MOCK_BITCOIN",
+            Self::All => "ALL",
         }
     }
 }
@@ -36,6 +39,7 @@ impl FromStr for DashboardProvider {
         match value {
             "STRIPE" => Ok(Self::Stripe),
             "MOCK_BITCOIN" => Ok(Self::MockBitcoin),
+            "ALL" => Ok(Self::All),
             _ => Err(DashboardFilterError),
         }
     }
@@ -144,6 +148,31 @@ pub struct DashboardReport {
     pub nationality_distribution: Vec<DashboardNationality>,
     pub inventory: DashboardInventory,
     pub available_routes: Vec<String>,
+    pub profitability: DashboardProfitability,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardProfitability {
+    pub available: bool,
+    pub flights: Vec<DashboardProfitabilityFlight>,
+}
+
+#[derive(Clone, Debug, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardProfitabilityFlight {
+    pub flight_number: String,
+    pub route: String,
+    pub departure_date: NaiveDate,
+    pub bookings: i64,
+    pub booked_seats: i64,
+    pub sellable_seats: i64,
+    pub occupancy_percent: Option<f64>,
+    pub gross_revenue: i64,
+    pub completed_refund_amount: i64,
+    pub net_booking_revenue: i64,
+    pub modeled_operating_cost_amount: Option<i64>,
+    pub estimated_operating_result: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize)]

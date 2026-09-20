@@ -245,9 +245,17 @@
 .exec-board-body { animation: exec-board-in .28s ease both; }
 .exec-board-rank { color: #898a80; font-size: .63rem; width: 3rem; }
 .exec-board-route { font-weight: 620; letter-spacing: .08em; }
+.exec-profitability table { min-width: 72rem; }
+.exec-profitability-scroll { box-sizing: border-box; inline-size: 100%; max-inline-size: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; }
+.exec-profitability-unavailable { border: 1px solid #8d7800; font-size: .85rem; line-height: 1.6; padding: 1rem 1.2rem; }
+.exec-result-profit, .exec-result-loss { display: grid; gap: .2rem; white-space: nowrap; }
+.exec-result-profit strong, .exec-result-loss strong { font-size: .68rem; letter-spacing: .04em; text-transform: uppercase; }
+.exec-result-profit strong::before { content: "＋ "; }
+.exec-result-loss strong::before { content: "− "; }
 
 .exec-table-scroll { max-width: 100%; overflow: auto; }
 .executive-dashboard table { border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; text-align: left; width: 100%; }
+.exec-profitability-scroll table { width: max-content; }
 .executive-dashboard th, .executive-dashboard td { border-bottom: 1px solid #88887030; padding: 1rem .65rem; white-space: nowrap; }
 .executive-dashboard thead th { color: #606158; font-size: .68rem; font-weight: 620; letter-spacing: .08em; text-transform: uppercase; }
 .executive-dashboard tbody tr { transition: background .18s ease, transform .18s ease; }

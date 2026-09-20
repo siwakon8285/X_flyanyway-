@@ -27,6 +27,42 @@ describe("Executive Dashboard", () => {
     expect(screen.getByText("Stripe · test mode", { selector: "p" })).toBeInTheDocument();
     expect(screen.getAllByText("XF101").length).toBeGreaterThan(0);
   });
+  it("renders server-calculated positive, negative and unavailable flight operating results", async () => {
+    render(<ExecutiveDashboard />);
+    const table = await screen.findByRole("table", { name: "Estimated operating result by flight" });
+    expect(within(table).getByText("Estimated operating profit")).toBeInTheDocument();
+    expect(within(table).getByText("Estimated operating loss")).toBeInTheDocument();
+    expect(within(table).getByText("Cost not configured")).toBeInTheDocument();
+    expect(within(table).getByText("THB 10,000")).toBeInTheDocument();
+    expect(within(table).getByText("THB -5,000")).toBeInTheDocument();
+    expect(within(table).getByText("XF102")).toBeInTheDocument();
+  });
+  it("keeps every profitability column in a keyboard-focusable scroll region", async () => {
+    render(<ExecutiveDashboard />);
+    const table = await screen.findByRole("table", { name: "Estimated operating result by flight" });
+    const scrollRegion = screen.getByRole("region", { name: "Estimated operating result by flight" });
+
+    expect(scrollRegion).toHaveClass("exec-profitability-scroll");
+    expect(scrollRegion).toHaveAttribute("tabindex", "0");
+    expect(within(table).getByRole("columnheader", { name: "Flight / departure" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Route" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Bookings" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Occupancy" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Gross revenue" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Completed refunds" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Net revenue" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Modeled cost" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Operating result" })).toBeInTheDocument();
+    expect(within(table).getByText("Estimated operating profit")).toBeInTheDocument();
+    expect(within(table).getByText("Estimated operating loss")).toBeInTheDocument();
+  });
+  it("shows the whole-flight restriction instead of presenting partial profitability", async () => {
+    jest.mocked(fetch).mockResolvedValue(response({ ...dashboardFixture, profitability: { available: false, flights: [] } }));
+    render(<ExecutiveDashboard />);
+    await screen.findByRole("heading", { name: "Estimated operating result by flight" });
+    expect(await screen.findByText(/Profitability is available for whole-flight views/)).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Estimated operating result by flight" })).not.toBeInTheDocument();
+  });
   it("snaps revenue inspection to authoritative daily points and updates the exact date and value", async () => {
     render(<ExecutiveDashboard />);
     const chart = await screen.findByRole("img", { name: "Gross booking revenue trend" });
@@ -95,6 +131,7 @@ describe("Executive Dashboard", () => {
     expect(within(cabin).getByRole("option", { name:"First" })).toHaveValue("first");
     expect(within(cabin).queryByRole("option", { name:"Economy" })).not.toBeInTheDocument();
     expect(within(cabin).queryByRole("option", { name:"Premium Economy" })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText("Payment records")).getByRole("option", { name:"All payment providers" })).toHaveValue("ALL");
     cabin.focus();
     expect(cabin).toHaveFocus();
   });
@@ -166,7 +203,8 @@ describe("Executive Dashboard", () => {
     fireEvent.click(highestRevenue);
     expect(highestRevenue).toHaveAttribute("aria-selected", "true");
     expect(mostBooked).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByRole("tabpanel", { name: "Highest revenue" })).toContainElement(screen.getByRole("rowheader", { name: /XF101/ }));
+    const rankingPanel = screen.getByRole("tabpanel", { name: "Highest revenue" });
+    expect(rankingPanel).toContainElement(within(rankingPanel).getByRole("rowheader", { name: /XF101/ }));
     fireEvent.keyDown(highestRevenue, { key: "ArrowLeft" });
     expect(mostBooked).toHaveAttribute("aria-selected", "true");
     expect(mostBooked).toHaveFocus();
@@ -246,6 +284,8 @@ describe("Executive Dashboard", () => {
     jest.mocked(fetch).mockResolvedValue(response(dashboardFixture, status));
     render(<ExecutiveDashboard />);
     expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByText("Service status")).toBeInTheDocument();
+    expect(screen.queryByText(`SYS / ${status}`)).not.toBeInTheDocument();
     expect(screen.queryByText("THB 30,000")).not.toBeInTheDocument();
     if (status === 401) expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/admin/login");
   });
@@ -254,10 +294,12 @@ describe("Executive Dashboard", () => {
     expect(await screen.findByRole("region", { name: "สรุปสำหรับผู้บริหาร" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "ผลการดำเนินงานเชิงพาณิชย์" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "สัญชาติผู้โดยสาร" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ผลการดำเนินงานโดยประมาณรายเที่ยวบิน" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ใช้ตัวกรอง" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นโดยสารที่เปิดขายทั้งหมด" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นธุรกิจ" })).toBeInTheDocument();
     expect(within(screen.getByLabelText("ชั้นโดยสาร")).getByRole("option", { name:"ชั้นหนึ่ง" })).toBeInTheDocument();
+    expect(within(screen.getByLabelText("แหล่งข้อมูลการชำระเงิน")).getByRole("option", { name:"ผู้ให้บริการชำระเงินทั้งหมด" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "แนวโน้มรายได้รวมจากการจอง" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /อัตราการจองที่นั่งที่บันทึก 20%/ })).toBeInTheDocument();
     const chart = screen.getByRole("img", { name: "แนวโน้มจำนวนการจอง" });
