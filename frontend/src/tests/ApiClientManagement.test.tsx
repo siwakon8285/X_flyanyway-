@@ -120,6 +120,39 @@ describe("API Client Management", () => {
     expect(jest.mocked(fetch).mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1);
   });
 
+  it("does not report a successful registration when the create endpoint is unavailable", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(response(scopes))
+      .mockResolvedValueOnce(response({ error:{ code:"API_CLIENT_MANAGEMENT_UNAVAILABLE" } }, false, 503));
+    render(<ApiClientEditor canManage mode="new" />);
+    await screen.findByText("Aggregate analytics");
+    fireEvent.change(screen.getByLabelText("Display name"), { target:{ value:"Unavailable integration" } });
+    fireEvent.click(screen.getByRole("button", { name:"Register client" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("API client management is temporarily unavailable.");
+    expect(screen.queryByText("Client registered.")).not.toBeInTheDocument();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("localizes an unavailable detail response in English", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(response(scopes))
+      .mockResolvedValueOnce(response({ error:{ code:"API_CLIENT_MANAGEMENT_UNAVAILABLE" } }, false, 503));
+    render(<ApiClientEditor canManage={false} clientId={client.clientId} mode="detail" />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("API client management is temporarily unavailable.");
+    expect(alert).not.toHaveTextContent("API_CLIENT_MANAGEMENT_UNAVAILABLE");
+  });
+
+  it("localizes an unavailable detail response in Thai", async () => {
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(response(scopes))
+      .mockResolvedValueOnce(response({ error:{ code:"API_CLIENT_MANAGEMENT_UNAVAILABLE" } }, false, 503));
+    render(<ApiClientEditor canManage={false} clientId={client.clientId} mode="detail" />, { locale:"th" });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("ระบบจัดการไคลเอนต์ API ไม่พร้อมใช้งานชั่วคราว");
+    expect(alert).not.toHaveTextContent("API_CLIENT_MANAGEMENT_UNAVAILABLE");
+  });
+
   it("creates a flights-only client from a reversed catalog without swapping scope identity", async () => {
     global.fetch = jest.fn()
       .mockResolvedValueOnce(response([...scopes].reverse()))
@@ -401,6 +434,15 @@ describe("API Client Management", () => {
     expect(screen.getAllByText("ข้อมูลวิเคราะห์แบบรวม").length).toBeGreaterThan(1);
     expect(screen.getByRole("rowheader", { name:client.clientId })).toBeInTheDocument();
     expect(document.querySelector(`time[datetime="${client.createdAt}"]`)).toHaveTextContent("2569");
+  });
+
+  it("keeps persisted client descriptions authored while localizing API Admin copy", async () => {
+    const authoredDescription = "Approved external integration for future X-Fly flight reference data.";
+    global.fetch = jest.fn().mockResolvedValue(response({ items:[{ ...client, description:authoredDescription }], nextOffset:null }));
+    render(<ApiClientsWorkspace canManage={false} />, { locale:"th" });
+    expect(await screen.findByText(authoredDescription)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name:"การจัดการไคลเอนต์ API" })).toBeInTheDocument();
+    expect(screen.getAllByText("ข้อมูลวิเคราะห์แบบรวม").length).toBeGreaterThan(0);
   });
 
   it("uses the Thai staff calendar for detail audit timestamps without altering identifiers or scope codes", async () => {

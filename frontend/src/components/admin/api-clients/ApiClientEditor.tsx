@@ -130,6 +130,7 @@ const ApiClientEditor = ({ mode, clientId, canManage }: { mode:Mode; clientId?:s
   const errorMessage = async (response:Response) => {
     const data = await response.json().catch(() => null);
     switch (data?.error?.code) {
+      case "API_CLIENT_MANAGEMENT_UNAVAILABLE": return t("apiClientManagement.error");
       case "STAFF_PERMISSION_DENIED": return t("apiClientManagement.errors.forbidden");
       case "API_CLIENT_STALE_VERSION": return t("apiClientManagement.errors.conflict");
       case "API_CLIENT_STATUS_CONFLICT": return t("apiClientManagement.errors.status");
