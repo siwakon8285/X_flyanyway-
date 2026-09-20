@@ -71,12 +71,13 @@ const CustomerETicket = ({ booking, onPrint }: CustomerETicketProps) => {
     <article
       aria-labelledby="customer-e-ticket-heading"
       className="overflow-hidden rounded-[1.25rem] border border-brand/45 bg-[#fcfbf7] text-[#151515] shadow-[0_22px_70px_rgb(0_0_0/0.18)] print:break-inside-avoid print:border-neutral-800 print:bg-white print:shadow-none"
+      data-customer-e-ticket="true"
       data-ticket-content="true"
       data-testid="customer-e-ticket"
     >
       <div aria-hidden="true" className="h-2 bg-brand print:bg-black" />
 
-      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_17rem]" data-testid="customer-e-ticket-layout">
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_17rem]" data-customer-e-ticket-layout="true" data-testid="customer-e-ticket-layout">
         <div className="min-w-0 p-6 sm:p-8 lg:p-10">
           <header className="flex items-start justify-between gap-5 border-b border-black/10 pb-7 print:border-neutral-300">
             <div className="min-w-0">

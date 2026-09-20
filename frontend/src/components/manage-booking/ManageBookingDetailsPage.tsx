@@ -100,7 +100,7 @@ const ManageBookingDetailsPage = () => {
             </Card>
           </section>
 
-          <section aria-labelledby="customer-e-ticket-heading" className="pb-10">
+          <section aria-labelledby="customer-e-ticket-heading" className="pb-10 print:pb-0">
             <CustomerETicket booking={booking} onPrint={handlePrint} />
           </section>
 

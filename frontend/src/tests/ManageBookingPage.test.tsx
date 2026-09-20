@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { BookingApiError } from "@/components/booking/api/bookingApiClient";
@@ -248,7 +250,19 @@ describe("ManageBookingPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Print E-ticket" }));
 
     expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("customer-e-ticket")).toHaveAttribute("data-customer-e-ticket", "true");
+    expect(screen.getByTestId("customer-e-ticket-layout")).toHaveAttribute("data-customer-e-ticket-layout", "true");
+    expect(screen.getByRole("heading", { name: "Payment" }).closest("div.grid")).toHaveClass("print:hidden");
     printSpy.mockRestore();
+  });
+
+  it("defines a scoped A4 one-page print contract for the customer E-Ticket", () => {
+    const printCss = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+
+    expect(printCss).toMatch(/@page customer-e-ticket[\s\S]*size:\s*A4 portrait[\s\S]*margin:\s*10mm/);
+    expect(printCss).toMatch(/\[data-customer-e-ticket\][\s\S]*page:\s*customer-e-ticket/);
+    expect(printCss).toMatch(/\[data-customer-e-ticket\][\s\S]*break-inside:\s*avoid[\s\S]*page-break-inside:\s*avoid/);
+    expect(printCss).toMatch(/\[data-customer-e-ticket-layout\][\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+68mm/);
   });
 
   it("keeps optional values safe and preserves an unfamiliar historical cabin value", async () => {

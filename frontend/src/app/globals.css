@@ -1,6 +1,11 @@
 @import "tailwindcss";
 
 @media print {
+  @page customer-e-ticket {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
   body:has([data-ticket-content]) {
     background: white;
     color: black;
@@ -23,6 +28,63 @@
     max-width: 100%;
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  [data-customer-e-ticket] {
+    page: customer-e-ticket;
+    width: 100%;
+    max-width: 100%;
+    min-height: 0;
+    margin: 0;
+    overflow: visible !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  [data-customer-e-ticket-layout] {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 68mm;
+  }
+
+  [data-customer-e-ticket-layout] > :first-child {
+    padding: 7mm !important;
+  }
+
+  [data-customer-e-ticket-layout] > :first-child > header {
+    padding-bottom: 5mm !important;
+  }
+
+  [data-customer-e-ticket-layout] > :first-child > section {
+    padding-top: 5mm !important;
+  }
+
+  [data-customer-e-ticket-layout] > :first-child > dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4mm 5mm !important;
+    margin-top: 5mm !important;
+    padding-top: 4mm !important;
+  }
+
+  [data-customer-e-ticket-layout] > aside {
+    padding: 7mm !important;
+  }
+
+  [data-customer-e-ticket-layout] > aside > :first-child {
+    padding-bottom: 4mm !important;
+  }
+
+  [data-customer-e-ticket-layout] > aside > :nth-child(2) {
+    margin-top: 4mm !important;
+  }
+
+  [data-customer-e-ticket-layout] > aside > dl {
+    gap: 4mm !important;
+    margin-top: 4mm !important;
+    padding-top: 4mm !important;
+  }
+
+  [data-customer-e-ticket-layout] > aside > p {
+    margin-top: 4mm !important;
   }
 
   [data-ticket-content] [data-ticket-reveal] {
