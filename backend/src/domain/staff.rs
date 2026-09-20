@@ -86,6 +86,7 @@ pub enum PermissionCode {
     BookingsManage,
     TicketsRead,
     TicketsPrint,
+    BoardingPassesIssue,
     PassengersRead,
     BookingsReadLimited,
     PassengersReadLimited,
@@ -99,7 +100,7 @@ pub enum PermissionCode {
 }
 
 impl PermissionCode {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::DashboardRead,
         Self::AnalyticsRead,
         Self::ReportsRead,
@@ -109,6 +110,7 @@ impl PermissionCode {
         Self::BookingsManage,
         Self::TicketsRead,
         Self::TicketsPrint,
+        Self::BoardingPassesIssue,
         Self::PassengersRead,
         Self::BookingsReadLimited,
         Self::PassengersReadLimited,
@@ -132,6 +134,7 @@ impl PermissionCode {
             Self::BookingsManage => "bookings:manage",
             Self::TicketsRead => "tickets:read",
             Self::TicketsPrint => "tickets:print",
+            Self::BoardingPassesIssue => "boarding_passes:issue",
             Self::PassengersRead => "passengers:read",
             Self::BookingsReadLimited => "bookings:read_limited",
             Self::PassengersReadLimited => "passengers:read_limited",

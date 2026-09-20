@@ -607,6 +607,88 @@ async fn runtime_has_no_table_level_audit_insert() {
 }
 
 #[tokio::test]
+async fn runtime_boarding_pass_writes_are_column_scoped_and_audit_is_append_once() {
+    let (_setup_pool, runtime_pool) = permission_pools_only().await;
+    for table in [
+        "public.boarding_passes",
+        "public.boarding_pass_operations_audit",
+    ] {
+        assert!(table_privilege(&runtime_pool, "x_fly_runtime", table, "SELECT").await);
+        for privilege in ["INSERT", "UPDATE", "DELETE", "TRUNCATE"] {
+            assert!(
+                !table_privilege(&runtime_pool, "x_fly_runtime", table, privilege).await,
+                "runtime must not have table-level {privilege} on {table}"
+            );
+        }
+    }
+    for column in [
+        "ticket_id",
+        "passenger_ordinal",
+        "flight_instance_id",
+        "seat_snapshot",
+        "cabin_snapshot",
+        "checked_in_at",
+        "issued_at",
+        "issued_by_staff_user_id",
+    ] {
+        assert!(
+            column_privilege(
+                &runtime_pool,
+                "x_fly_runtime",
+                "public.boarding_passes",
+                column,
+                "INSERT"
+            )
+            .await
+        );
+    }
+    for column in ["id", "created_at"] {
+        assert!(
+            !column_privilege(
+                &runtime_pool,
+                "x_fly_runtime",
+                "public.boarding_passes",
+                column,
+                "INSERT"
+            )
+            .await
+        );
+    }
+    for column in [
+        "boarding_pass_id",
+        "ticket_id",
+        "passenger_ordinal",
+        "actor_staff_user_id",
+        "action",
+        "before_state",
+        "after_state",
+    ] {
+        assert!(
+            column_privilege(
+                &runtime_pool,
+                "x_fly_runtime",
+                "public.boarding_pass_operations_audit",
+                column,
+                "INSERT"
+            )
+            .await
+        );
+    }
+    for column in ["id", "created_at"] {
+        assert!(
+            !column_privilege(
+                &runtime_pool,
+                "x_fly_runtime",
+                "public.boarding_pass_operations_audit",
+                column,
+                "INSERT"
+            )
+            .await
+        );
+    }
+}
+
+#[tokio::test]
 async fn runtime_staff_security_audit_is_append_only_and_column_scoped() {
     let _fixture_lock = common::acquire_test_fixture_lock_named("x-fly-audit-permissions").await;
     let (setup_pool, runtime_pool) = permission_pools_only().await;

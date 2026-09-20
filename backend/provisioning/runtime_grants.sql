@@ -39,6 +39,8 @@ GRANT SELECT ON TABLE
     public.booking_confirmation_email_outbox,
     public.booking_contacts,
     public.booking_operations_audit,
+    public.boarding_pass_operations_audit,
+    public.boarding_passes,
     public.flight_instances,
     public.flight_management_audit,
     public.flight_seats,
@@ -113,6 +115,31 @@ GRANT INSERT (
     created_at
 )
 ON TABLE public.api_client_management_audit
+TO x_fly_runtime;
+
+GRANT INSERT (
+    ticket_id,
+    passenger_ordinal,
+    flight_instance_id,
+    seat_snapshot,
+    cabin_snapshot,
+    checked_in_at,
+    issued_at,
+    issued_by_staff_user_id
+)
+ON TABLE public.boarding_passes
+TO x_fly_runtime;
+
+GRANT INSERT (
+    boarding_pass_id,
+    ticket_id,
+    passenger_ordinal,
+    actor_staff_user_id,
+    action,
+    before_state,
+    after_state
+)
+ON TABLE public.boarding_pass_operations_audit
 TO x_fly_runtime;
 
 GRANT INSERT (

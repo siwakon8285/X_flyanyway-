@@ -14,6 +14,7 @@ const STAFF_PERMISSIONS = [
   "dashboard:read", "analytics:read", "reports:read", "flights:read",
   "flights:write", "bookings:read", "bookings:manage", "tickets:read",
   "tickets:print", "passengers:read", "bookings:read_limited",
+  "boarding_passes:issue",
   "passengers:read_limited", "baggage_context:read", "api_clients:read",
   "api_clients:manage", "staff:read", "staff:manage", "roles:read",
   "roles:manage",

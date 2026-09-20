@@ -175,7 +175,7 @@ async fn insert_staff_security_audit_test_row(
 }
 
 #[tokio::test]
-async fn fresh_schema_counts_36_application_tables() {
+async fn fresh_schema_counts_38_application_tables() {
     let pool = migrated_test_pool().await;
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)
@@ -185,22 +185,22 @@ async fn fresh_schema_counts_36_application_tables() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 36);
+    assert_eq!(count, 38);
 }
 
 #[tokio::test]
-async fn fresh_schema_counts_37_total_public_tables() {
+async fn fresh_schema_counts_39_total_public_tables() {
     let pool = migrated_test_pool().await;
     let count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public'")
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(count, 37);
+    assert_eq!(count, 39);
 }
 
 #[tokio::test]
-async fn fresh_schema_counts_37_migrator_owned_public_tables() {
+async fn fresh_schema_counts_39_migrator_owned_public_tables() {
     let pool = migrated_test_pool().await;
     let count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*)
@@ -210,11 +210,11 @@ async fn fresh_schema_counts_37_migrator_owned_public_tables() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 37);
+    assert_eq!(count, 39);
 }
 
 #[tokio::test]
-async fn fresh_schema_has_32_successful_migrations() {
+async fn fresh_schema_has_33_successful_migrations() {
     let pool = migrated_test_pool().await;
     let status: String = sqlx::query_scalar(
         "SELECT COUNT(*) FILTER (WHERE success)::text || '|' || COUNT(*)::text
@@ -223,7 +223,47 @@ async fn fresh_schema_has_32_successful_migrations() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(status, "32|32");
+    assert_eq!(status, "33|33");
+}
+
+#[tokio::test]
+async fn boarding_pass_schema_is_per_passenger_and_append_only() {
+    let pool = migrated_test_pool().await;
+    let columns: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'boarding_passes'
+           AND column_name IN ('id','ticket_id','passenger_ordinal','flight_instance_id',
+                               'seat_snapshot','cabin_snapshot','checked_in_at','issued_at',
+                               'issued_by_staff_user_id','created_at')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(columns, 10);
+    let unique_constraint: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM pg_constraint
+             WHERE conrelid = 'public.boarding_passes'::regclass
+               AND contype = 'u'
+               AND pg_get_constraintdef(oid) LIKE '%(ticket_id, passenger_ordinal)%'
+         )",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(unique_constraint);
+    let audit_unique: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM pg_constraint
+             WHERE conrelid = 'public.boarding_pass_operations_audit'::regclass
+               AND conname = 'boarding_pass_operations_audit_boarding_pass_id_key'
+         )",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(audit_unique);
 }
 
 #[tokio::test]

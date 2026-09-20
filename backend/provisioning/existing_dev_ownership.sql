@@ -22,6 +22,8 @@ ALTER TABLE public.booking_cancellations OWNER TO x_fly_migrator;
 ALTER TABLE public.booking_confirmation_email_outbox OWNER TO x_fly_migrator;
 ALTER TABLE public.booking_contacts OWNER TO x_fly_migrator;
 ALTER TABLE public.booking_operations_audit OWNER TO x_fly_migrator;
+ALTER TABLE public.boarding_pass_operations_audit OWNER TO x_fly_migrator;
+ALTER TABLE public.boarding_passes OWNER TO x_fly_migrator;
 ALTER TABLE public.flight_instances OWNER TO x_fly_migrator;
 ALTER TABLE public.flight_management_audit OWNER TO x_fly_migrator;
 ALTER TABLE public.flight_seats OWNER TO x_fly_migrator;

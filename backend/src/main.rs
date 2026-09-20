@@ -90,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|key| Arc::new(StripeRefundGateway::new(key)) as _),
         Arc::new(MockBitcoinRefundGateway),
     );
+    let boarding_pass_qr_secret = config.ticket_qr_signing_secret.clone();
     let state = AppState::new(
         repository.clone(),
         repository.clone(),
@@ -102,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_payments(payments)
     .with_stripe_webhook_secret(config.stripe_webhook_secret)
     .with_tickets(repository.clone(), config.ticket_qr_signing_secret)
+    .with_boarding_passes(repository.clone(), boarding_pass_qr_secret)
     .with_cancellations(cancellation_service);
     let flights = FlightManagement::new(Arc::new(SqlxFlightRepository::new(
         repository.pool().clone(),

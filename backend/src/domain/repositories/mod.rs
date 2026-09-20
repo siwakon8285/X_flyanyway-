@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::domain::value_objects::SeatNumber;
 use crate::domain::{
+    boarding_pass::{BoardingPassDocument, BoardingPassVerification},
     booking_confirmation::{BookingConfirmationLocale, DeliveryFailure},
     booking_management::{BookingDetail, BookingListFilter, BookingListPage},
     cancellation::{
@@ -194,6 +195,49 @@ pub trait TicketOperationsRepository: Send + Sync {
         &self,
         ticket_number: &str,
     ) -> Result<Option<TicketOperationsRecord>, TicketOperationsRepositoryError>;
+}
+
+#[derive(Debug, Error)]
+pub enum BoardingPassRepositoryError {
+    #[error("ticket not found")]
+    TicketNotFound,
+    #[error("passenger not found")]
+    PassengerNotFound,
+    #[error("ticket is cancelled")]
+    TicketCancelled,
+    #[error("flight is cancelled")]
+    FlightCancelled,
+    #[error("booking lifecycle is invalid")]
+    BookingInvalid,
+    #[error("passenger has no finalized seat assignment")]
+    NoSeatAssignment,
+    #[error("check-in window is not open")]
+    TooEarly,
+    #[error("flight has departed")]
+    AlreadyDeparted,
+    #[error("authoritative boarding pass state is inconsistent")]
+    InconsistentState,
+    #[error("database operation failed")]
+    Infrastructure(#[source] sqlx::Error),
+}
+
+#[async_trait]
+pub trait BoardingPassRepository: Send + Sync {
+    async fn issue_boarding_pass(
+        &self,
+        ticket_number: &str,
+        passenger_ordinal: u8,
+        staff_user_id: Uuid,
+    ) -> Result<BoardingPassDocument, BoardingPassRepositoryError>;
+    async fn get_boarding_pass(
+        &self,
+        ticket_number: &str,
+        passenger_ordinal: u8,
+    ) -> Result<Option<BoardingPassDocument>, BoardingPassRepositoryError>;
+    async fn verify_boarding_pass(
+        &self,
+        boarding_pass_id: Uuid,
+    ) -> Result<Option<BoardingPassVerification>, BoardingPassRepositoryError>;
 }
 
 #[async_trait]

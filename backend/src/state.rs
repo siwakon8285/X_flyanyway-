@@ -11,8 +11,8 @@ use crate::{
     application::flight::FlightManagement,
     application::staff_auth::StaffAuthService,
     application::use_cases::{
-        ExtraApplication, ManageBookingApplication, PassengerApplication, PaymentApplication,
-        ReviewApplication, SeatHoldApplication, TicketApplication,
+        BoardingPassApplication, ExtraApplication, ManageBookingApplication, PassengerApplication,
+        PaymentApplication, ReviewApplication, SeatHoldApplication, TicketApplication,
     },
     domain::repositories::{
         BookingManagementRepository, ExtraRepository, ManageBookingRepository, PassengerRepository,
@@ -28,6 +28,7 @@ pub struct AppState {
     pub reviews: ReviewApplication,
     pub seat_holds: SeatHoldApplication,
     pub tickets: Option<TicketApplication>,
+    pub boarding_passes: Option<BoardingPassApplication>,
     pub manage_bookings: Option<ManageBookingApplication>,
     pub manage_booking_signing_secret: Option<String>,
     pub secure_cookies: bool,
@@ -64,6 +65,7 @@ impl AppState {
             reviews: ReviewApplication::new(review_repository),
             seat_holds: SeatHoldApplication::new(repository, hold_ttl),
             tickets: None,
+            boarding_passes: None,
             manage_bookings: None,
             manage_booking_signing_secret: None,
             secure_cookies,
@@ -100,6 +102,15 @@ impl AppState {
         qr_signing_secret: String,
     ) -> Self {
         self.tickets = Some(TicketApplication::new(repository, qr_signing_secret));
+        self
+    }
+
+    pub fn with_boarding_passes(
+        mut self,
+        repository: Arc<dyn crate::domain::repositories::BoardingPassRepository>,
+        qr_signing_secret: String,
+    ) -> Self {
+        self.boarding_passes = Some(BoardingPassApplication::new(repository, qr_signing_secret));
         self
     }
 
