@@ -130,20 +130,35 @@ async fn fixture(pool: &PgPool, departure_in: ChronoDuration, with_seat: bool) -
     let ticket_number = format!("XFT{}", &alpha[..12]);
     let booking_reference = format!("XF{}", &alpha[..8]);
     let public_id = format!("boarding-pass-{}", &alpha[..12]);
-    let flight_number = format!(
-        "XF {:03}",
-        100 + (u32::from_str_radix(&identity[..6], 16).unwrap() % 900)
-    );
-
-    sqlx::query("INSERT INTO flight_services(id,public_id,flight_number,origin_code,destination_code,aircraft_code,origin_time_zone,departure_time,arrival_time,arrival_day_offset,duration_minutes,stops,status,operating_date) VALUES($1,$2,$3,'BKK','LHR','Airbus A350-1000','Asia/Bangkok',$4,'17:00',0,420,'DIRECT','SCHEDULED',$5)")
+    let initial_flight_number = 100 + (u32::from_str_radix(&identity[..6], 16).unwrap() % 900);
+    let mut reserved_flight_number = None;
+    for offset in 0..900_u32 {
+        let candidate_number = 100 + ((initial_flight_number - 100 + offset) % 900);
+        let candidate = format!("XF {candidate_number:03}");
+        let inserted_id: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO flight_services(id,public_id,flight_number,origin_code,destination_code,aircraft_code,origin_time_zone,departure_time,arrival_time,arrival_day_offset,duration_minutes,stops,status,operating_date)
+             VALUES($1,$2,$3,'BKK','LHR','Airbus A350-1000','Asia/Bangkok',$4,'17:00',0,420,'DIRECT','SCHEDULED',$5)
+             ON CONFLICT (flight_number) DO NOTHING
+             RETURNING id",
+        )
         .bind(service_id)
         .bind(&public_id)
-        .bind(flight_number)
+        .bind(&candidate)
         .bind(departure_time)
         .bind(departure_date)
-        .execute(pool)
+        .fetch_optional(pool)
         .await
         .unwrap();
+
+        if inserted_id.is_some() {
+            reserved_flight_number = Some(candidate);
+            break;
+        }
+    }
+    assert!(
+        reserved_flight_number.is_some(),
+        "TEST Boarding Pass fixture flight-number namespace exhausted (XF 100..XF 999)"
+    );
     let instance_id: Uuid = sqlx::query_scalar(
         "INSERT INTO flight_instances(flight_service_id,departure_date) VALUES($1,$2) RETURNING id",
     )
