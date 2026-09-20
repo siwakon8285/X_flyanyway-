@@ -1,6 +1,6 @@
 use std::{env, fmt::Display, future::Future, path::Path, str::FromStr};
 
-use chrono::NaiveDate;
+use chrono::{Duration as ChronoDuration, NaiveDate};
 use sqlx::{postgres::PgConnectOptions, Connection, PgConnection};
 
 #[allow(dead_code)]
@@ -175,45 +175,35 @@ pub async fn allocate_test_departure_date(
         .await
         .expect("lock TEST fixture namespace allocation");
 
-    let departure_date: Option<NaiveDate> = sqlx::query_scalar(
-        "SELECT candidate::date
-         FROM generate_series($2::date, $3::date, INTERVAL '1 day') AS candidate
-         WHERE NOT EXISTS (
-             SELECT 1
-             FROM flight_instances AS instance
-             JOIN flight_services AS service ON service.id = instance.flight_service_id
-             WHERE service.public_id = $1
-               AND instance.departure_date = candidate::date
-         )
-         ORDER BY candidate
-         LIMIT 1",
-    )
-    .bind(flight_public_id)
-    .bind(earliest)
-    .bind(latest)
-    .fetch_optional(&mut *transaction)
-    .await
-    .expect("inspect available TEST flight instance namespaces");
-    let Some(departure_date) = departure_date else {
-        return Err(format!(
-            "TEST flight instance namespace exhausted: flight={flight_public_id} earliest={earliest} latest={latest}"
-        ));
-    };
-
-    let claimed: NaiveDate = sqlx::query_scalar(
-        "INSERT INTO flight_instances (flight_service_id, departure_date)
-         SELECT id, $2 FROM flight_services WHERE public_id = $1
-         RETURNING departure_date",
-    )
-    .bind(flight_public_id)
-    .bind(departure_date)
-    .fetch_one(&mut *transaction)
-    .await
-    .expect("claim TEST flight instance namespace");
-
-    transaction
-        .commit()
+    let mut candidate = earliest;
+    while candidate <= latest {
+        let claimed: Option<NaiveDate> = sqlx::query_scalar(
+            "INSERT INTO flight_instances (flight_service_id, departure_date)
+             SELECT id, $2 FROM flight_services WHERE public_id = $1
+             ON CONFLICT (flight_service_id, departure_date) DO NOTHING
+             RETURNING departure_date",
+        )
+        .bind(flight_public_id)
+        .bind(candidate)
+        .fetch_optional(&mut *transaction)
         .await
-        .expect("commit TEST fixture namespace allocation");
-    Ok(claimed)
+        .expect("claim TEST flight instance namespace");
+
+        if let Some(claimed) = claimed {
+            transaction
+                .commit()
+                .await
+                .expect("commit TEST fixture namespace allocation");
+            return Ok(claimed);
+        }
+
+        if candidate == latest {
+            break;
+        }
+        candidate += ChronoDuration::days(1);
+    }
+
+    Err(format!(
+        "TEST flight instance namespace exhausted: flight={flight_public_id} earliest={earliest} latest={latest}"
+    ))
 }
