@@ -1,8 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
+use thiserror::Error;
 use uuid::Uuid;
 
 use crate::domain::{
+    boarding_pass::{BoardingPassDocument, BoardingPassVerification},
     entities::{CreateSeatHold, FlightSelection, SeatHold, SeatMap},
     extras::{ExtraContext, ExtraSelectionInput},
     manage_booking::{ManageBookingLookup, ManageBookingRecord},
@@ -13,10 +15,11 @@ use crate::domain::{
         ProcessStripeWebhookCommand, StripeWebhookResult,
     },
     repositories::{
-        ExtraRepository, ExtraRepositoryError, ManageBookingRepository,
-        ManageBookingRepositoryError, PassengerRepository, PassengerRepositoryError,
-        PaymentRepository, PaymentRepositoryError, ReviewRepository, ReviewRepositoryError,
-        SeatHoldRepository, SeatHoldRepositoryError, TicketRepository, TicketRepositoryError,
+        BoardingPassRepository, BoardingPassRepositoryError, ExtraRepository, ExtraRepositoryError,
+        ManageBookingRepository, ManageBookingRepositoryError, PassengerRepository,
+        PassengerRepositoryError, PaymentRepository, PaymentRepositoryError, ReviewRepository,
+        ReviewRepositoryError, SeatHoldRepository, SeatHoldRepositoryError, TicketRepository,
+        TicketRepositoryError,
     },
     review::ReviewContext,
     ticket::{Ticket, TicketVerification},
@@ -78,6 +81,112 @@ pub struct PaymentApplication {
 pub struct TicketApplication {
     repository: Arc<dyn TicketRepository>,
     qr_signing_secret: String,
+}
+
+#[derive(Debug, Error)]
+pub enum BoardingPassApplicationError {
+    #[error(transparent)]
+    Repository(#[from] BoardingPassRepositoryError),
+    #[error("boarding pass identity generation failed")]
+    IdentityGeneration,
+}
+
+#[derive(Clone)]
+pub struct BoardingPassApplication {
+    repository: Arc<dyn BoardingPassRepository>,
+    qr_signing_secret: String,
+}
+
+impl BoardingPassApplication {
+    pub fn new(repository: Arc<dyn BoardingPassRepository>, qr_signing_secret: String) -> Self {
+        Self {
+            repository,
+            qr_signing_secret,
+        }
+    }
+
+    pub async fn issue(
+        &self,
+        ticket_number: &str,
+        passenger_ordinal: u8,
+        staff_user_id: Uuid,
+    ) -> Result<BoardingPassResponse, BoardingPassApplicationError> {
+        let document = self
+            .repository
+            .issue_boarding_pass(ticket_number, passenger_ordinal, staff_user_id)
+            .await?;
+        self.response(document)
+    }
+
+    pub async fn get(
+        &self,
+        ticket_number: &str,
+        passenger_ordinal: u8,
+    ) -> Result<Option<BoardingPassResponse>, BoardingPassApplicationError> {
+        self.repository
+            .get_boarding_pass(ticket_number, passenger_ordinal)
+            .await?
+            .map(|document| self.response(document))
+            .transpose()
+    }
+
+    pub async fn verify(
+        &self,
+        token: &str,
+    ) -> Result<BoardingPassVerification, BoardingPassApplicationError> {
+        let boarding_pass_id = match crate::infrastructure::boarding_pass::qr::verify(
+            token,
+            &self.qr_signing_secret,
+        ) {
+            Ok(id) => id,
+            Err(crate::infrastructure::boarding_pass::qr::QrTokenError::Invalid) => {
+                return Ok(invalid_verification())
+            }
+            Err(crate::infrastructure::boarding_pass::qr::QrTokenError::InvalidSecret) => {
+                return Err(BoardingPassApplicationError::IdentityGeneration)
+            }
+        };
+        Ok(self
+            .repository
+            .verify_boarding_pass(boarding_pass_id)
+            .await?
+            .unwrap_or_else(invalid_verification))
+    }
+
+    fn response(
+        &self,
+        document: BoardingPassDocument,
+    ) -> Result<BoardingPassResponse, BoardingPassApplicationError> {
+        let qr_token = crate::infrastructure::boarding_pass::qr::sign(
+            document.boarding_pass_id,
+            &self.qr_signing_secret,
+        )
+        .map_err(|_| BoardingPassApplicationError::IdentityGeneration)?;
+        Ok(BoardingPassResponse { document, qr_token })
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardingPassResponse {
+    #[serde(flatten)]
+    pub document: BoardingPassDocument,
+    pub qr_token: String,
+}
+
+fn invalid_verification() -> BoardingPassVerification {
+    BoardingPassVerification {
+        valid: false,
+        boarding_pass_id: None,
+        invalid_reason: None,
+        flight_number: None,
+        origin_code: None,
+        destination_code: None,
+        departure_at: None,
+        origin_time_zone: None,
+        seat: None,
+        cabin: None,
+    }
 }
 
 #[derive(Clone)]

@@ -127,6 +127,16 @@ pub enum FlightStatus {
     Cancelled,
 }
 
+impl FlightStatus {
+    pub fn parse_database(value: &str) -> Option<Self> {
+        match value {
+            "SCHEDULED" => Some(Self::Scheduled),
+            "CANCELLED" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FlightValidationError {
     FlightNumber,

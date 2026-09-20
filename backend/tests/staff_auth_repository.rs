@@ -120,6 +120,7 @@ async fn migration_seeds_the_exact_least_privilege_role_matrix() {
             (
                 "TICKET_PASSENGER_OPERATIONS".into(),
                 vec![
+                    "boarding_passes:issue".into(),
                     "passengers:read".into(),
                     "tickets:print".into(),
                     "tickets:read".into()

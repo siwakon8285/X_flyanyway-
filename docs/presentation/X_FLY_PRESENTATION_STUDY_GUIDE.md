@@ -8,11 +8,31 @@
 
 ### เวอร์ชันปกติ 30–45 วินาที
 
-“ระบบนี้ดูแลตั้งแต่ค้นหาเที่ยวบิน Business หรือ First เลือกที่นั่งแบบโรงหนัง กรอกผู้โดยสาร จ่ายเงิน ไปจนถึงรับ E-Ticket และขอคืนเงินตามเงื่อนไขครับ จุดที่ผมให้ความสำคัญคือความถูกต้องเวลาหลายคนเลือกที่นั่งเดียวกัน กับการแยกสิทธิ์พนักงาน เจ้าของดูรายงานและผลดำเนินงานโดยประมาณได้ ส่วนระบบภายนอกต้องขอ token และมีสิทธิ์ตรงกับข้อมูลที่เรียก โครงการนี้เป็นระบบจองและออกตั๋ว ไม่ใช่ระบบเช็กอินหรืออนุญาตขึ้นเครื่อง และการชำระเงินยังเป็น Stripe Test กับ Bitcoin จำลองครับ”
+“ระบบนี้ดูแลตั้งแต่ค้นหาเที่ยวบิน Business หรือ First เลือกที่นั่งแบบโรงหนัง กรอกผู้โดยสาร จ่ายเงิน ไปจนถึงรับ E-Ticket และขอคืนเงินตามเงื่อนไขครับ ใกล้เวลาออกเดินทาง เจ้าหน้าที่ Ticket / Passenger Operations ที่มีสิทธิ์สามารถเช็กอินผู้โดยสารที่เข้าเกณฑ์และออก Boarding Pass แยกรายคนได้ด้วย จุดที่ผมให้ความสำคัญคือความถูกต้องเวลาหลายคนเลือกที่นั่งเดียวกัน กับการแยกสิทธิ์พนักงาน เจ้าของดูรายงานและผลดำเนินงานโดยประมาณได้ ส่วนระบบภายนอกต้องขอ token และมีสิทธิ์ตรงกับข้อมูลที่เรียก ฟีเจอร์นี้เป็น staff-assisted check-in แบบมีขอบเขต ไม่ใช่ระบบ DCS หรือระบบสนามบินเต็มรูปแบบ และการชำระเงินยังเป็น Stripe Test กับ Bitcoin จำลองครับ”
 
 ### เวอร์ชันประมาณ 1 นาที
 
-“โจทย์ของ X-Fly Anyway คือสายการบินสีเหลืองสำหรับลูกค้ากำลังซื้อสูงครับ ผมทำเว็บจองที่ไม่บังคับสมาชิก แต่หลังจองลูกค้ากลับมาดูข้อมูลด้วย Booking Reference และนามสกุลได้ การเลือกที่นั่งไม่ได้เปลี่ยนแค่สีในหน้าเว็บ มี server จองชั่วคราวและฐานข้อมูลป้องกันการขายซ้ำ การจ่ายเงินต้องยืนยันจากฝั่ง server ก่อนจึงรับเป็นรายการสำเร็จ ลูกค้าพิมพ์ E-Ticket ที่มี QR ลงลายเซ็นได้ และยกเลิกก่อนออกเดินทางอย่างน้อย 24 ชั่วโมงโดยไม่มีค่าธรรมเนียม ส่วนเจ้าของมีรายงานรายวัน รายสัปดาห์ รายเดือน ดู demand สัญชาติ และผลดำเนินงานจากต้นทุนประมาณการ พนักงานแต่ละฝ่ายใช้สิทธิ์แยกกัน ระบบอื่นเข้าผ่าน API ที่จำกัด scope ไม่เข้าฐานข้อมูลตรงครับ เรื่องดวงจันทร์เป็นวิสัยทัศน์การตลาด ส่วนเป้าหมาย 100,000 ยังไม่ใช่ผลความสามารถที่พิสูจน์แล้วครับ”
+“โจทย์ของ X-Fly Anyway คือสายการบินสีเหลืองสำหรับลูกค้ากำลังซื้อสูงครับ ผมทำเว็บจองที่ไม่บังคับสมาชิก แต่หลังจองลูกค้ากลับมาดูข้อมูลด้วย Booking Reference และนามสกุลได้ การเลือกที่นั่งไม่ได้เปลี่ยนแค่สีในหน้าเว็บ มี server จองชั่วคราวและฐานข้อมูลป้องกันการขายซ้ำ การจ่ายเงินต้องยืนยันจากฝั่ง server ก่อนจึงรับเป็นรายการสำเร็จ ลูกค้าพิมพ์ E-Ticket ที่มี QR ลงลายเซ็นได้ และยกเลิกก่อนออกเดินทางอย่างน้อย 24 ชั่วโมงโดยไม่มีค่าธรรมเนียม ใกล้เวลาเดินทาง staff ที่มีสิทธิ์ตรวจสถานะตั๋ว/ชำระเงิน/เที่ยวบิน/ที่นั่ง แล้วเช็กอินและออก Boarding Pass แยกต่อผู้โดยสารได้ ระบบใช้ unique constraint, transaction และ audit กันการออกซ้ำ ส่วนเจ้าของมีรายงานรายวัน รายสัปดาห์ รายเดือน ดู demand สัญชาติ และผลดำเนินงานจากต้นทุนประมาณการ พนักงานแต่ละฝ่ายใช้สิทธิ์แยกกัน ระบบอื่นเข้าผ่าน API ที่จำกัด scope ไม่เข้าฐานข้อมูลตรงครับ เรื่องดวงจันทร์เป็นวิสัยทัศน์การตลาด ส่วนเป้าหมาย 100,000 ยังไม่ใช่ผลความสามารถที่พิสูจน์แล้วครับ”
+
+### สถานะฟีเจอร์ปัจจุบัน — 20 กันยายน 2026
+
+X-Fly มี **minimal staff-assisted check-in + per-passenger Boarding Pass
+lifecycle** แล้วใน Ticket / Passenger Operations:
+
+- เจ้าหน้าที่ role `TICKET_PASSENGER_OPERATIONS` ที่มี `boarding_passes:issue`
+  เช็กอินผู้โดยสารที่มีตั๋ว `ISSUED`, payment/booking สำเร็จและ consumed,
+  เที่ยวบิน `SCHEDULED`, ที่นั่ง finalized และอยู่ในช่วง `now > departure - 24h`
+  กับ `now < departure` ได้
+- เวลาใช้ departure instant และ timezone ของสนามบินต้นทางจาก backend; ตรง T-24h
+  ยังยกเลิกได้ตามกฎเดิมและยังเช็กอินไม่ได้
+- Boarding Pass แยกต่อ passenger ordinal, พิมพ์ได้, ออกซ้ำหรือกดพร้อมกันจะได้
+  record เดิม และ audit การออกเพียงครั้งเดียว
+- QR ของ Boarding Pass แยก signing purpose จาก E-Ticket และ public verification
+  ตรวจสถานะตั๋ว/booking/flight/departure ปัจจุบัน จึงหมดอายุหรือ invalid ได้
+
+ยังอยู่นอกขอบเขต: customer online check-in, full airport DCS, gate/terminal,
+staff scanner, boarded/no-show, boarding group, baggage operations และ government
+APIS. อย่าเรียกฟีเจอร์นี้ว่า complete airport boarding system.
 
 ### อ่านคู่มือนี้อย่างไร
 
@@ -97,7 +117,7 @@
 | Monthly reports | IMPLEMENTED | วันที่ 1 → วันนี้ | S14 | ได้ | ไม่ใช่ rolling 30 วัน |
 | Custom reports | IMPLEMENTED | manual From/To, validation เดิม | S13–14 | ได้ | ไม่มี PDF/CSV report export |
 | booking/reservation staff | IMPLEMENTED WITH BOUNDARY | lookup/filter/detail/eligible cancellation | S16 | ได้ | ไม่ใช่ staff สร้าง booking ใหม่แทนลูกค้าทุกขั้นตอน |
-| ticket/passenger staff | IMPLEMENTED WITH BOUNDARY | ticket lookup/detail/authorized print/seat assignment | S16 | ได้ | ไม่มี check-in/scanner/boarding |
+| ticket/passenger staff | IMPLEMENTED WITH BOUNDARY | ticket lookup/detail/authorized print/seat assignment + staff check-in/per-passenger Boarding Pass | S16 + current feature | ได้ | ไม่มี customer online check-in/DCS/gate/scanner/boarding/baggage workflow |
 | baggage staff/access | PARTIAL | role/limited permission catalog; flight read | S11–12, S16 | อธิบาย | ไม่พบ baggage workflow/limited-passenger endpoint; full booking/ticket denied |
 | dedicated flight authority | IMPLEMENTED | flights:write โดย FLIGHT_MANAGER | S11, S15 | ได้ | structural edits ถูกป้องกันเมื่อมี instance |
 | SYSTEM_ADMIN ไม่ได้แก้ flight อัตโนมัติ | IMPLEMENTED | permission check ไม่มี superuser bypass | S11, S15 | พูด/test | staff/role permissions ไม่เท่ากับมี staff CRUD UI แล้ว |
@@ -127,13 +147,13 @@
 | Payment / ลูกค้า | Stripe Test Card หรือ Mock Bitcoin | request id/fingerprint, provider reference, webhook/reconciliation [S06] | ไม่ใช่ live money/blockchain |
 | Confirmation / ลูกค้า | รับสถานะสำเร็จ เก็บ/copy reference ไป Manage Booking | ticket issuance ตรวจ successful finalized payment [S09] | อย่าปิดก่อนบันทึก reference; ไม่ส่ง email ยืนยัน |
 | Manage Booking / ลูกค้า | reference + last name, ดู booking/ticket/refund, eligible cancel | backend lookup กับชื่อผู้โดยสารใน booking; access cookie 30 นาที [S08] | ไม่ใช่ login account; ผู้รู้ทั้งสองค่ามีความสามารถเข้าถึง จึงไม่ใช่ strong identity proof |
-| E-Ticket / QR / ลูกค้า | ดู boarding-pass-inspired document และพิมพ์ | signed ticket identifier; public verification returns limited facts [S09–10] | ไม่มี gate/terminal/check-in; passenger list/seat list ใน customer DTO แยกกัน ห้ามตีความจับคู่เอง |
+| E-Ticket / QR / ลูกค้า | ดู E-Ticket และพิมพ์ | signed ticket identifier; public verification returns limited facts [S09–10] | เป็นเอกสารตั๋วของลูกค้า แยกจาก Boarding Pass staff; ไม่มี customer online check-in |
 | Cancellation / Refund / ลูกค้าและ Booking Operations | cancel eligible booking, ดู pending/completed/attention | atomic ticket/seat changes + persisted refund job [S07,S16] | ยกเลิกสำเร็จไม่ได้แปลว่า provider refund เสร็จทันที |
 | Staff auth / ทุก staff | เข้าระบบด้วยบัญชีที่ provision ให้, logout | Argon2id, opaque DB-backed session, current permissions [S11,S20] | ไม่ใช่เปิดลงทะเบียนเอง; no device attestation |
 | Executive reports / Owner | KPI, periods, rankings, nationality, profitability | PostgreSQL aggregate, typed response, charts เป็น presentation [S13–14] | model ไม่ใช่บัญชี; refund/date/provider ต้องอ่าน qualifier |
 | Flight Management / Flight Manager; read-only ตามสิทธิ์ | list/create/edit/cancel service, configure Business/First และ cost | version conflict, transaction/audit, structural dependency protection [S15] | aircraft เป็น code/template ไม่ใช่ fleet maintenance; cancellation ไม่ใช่ mass rebooking engine |
 | Booking Operations / reservation staff | ค้นหา/กรอง booking, ดู detail, cancel ตาม policy | protected POST search ไม่เอาชื่อผู้โดยสารไป query URL; audit mutation [S16] | ไม่ได้แก้ผู้โดยสาร/payment/fare ตามใจ |
-| Ticket / Passenger Operations | ค้น ticket/ผู้โดยสาร ดู assignments และ print | tickets:read + passengers:read; print ต้อง tickets:print [S11,S16] | read/print ไม่ใช่ boarding lifecycle |
+| Ticket / Passenger Operations | ค้น ticket/ผู้โดยสาร ดู assignments, เช็กอิน และ print Boarding Pass | `tickets:read` + `passengers:read` + `boarding_passes:issue`; print ต้อง `tickets:print` [S11,S16] | ไม่ใช่ full DCS/gate/scanner/baggage workflow |
 | Baggage boundary | login และอ่าน flight ตาม flights:read | limited permission codes มีจริง; full modules reject [S11–12] | ยังไม่มี baggage loading/tag/tracking หรือ limited-passenger workspace |
 | API Client Management / API Admin | register, filter, inspect, scopes, status, issue/revoke secret, audit | versioned mutations, current credential metadata, localized error mapping [S17] | persisted description ไม่ถูกแปล; runtime grants ต้องพร้อม |
 | System Administration boundary | แยก identity/access authority ไว้ใน RBAC | CLI `staff_admin bootstrap\|create`; hidden password prompt [S11–12,S20] | ไม่พบ `/admin/staff` CRUD ที่เปิดใช้; ไม่ใช่ universal admin |
@@ -163,7 +183,7 @@
 | Executive / Owner | ตัดสินใจทางธุรกิจ | `dashboard:read`, `analytics:read`, `reports:read` | ไม่ได้ flight write หรือ passenger operational detail โดย role นี้ |
 | Flight Manager | บริหารเที่ยวบิน | `flights:read`, `flights:write` | ไม่ได้ payment/refund/customer record authority จาก role นี้ |
 | Booking Operations | ช่วยเรื่องรายการจอง | `bookings:read`, `bookings:manage` | ไม่ได้แก้ flight หรือเข้ารายงานผู้บริหาร |
-| Ticket / Passenger Operations | ตรวจผู้โดยสารและเอกสาร | `tickets:read`, `tickets:print`, `passengers:read` | ไม่ได้ cancellation management หรือ check-in |
+| Ticket / Passenger Operations | ตรวจผู้โดยสาร เอกสาร และ issue Boarding Pass หลังเข้า window | `tickets:read`, `tickets:print`, `passengers:read`, `boarding_passes:issue` | ไม่ได้ cancellation management หรือ customer online check-in; ไม่มี implicit SYSTEM_ADMIN bypass |
 | Baggage Staff | ข้อมูลเท่าที่เกี่ยวข้อง | `flights:read`, `bookings:read_limited`, `passengers:read_limited`, `baggage_context:read` | limited codes ยังไม่มี dedicated workflow; ห้ามอ้างว่าอ่าน full booking/contact/passport/payment ได้ |
 | API Admin | อนุมัติการเชื่อมระบบ | `api_clients:read`, `api_clients:manage` | ไม่ได้ Executive/flight/booking/ticket privilege |
 | System Admin | authority ด้าน identities/roles | `staff:read`, `staff:manage`, `roles:read`, `roles:manage`; provisioning CLI มีจริง | ไม่มี implicit business permissions; ไม่มี staff web CRUD ที่เปิดใช้ |
@@ -375,13 +395,32 @@ Stripe refund ใช้ Test API เช่นกัน; Mock Bitcoin refund dete
 - Booking Reference เป็นรหัสใช้ค้น booking; Ticket Number เป็นเลขเอกสาร ห้ามเรียกสลับกัน
 - Ticket เป็น booking-level document มีหลาย passengers/seats ได้; customer presentation แสดงรายชื่อกับ seats แยก ไม่สร้าง association เอง ส่วน ticket operations มี backend passenger_ordinal assignment [S09,S16]
 - QR เป็น verification URL ที่มี `v1.<ticket UUID>.<HMAC-SHA256>` ไม่ใส่ชื่อ/พาสปอร์ต/โทรศัพท์ใน payload; **signed ไม่ใช่ encrypted** และ UUID ไม่ใช่ข้อมูลลับแทน authorization
+- Boarding Pass ใช้ token รูปแบบและ HMAC purpose แยกจาก E-Ticket; token ข้าม
+  domain กันไม่ได้ และ signature ที่ถูกต้องอย่างเดียวไม่พอเมื่อ ticket/flight
+  ปัจจุบันถูกยกเลิกหรือ departure ผ่านแล้ว
 - Server ตรวจ signature แล้วอ่าน current ticket state; altered token invalid; cancelled ticket ไม่ได้กลายเป็น valid เพียงเพราะยังถือกระดาษเดิม
 - Verification response มี limited ticket/flight/route/date/time/seats ตามสถานะ ไม่ใช่ full booking/customer identity; อย่าอ้างว่า QR “ไม่มีข้อมูลเกี่ยวกับเที่ยวบินให้เปิดดูเลย”
 - Print ใช้ `window.print()`; named `@page customer-e-ticket` A4 portrait margin 10mm; two-column layout main + 68mm stub, smaller print spacing, break-inside avoid, SVG QR 168px ใน white 192px container [S10]
 - navbar/footer/actions/journey summary และ passenger/payment/cancellation cards ถูกซ่อนจาก paper; screen style ไม่ต้องย่อเพื่อให้พิมพ์
 - ปกติออกแบบให้หนึ่งเอกสารอยู่หน้าเดียว แต่ Thai/ชื่อยาว/ผู้โดยสารหลายคน/browser header-footer/scale อาจเปลี่ยน pagination ต้องเช็ก preview EN/TH จริง DOM tests ไม่พิสูจน์ physical A4
 
-**“นี่ Boarding Pass ใช่ไหม?”** “ไม่ใช่ครับ ชื่อเอกสารยังเป็น E-Ticket เพียงออกแบบหน้าตาให้คล้าย boarding pass เพื่ออ่านง่าย QR ยืนยันตั๋วของระบบ ไม่ได้ยืนยันเช็กอินหรือสิทธิ์ผ่าน gate ระบบสนามบินเป็น downstream ที่ยังไม่อยู่ในงานนี้ครับ”
+### Staff Boarding Pass ที่เพิ่มเข้ามา
+
+- เจ้าหน้าที่ Ticket / Passenger Operations ใช้หน้า `/admin/tickets` เช็กอิน
+  passenger ที่เข้าเกณฑ์ แล้วระบบออก Boarding Pass แยกต่อ passenger ordinal
+- เงื่อนไขคือ `ISSUED` + booking/payment valid + finalized seat + scheduled
+  flight + ช่วงหลัง T-24h แต่ก่อน departure โดย backend ใช้ origin timezone
+- มี dedicated print view ไม่ใช่การเปลี่ยนหัวข้อ E-Ticket, มี booking/ticket/
+  Boarding Pass reference, flight/route/departure, seat/cabin, timestamps และ QR
+  แยก purpose
+- public verification เปิดเผยเฉพาะ facts ที่จำเป็น เช่น flight/route/departure/
+  seat/cabin; ไม่เปิดชื่อเต็ม, passport, phone, payment หรือ secret และจะ
+  รายงาน invalid/expired หาก ticket/flight ถูกยกเลิกหรือออกเดินทางแล้ว
+
+**“นี่คือ Boarding Pass เต็มระบบไหม?”** “เป็น Boarding Pass แบบ staff-assisted
+ที่มี state จริง ออกแยกต่อผู้โดยสาร พิมพ์และตรวจ QR ได้ครับ แต่ยังไม่ใช่ DCS
+หรือ authorization สำหรับ gate เพราะไม่มี gate, terminal, scanner, boarding,
+no-show หรือ baggage workflow ใน X-Fly ครับ”
 
 ## 11. Executive analytics: อ่านตัวเลขให้ถูก cohort
 
@@ -677,7 +716,7 @@ Reduced motion มี `prefers-reduced-motion` hook และ test/fallback ไ�
 | Active Travel Extras | route เก่า redirect Review; main router ไม่มี active extras endpoint; historical selections ยังแสดงเมื่อมีจริง ไม่แสดง empty card |
 | Booking confirmation email | new contact phone-only; legacy email adapter/outbox/tests ไม่ใช่ main runtime feature |
 | New Economy/Premium Economy sales | new sellable cabins Business/First; เก็บ legacy enum/schema/history เพื่อไม่ทำลายข้อมูลเก่า |
-| Online check-in/Boarding Pass lifecycle/DCS/gate/scanner | ขอบเขต downstream operational system; QR verification page ไม่ใช่ scanner application |
+| Customer online check-in/full DCS/gate/scanner lifecycle | customer online check-in, DCS, gate, scanner, boarded/no-show และ baggage ยังคงเป็น downstream/out of scope; X-Fly มีเฉพาะ staff-assisted check-in + per-passenger Boarding Pass print/verification |
 | Full baggage handling | permissions foundation มี แต่ไม่มี tagging/loading/tracking/workbench ที่ครบ |
 | Staff/role web CRUD | reserved permissions/nav unavailable + CLI provisioning ไม่ใช่ระบบบริหาร account บนเว็บครบ |
 | Live Bitcoin/Stripe live funds | mock BTC และ Stripe Test ป้องกันเงินจริงในงานวิชา |
@@ -696,18 +735,19 @@ Reduced motion มี `prefers-reduced-motion` hook และ test/fallback ไ�
 
 เช็ก API Admin list/detail/new และ backend readiness ล่วงหน้า เพราะ repository มี privilege migrations ที่ audit ไม่ได้ยืนยัน deployment; ถ้าส่วนนี้ unavailable ใช้ diagram+test coverage เป็น fallback โดยบอกตรง ๆ ไม่วน register ซ้ำ. ตรวจ print EN/TH ก่อน ไม่ทดสอบ load/restore/migrationsต่อหน้าอาจารย์
 
-### Recommended 5–7 minute demo
+### Recommended 7–8 minute demo
 
 | เวลา / แสดงอะไร | คลิก/พูดแบบธรรมชาติ | คำถามที่คาด | Fallback |
 |---|---|---|---|
 | 0:00–0:40 Homepage | brand → Moon slide: “กลุ่มลูกค้า premium ครับ 156 คือ network master ส่วน Moon เป็น vision ยังจองไม่ได้” | บินดวงจันทร์แล้วหรือ? | ชี้ไม่มี CTA และอธิบาย boundary |
 | 0:40–1:45 Search → detail → seats | prepared route/date, Business/First, เลือก seat: “server hold กันคนอื่นแย่ง ไม่ใช่เปลี่ยนสีเฉย ๆ” | หลายคนเลือกพร้อมกัน? | แสดง seat map ที่เตรียม + concurrency test ชื่อเดียว ไม่รัน load |
 | 1:45–2:30 Passenger/Review/Payment | เปิด prepared review/Stripe Test screen: “phone-only; ยอดจาก server; บัตร test” | เงินจริงไหม? | ใช้ prepared confirmed booking ไม่รอ payment network ทั้งช่วง |
-| 2:30–3:25 Manage Booking/E-Ticket | lookup ด้วย demo reference+surname → QR → print preview | Boarding Pass? คืนเงิน? | แสดง E-Ticket tab ที่เปิดไว้และอธิบาย ≥24h/free/full ไม่ต้อง cancel live |
-| 3:25–4:40 Executive | Weekly/Monthly, route/nationality, ALL provider/cabin → estimated result | กำไรจริงไหม? | prepared period; ถ้า empty อธิบาย cohort ไม่สร้างตัวเลข |
-| 4:40–5:25 Flight Manager | เปิด existing detail/cost field ไม่ save: “metadata planning cost ไม่แก้ inventory” | admin ทำได้ไหม? | role matrix; ไม่สร้าง/ยกเลิก flight live |
-| 5:25–6:30 API Admin + boundary | client scopes/metadata; ถ้าพร้อม show sanitized 200 vs403 | partner อ่านอะไรได้? | endpoint diagram + prepared sanitized response |
-| 6:30–7:00 ปิด | “จุดแข็งคือ correctness กับ least privilege ส่วน scale/cloud/accounting จริงยังต้องพิสูจน์ต่อ” | 100,000? | quote measured search/detail เท่านั้น |
+| 2:30–3:25 Manage Booking/E-Ticket | lookup ด้วย demo reference+surname → QR → print preview | E-Ticket กับ Boarding Pass ต่างกันอย่างไร? | แสดง E-Ticket tab ที่เปิดไว้และอธิบาย ≥24h/free/full ไม่ต้อง cancel live |
+| 3:25–4:20 Ticket Operations/Boarding Pass | login role ที่มี `boarding_passes:issue` → prepared ISSUED ticket ในช่วงหลัง T-24h → passenger detail → confirm → view/print → public QR verify | ทำไมกดซ้ำไม่ออกซ้ำ? | ใช้ prepared screenshot/fixture และชี้ unique constraint + transaction + audit; ไม่เปลี่ยนข้อมูลสำคัญ live |
+| 4:20–5:35 Executive | Weekly/Monthly, route/nationality, ALL provider/cabin → estimated result | กำไรจริงไหม? | prepared period; ถ้า empty อธิบาย cohort ไม่สร้างตัวเลข |
+| 5:35–6:20 Flight Manager | เปิด existing detail/cost field ไม่ save: “metadata planning cost ไม่แก้ inventory” | admin ทำได้ไหม? | role matrix; ไม่สร้าง/ยกเลิก flight live |
+| 6:20–7:00 API Admin + boundary | client scopes/metadata; ถ้าพร้อม show sanitized 200 vs403 | partner อ่านอะไรได้? | endpoint diagram + prepared sanitized response |
+| 7:00–7:20 ปิด | “จุดแข็งคือ correctness กับ least privilege ส่วน scale/cloud/accounting จริงยังต้องพิสูจน์ต่อ” | 100,000? | quote measured search/detail เท่านั้น |
 
 ไม่ต้องเปิด Baggage/System Admin live แต่พูดว่ามี role boundaries และยังไม่มี full workflows นับ stakeholder coverage ได้จากคำอธิบายที่ซื่อสัตย์ ไม่ใช่แสดงหน้าเปล่า
 
@@ -1009,7 +1049,7 @@ A: “เพื่อแสดง flow โดยไม่เปิดชื่�
 
 **Q61: ทำไมไม่ทำ check-in ให้ครบ?**
 
-A: “check-in/boarding ต้องอีกชุดกฎและ integration กับสนามบินครับ หากเรียก E-Ticket ว่า Boarding Pass จะอ้างสิทธิ์ที่ระบบยังไม่ตรวจ ผมเลือกทำ booking/ticket/refund ให้ถูกและกำหนด downstream boundary ชัดเจนก่อนครับ”
+A: “ตอนนี้มี minimal staff-assisted check-in แล้วครับ เจ้าหน้าที่ Ticket / Passenger Operations เช็กอินผู้โดยสารที่มีตั๋ว ชำระเงิน ที่นั่ง และเที่ยวบินเข้าเกณฑ์ แล้วออก Boarding Pass แยกต่อคนได้ พร้อม print, audit, unique constraint และ QR ที่ตรวจ state ปัจจุบัน แต่ customer online check-in, DCS, gate, scanner, boarded/no-show และ baggage ยังอยู่นอกขอบเขตครับ”
 
 **Q62: งานที่ยังไม่เสร็จสำคัญที่สุดคืออะไร?**
 
@@ -1095,7 +1135,7 @@ A: “ก่อนใช้จริงต้องยืนยัน deployment
 | Why not MongoDB for core? | “ไม่ได้ห้าม MongoDB ครับ แต่แกนนี้ต้องสัมพันธ์/unique ownership/transaction และ SQL aggregate ชัดเจน PostgreSQL จึงลดงานรักษา invariants สำหรับ model ปัจจุบัน” |
 | Why not one big admin? | “ลด blast radius ครับ ถ้าคนตรวจ ticket ทำคืนเงินหรือแก้ flight ได้หมด ความผิดพลาดหนึ่งครั้งกระทบหลายฝ่าย” |
 | Why not JWT everywhere? | “เราต้องการ revoke/current permissions ทันทีใน server model ครับ opaque DB-backed tokens ตรงงานนี้ JWT มี tradeoff เรื่อง stale claims/revocation และไม่จำเป็นสำหรับทุก credential” |
-| Why not full check-in/boarding? | “เป็น operational boundary อีกระบบครับ ต้องกฎและข้อมูลสนามบินจริง การทำหน้าตา boarding pass ไม่ได้ทำให้มี boarding authorization” |
+| Why not full check-in/boarding? | “มี staff-assisted check-in และ Boarding Pass ที่มี state จริงแล้วครับ แต่ customer online check-in, DCS, gate, scanner, boarded/no-show และ baggage ต้องข้อมูล/กฎสนามบิน จึงยังอยู่นอกขอบเขต” |
 
 # ห้ามพูดเกินจริง
 
@@ -1109,8 +1149,8 @@ A: “ก่อนใช้จริงต้องยืนยัน deployment
 | รับเงินจริงแล้ว / Stripe production | “เชื่อม Stripe Test API จริงแต่ใช้เงินทดสอบ” |
 | Bitcoin จริง | “Mock Bitcoin ไม่มี blockchain settlement” |
 | QR เข้ารหัสข้อมูลทั้งหมด | “QR ลงลายเซ็น HMAC ของ identifier ไม่มี raw PII; signature ไม่ใช่ encryption” |
-| E-Ticket คือ Boarding Pass / พร้อมขึ้นเครื่อง | “boarding-pass-inspired E-Ticket ไม่ได้เช็กอินหรืออนุญาตขึ้นเครื่อง” |
-| มี DCS/gate/scanner/baggage ครบ | “มี booking/ticket verification และ role boundaries; operational workflows ยังนอกขอบเขต/partial” |
+| E-Ticket คือ Boarding Pass / พร้อมขึ้นเครื่อง | “E-Ticket กับ Boarding Pass เป็นคนละ token purpose ครับ Boarding Pass ออกโดย staff ต่อ passenger หลังเข้า window แต่ยังไม่ใช่ gate authorization หรือ full airport workflow” |
+| มี DCS/gate/scanner/baggage ครบ | “มีเฉพาะ staff-assisted check-in, per-passenger print และ current-state QR verification; DCS/gate/scanner/boarding/baggage workflows ยังนอกขอบเขต” |
 | พนักงานเข้าได้เฉพาะเครื่องบริษัทแน่นอน | “เป็น policy/infra target; app ไม่พิสูจน์ managed-device trust” |
 | SYSTEM_ADMIN ทำได้ทุกอย่าง | “identity/access role ไม่มี implicit flight/business privileges” |
 | staff/role CRUD ทำครบแล้ว | “มี RBAC catalog กับ provisioning CLI; web CRUD ยังไม่เปิดใช้” |
@@ -1167,7 +1207,7 @@ A: “ก่อนใช้จริงต้องยืนยัน deployment
 | production / cloud / Cloudflare / Nginx | แยก tracked artifacts กับ documented target; ไม่ยืนยัน deployment state |
 | secure / compliant / certified / company device | controls ที่มีพร้อม infrastructure/legal boundaries; ไม่มี certification claim |
 | profit / revenue | gross/complete refunds/net/modeled cost แยก; no audited accounting claim |
-| boarding pass / baggage | E-Ticket เท่านั้น; baggage permissions ไม่เท่ากับ full workflow |
+| boarding pass / baggage | มี minimal staff-assisted per-passenger Boarding Pass; customer online check-in, DCS, gate/scanner/boarding และ baggage permissions/workflows ไม่ได้ครบ |
 | zero data loss / backup / restore | dump existence ไม่เท่ากับ restoration proof |
 
 ### Unresolved factual uncertainty ที่ไม่ควรเดา
@@ -1202,7 +1242,7 @@ A: “ก่อนใช้จริงต้องยืนยัน deployment
 
 # One-page ก่อนเข้าห้อง
 
-**X-Fly คืออะไร:** เว็บจอง premium Business/First แบบ guest ดูแล search → seat hold → passenger/phone → review → payment → E-Ticket → Manage Booking/cancel. ไม่ใช่สนามบิน/check-in/DCS; Moon เป็น marketing vision
+**X-Fly คืออะไร:** เว็บจอง premium Business/First แบบ guest ดูแล search → seat hold → passenger/phone → review → payment → E-Ticket → Manage Booking/cancel และมี minimal staff-assisted check-in → per-passenger Boarding Pass ใกล้เวลาเดินทาง. ไม่ใช่ customer online check-in/full DCS/gate/scanner/boarding/baggage system; Moon เป็น marketing vision
 
 **Stakeholders:** Customer จอง; Owner ดูรายงาน; Flight Manager จัด flight/cost; Booking Operations ช่วย lookup/cancel; Ticket Operations ตรวจ/print; API Admin อนุมัติ partner; Baggage/System Admin มี bounded permissions แต่ workflows บางส่วนยัง partial. System Admin ไม่ใช่ superuser
 
@@ -1218,13 +1258,13 @@ A: “ก่อนใช้จริงต้องยืนยัน deployment
 
 **Performance ที่พูดได้:** closeout localhost 250VUs: search~1,821.63RPS/p95 39.8ms; detail~1,905.93RPS/p95 26.51ms; isolated runs 0 failures. ไม่ใช่100,000 users/RPS; mixed failures ยังไม่มี proven root cause
 
-**ข้อจำกัด:** 156 master ไม่เท่าทุก route เปิดขาย; E-Ticketไม่ใช่ Boarding Pass; no real check-in/baggage operations/liveBTC; no legal/WCAG certification/device-trust enforcement; self-hosted/cloud plan ไม่ใช่ live proof; dumpไม่เท่าrestore proof; API Admin grants/runtime readiness ต้องตรวจล่วงหน้า
+**ข้อจำกัด:** 156 master ไม่เท่าทุก route เปิดขาย; มีเฉพาะ staff-assisted per-passenger Boarding Pass ไม่ใช่ customer online check-inหรือ full airport/DCS/gate/scanner/boarding/baggage operations; liveBTC ไม่มี; no legal/WCAG certification/device-trust enforcement; self-hosted/cloud plan ไม่ใช่ live proof; dumpไม่เท่าrestore proof; API Admin grants/runtime readiness ต้องตรวจล่วงหน้า
 
 **10 คำถามอันตราย — ตอบสั้นก่อน**
 
 1. **100,000 จริง?** ยังเป็น target; มี isolated250VU evidence ไม่ใช่ production capacity
 2. **เงินจริง?** Stripe Test; Bitcoin mock
-3. **Boarding Pass?** E-Ticket พร้อม signed verification ไม่ใช่ check-in
+3. **Boarding Pass?** Staff ที่มีสิทธิ์ออก per-passenger Boarding Pass หลัง T-24h; พิมพ์/QR verify ได้ แต่ไม่ใช่ customer online check-inหรือ full airport gate authorization
 4. **กำไรจริง?** Estimated result จาก modeled cost ไม่ใช่ audited accounting
 5. **ทำไม profit ไม่ขึ้น?** ต้อง ALL cabins/providers และ cost configured
 6. **Admin แก้ทุกอย่าง?** ไม่ได้ ต้อง explicit permission; SYSTEM_ADMINไม่ bypass

@@ -3,6 +3,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::domain::{
+    boarding_pass::{BoardingPassSummary, CheckInStateResponse},
     cancellation::RefundStatus,
     manage_booking::BookingStatus,
     passengers::{Gender, PassengerType},
@@ -90,6 +91,8 @@ pub struct TicketOperationsPassenger {
     pub passenger_type: PassengerType,
     pub gender: Gender,
     pub seat: Option<String>,
+    pub check_in: CheckInStateResponse,
+    pub boarding_pass: Option<BoardingPassSummary>,
 }
 
 #[derive(Clone, Debug, Serialize)]

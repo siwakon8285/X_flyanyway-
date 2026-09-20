@@ -87,7 +87,7 @@ async function forwardDashboardRequest(request: Request): Promise<Response> {
 
 const flightPath = /^\/admin\/flights(?:\/reference-data|\/[0-9a-f-]+(?:\/cancel)?)?$/;
 const bookingPath = /^\/admin\/bookings(?:\/search|\/XF[A-Z2-9]{8}(?:\/cancel)?)?$/;
-const ticketPath = /^\/admin\/tickets(?:\/search|\/XFT[A-Z2-9]{12}(?:\/print)?)?$/;
+const ticketPath = /^\/admin\/tickets(?:\/search|\/XFT[A-Z2-9]{12}(?:\/print|\/passengers\/[1-9][0-9]{0,2}\/boarding-pass)?)?$/;
 const apiClientPath = /^\/admin\/api-clients(?:\/scopes|\/XFC[A-HJ-NP-Z2-9]{16}(?:\/(?:activate|suspend|revoke|credentials(?:\/revoke)?))?)?$/;
 
 async function forwardAdminFlightRequest(request: Request, path: string): Promise<Response> {

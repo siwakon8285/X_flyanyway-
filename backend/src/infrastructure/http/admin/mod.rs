@@ -26,6 +26,7 @@ use crate::{
             CredentialMetadataResponse,
         },
         flight::FlightListFilter,
+        use_cases::BoardingPassApplicationError,
     },
     domain::{
         api_client::{
@@ -37,8 +38,8 @@ use crate::{
         flight::{FlightCommand, FlightManagementError, FlightStatus},
         manage_booking::BookingStatus,
         repositories::{
-            BookingManagementRepositoryError, CancellationRepositoryError,
-            TicketOperationsRepositoryError,
+            BoardingPassRepositoryError, BookingManagementRepositoryError,
+            CancellationRepositoryError, TicketOperationsRepositoryError,
         },
         staff::{PermissionCode, StaffPrincipal},
         ticket::TicketStatus,
@@ -74,6 +75,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/v1/admin/tickets/{ticket_number}/print",
             get(print_ticket),
+        )
+        .route(
+            "/api/v1/admin/tickets/{ticket_number}/passengers/{passenger_ordinal}/boarding-pass",
+            get(get_boarding_pass).post(issue_boarding_pass),
         )
         .route(
             "/api/v1/admin/flights",
@@ -650,6 +655,68 @@ async fn print_ticket(
     }
     .await;
     private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn get_boarding_pass(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path((ticket_number, passenger_ordinal)): Path<(String, String)>,
+) -> Response {
+    let result = async {
+        require_ticket_passenger_read(&staff)?;
+        let number = normalize_ticket_number(&ticket_number)?;
+        let ordinal = normalize_passenger_ordinal(&passenger_ordinal)?;
+        let service = state
+            .boarding_passes
+            .as_ref()
+            .ok_or_else(AdminApiError::boarding_pass_unavailable)?;
+        let boarding_pass = service
+            .get(&number, ordinal)
+            .await
+            .map_err(AdminApiError::from_boarding_pass)?
+            .ok_or_else(AdminApiError::boarding_pass_not_found)?;
+        Ok::<_, AdminApiError>(Json(boarding_pass).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+async fn issue_boarding_pass(
+    State(state): State<AppState>,
+    staff: AuthenticatedStaff,
+    Path((ticket_number, passenger_ordinal)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let result = async {
+        require_ticket_passenger_read(&staff)?;
+        let actor = staff
+            .require(PermissionCode::BoardingPassesIssue)
+            .map_err(|_| AdminApiError::permission_denied())?;
+        trusted_booking_mutation(&state, &headers)?;
+        let number = normalize_ticket_number(&ticket_number)?;
+        let ordinal = normalize_passenger_ordinal(&passenger_ordinal)?;
+        let service = state
+            .boarding_passes
+            .as_ref()
+            .ok_or_else(AdminApiError::boarding_pass_unavailable)?;
+        let boarding_pass = service
+            .issue(&number, ordinal, actor.staff_user_id())
+            .await
+            .map_err(AdminApiError::from_boarding_pass)?;
+        Ok::<_, AdminApiError>(Json(boarding_pass).into_response())
+    }
+    .await;
+    private_no_store(result.unwrap_or_else(IntoResponse::into_response))
+}
+
+fn normalize_passenger_ordinal(value: &str) -> Result<u8, AdminApiError> {
+    let ordinal = value
+        .parse::<u16>()
+        .ok()
+        .and_then(|value| u8::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(AdminApiError::boarding_pass_validation)?;
+    Ok(ordinal)
 }
 
 fn require_ticket_passenger_read(staff: &AuthenticatedStaff) -> Result<(), AdminApiError> {
@@ -1759,6 +1826,41 @@ impl AdminApiError {
             message: "A cancelled ticket cannot be printed as a travel document.",
         }
     }
+    fn boarding_pass_validation() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "BOARDING_PASS_REQUEST_INVALID",
+            message: "The Boarding Pass request is invalid.",
+        }
+    }
+    fn boarding_pass_not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "BOARDING_PASS_NOT_FOUND",
+            message: "The Boarding Pass was not found.",
+        }
+    }
+    fn boarding_pass_unavailable() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "BOARDING_PASS_OPERATIONS_UNAVAILABLE",
+            message: "Boarding Pass operations are temporarily unavailable.",
+        }
+    }
+    fn boarding_pass_conflict(code: &'static str, message: &'static str) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code,
+            message,
+        }
+    }
+    fn boarding_pass_policy(code: &'static str, message: &'static str) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code,
+            message,
+        }
+    }
     fn from_ticket_operations(error: TicketOperationsRepositoryError) -> Self {
         match error {
             TicketOperationsRepositoryError::InvalidPagination => Self::ticket_filter_invalid(),
@@ -1768,6 +1870,47 @@ impl AdminApiError {
                 message: "The authoritative ticket state is inconsistent.",
             },
             TicketOperationsRepositoryError::Infrastructure(_) => Self::ticket_unavailable(),
+        }
+    }
+    fn from_boarding_pass(error: BoardingPassApplicationError) -> Self {
+        match error {
+            BoardingPassApplicationError::IdentityGeneration => Self::boarding_pass_unavailable(),
+            BoardingPassApplicationError::Repository(error) => match error {
+                BoardingPassRepositoryError::TicketNotFound => Self::ticket_not_found(),
+                BoardingPassRepositoryError::PassengerNotFound => Self {
+                    status: StatusCode::NOT_FOUND,
+                    code: "PASSENGER_NOT_FOUND",
+                    message: "The passenger was not found on this ticket.",
+                },
+                BoardingPassRepositoryError::TicketCancelled => Self::boarding_pass_conflict(
+                    "BOARDING_PASS_TICKET_CANCELLED",
+                    "A cancelled ticket cannot be checked in.",
+                ),
+                BoardingPassRepositoryError::FlightCancelled => Self::boarding_pass_conflict(
+                    "BOARDING_PASS_FLIGHT_CANCELLED",
+                    "A passenger on a cancelled flight cannot be checked in.",
+                ),
+                BoardingPassRepositoryError::BookingInvalid => Self::boarding_pass_conflict(
+                    "BOARDING_PASS_BOOKING_INVALID",
+                    "The authoritative booking or payment state is not valid for check-in.",
+                ),
+                BoardingPassRepositoryError::AlreadyDeparted => Self::boarding_pass_conflict(
+                    "BOARDING_PASS_FLIGHT_DEPARTED",
+                    "The flight has departed and check-in is closed.",
+                ),
+                BoardingPassRepositoryError::NoSeatAssignment => Self::boarding_pass_policy(
+                    "BOARDING_PASS_NO_SEAT_ASSIGNMENT",
+                    "A finalized seat assignment is required before check-in.",
+                ),
+                BoardingPassRepositoryError::TooEarly => Self::boarding_pass_policy(
+                    "BOARDING_PASS_CHECK_IN_NOT_OPEN",
+                    "Staff check-in opens after the 24-hour cancellation cutoff.",
+                ),
+                BoardingPassRepositoryError::InconsistentState
+                | BoardingPassRepositoryError::Infrastructure(_) => {
+                    Self::boarding_pass_unavailable()
+                }
+            },
         }
     }
     fn from_booking_repository(error: BookingManagementRepositoryError) -> Self {

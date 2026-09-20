@@ -45,11 +45,39 @@ The following requirements are the **current authoritative customer-product scop
 
 This override exists to keep the roadmap and future coding-agent work aligned with the latest stakeholder direction without falsifying earlier implementation history.
 
+## 1.2 Current Implemented Boundary — 20 Sep 2026
+
+X-Fly now implements a **minimal staff-assisted check-in + per-passenger
+Boarding Pass lifecycle** inside Ticket / Passenger Operations:
+
+- an authorized Ticket / Passenger Operations staff member can check in an
+  eligible passenger from the protected ticket workspace;
+- the backend requires an active `ISSUED` ticket, a valid successful/consumed
+  booking payment lifecycle, a scheduled non-cancelled flight, a finalized
+  passenger-to-seat assignment, and `now > departure_at - 24 hours` with
+  `now < departure_at`, using the authoritative origin-airport timezone;
+- one Boarding Pass is stored per passenger ordinal and ticket context, can be
+  viewed and printed, and is protected by a database uniqueness constraint,
+  transaction, idempotent retry behavior, and one issuance audit event;
+- Boarding Pass QR tokens use a separate signed purpose from E-Ticket tokens,
+  and public verification checks the current ticket, booking, flight, and
+  departure state before returning minimized operational facts.
+
+Customer online check-in remains out of scope. X-Fly still does not implement
+a full airport Departure Control System, gate operations, staff scanner or
+boarding workflow, boarded/no-show state, baggage operations, or government
+APIS integration.
+
 Product boundary:
 
 > X-Fly owns the **booking, payment, ticket, customer retrieval, cancellation/refund, internal management, reporting, and external-data API** domains.
 
-X-Fly does **not** implement airport operational systems such as customer online check-in, gate processing, staff QR-scanning workflow, baggage loading workflow, or boarding-pass lifecycle. Those are downstream systems that may consume authorized X-Fly booking/ticket data.
+X-Fly does **not** implement a full airport operational system. Customer online
+check-in, gate processing, staff QR-scanning workflow, boarded/no-show state,
+baggage loading workflow, and government APIS remain downstream or future
+systems. The bounded staff-assisted check-in and per-passenger Boarding Pass
+lifecycle described in section 1.2 is implemented inside Ticket / Passenger
+Operations.
 
 The website must feel like a premium global airline experience rather than a generic booking form. The public journey can be cinematic, but transactional pages must prioritize clarity, response speed, accessibility, and trust.
 
@@ -497,21 +525,30 @@ analytics contracts; booking creation, passenger/ticket/baggage operations,
 and other operational workflows remain outside this API. External systems must
 never obtain direct database access.
 
-## 8.6 Operational Boundary — Airport Check-in / Boarding
+## 8.6 Operational Boundary — Staff Check-in / Boarding Pass
 
-Airport check-in, staff QR-scanning applications, gate operations, baggage-loading workflow, and boarding-pass generation are **outside the X-Fly implementation scope**.
-
-The project presentation may explain the downstream scenario:
+X-Fly implements the bounded Ticket / Passenger Operations workflow:
 
 ```txt
-Customer opens X-Fly E-Ticket / QR
+Issued ticket with finalized passenger seat
   ↓
-Airport / airline operational staff verify it using their own system
+Authoritative departure instant enters the window after T-24h and before departure
   ↓
-Their operational system records check-in / boarding state
+Authorized Ticket / Passenger Operations staff check in one passenger
+  ↓
+Backend transaction stores one per-passenger Boarding Pass and one audit event
+  ↓
+Staff view/print or public verifier checks the current signed Boarding Pass state
 ```
 
-X-Fly only provides authoritative booking/ticket data and authorized integration interfaces. It does not implement that downstream workflow.
+The exact T-24h boundary remains shared with cancellation: cancellation is
+still allowed at `now <= departure - 24 hours`, while check-in requires
+`now > departure - 24 hours` and `now < departure`. The backend is authoritative
+for this timing and for ticket, payment, flight, and seat eligibility.
+
+This is not a full airport Departure Control System. Customer online check-in,
+staff scanner applications, gate or terminal operations, boarded/no-show state,
+baggage loading/tagging/tracking, and government APIS remain out of scope.
 
 ## 8.7 Realism Boundary
 
@@ -527,6 +564,8 @@ X-Fly models the parts required by the booking/ticketing requirement:
 - separate booking, payment, and ticket concepts
 - separate Booking Reference and Ticket Number
 - E-ticket access and signed verification QR
+- staff-assisted check-in and one Boarding Pass per passenger
+- separate signed Boarding Pass verification with current-state validation
 - internal analytics / reports
 - RBAC
 - scoped external API access
@@ -534,10 +573,10 @@ X-Fly models the parts required by the booking/ticketing requirement:
 Do not implement:
 
 - real GDS
-- real DCS / airport check-in
-- staff QR scanner
+- full DCS / airport check-in
+- staff QR scanner application
 - gate / boarding workflow
-- boarding-pass lifecycle
+- boarded/no-show status or boarding groups
 - government APIS transmission
 - visa / Timatic engine
 - real baggage handling
@@ -1356,13 +1395,36 @@ Requirements:
 - no passport/email/phone/payment secrets
 - tamper-resistant signature
 - public verification returns only minimal safe ticket facts
-- QR is an **E-Ticket verification artifact**, not a Boarding Pass
+- the E-Ticket QR and Boarding Pass QR use separate signing purposes and
+  cannot verify in each other's domain
+- a Boarding Pass QR is checked against current ticket, booking, flight, and
+  departure state; a valid old signature alone does not make it valid for travel
 
 ## Print
 
 The E-Ticket / booking details view should print cleanly from a browser where useful.
 
-X-Fly does not implement the downstream airport Boarding Pass workflow. If an operational system later needs to print a Boarding Pass, it must obtain authorized data through an approved integration boundary rather than treating this E-Ticket QR as a boarding-pass barcode.
+The customer E-Ticket print layout remains separate from the internal Boarding
+Pass print layout. Ticket / Passenger Operations staff can print the dedicated
+per-passenger Boarding Pass after successful check-in; that document contains
+only authoritative operational facts and no gate, terminal, boarding group,
+boarding time, sequence, or baggage data unless the system later models those
+facts authoritatively.
+
+## Staff Boarding Pass
+
+The internal `/admin/tickets` workflow shows each passenger's check-in state.
+During the window after the T-24h cancellation cutoff and before departure,
+authorized Ticket / Passenger Operations staff can confirm the passenger's
+finalized seat and issue a dedicated Boarding Pass. The operation is audited,
+idempotent, and per passenger. Repeated or concurrent requests return the
+existing authoritative record rather than creating another one.
+
+The dedicated print view is not a renamed E-Ticket. It includes the passenger,
+flight, route, departure, seat, cabin, booking reference, ticket number,
+Boarding Pass reference, check-in/issued times, and a separate signed QR
+verification URL. Public verification returns minimized facts and reports a
+cancelled, invalid, or departed document as not valid for travel.
 
 # 24. Manage Booking
 
@@ -1516,26 +1578,29 @@ No direct change-flight engine is required.
 
 Cancellation must remain idempotent and must not create double refunds or double seat release.
 
-# 25A. Airport Operations Boundary — Out of Scope
+# 25A. Airport Operations Boundary — Bounded Feature and Out of Scope
 
-X-Fly stops at booking/ticketing, Manage Booking, and cancellation/refund.
+X-Fly now includes a minimal staff-assisted check-in and per-passenger
+Boarding Pass lifecycle inside the protected Ticket / Passenger Operations
+workspace. It is limited to issued, paid/consumed, seated passengers on a
+scheduled flight during the authoritative post-T-24h/pre-departure window.
+Boarding Pass printing, separate signed verification, current-state invalidation,
+database idempotency, and issuance audit are implemented.
 
-The following are explicitly **not implemented** in the X-Fly customer/admin product:
+The following remain explicitly **out of scope** in the X-Fly customer/admin
+product:
 
 - customer online check-in
+- full airport Departure Control System
 - staff QR-scanner application
-- airport Departure Control System
-- gate operations
-- boarding workflow
-- Boarding Pass generation/lifecycle
-- baggage loading/handling workflow
-- government APIS submission
+- gate or terminal operations
+- boarded/no-show status, boarding groups, or priority boarding
+- baggage loading, bag drop, tags, or tracking
+- government APIS submission, visa, or Timatic workflow
 
-The presentation may describe that airline/airport staff can verify X-Fly ticket data or consume authorized data in their own operational system, then record check-in/boarding state there.
-
-That downstream system is **not part of this repository**.
-
-X-Fly may expose appropriately scoped REST API data to such a system through API clients/tokens, but must not simulate the downstream operational workflow inside the customer booking application.
+The implemented staff document is a bounded ticketing extension. It must not be
+presented as a complete airport boarding system or as a source of invented gate,
+terminal, boarding-time, sequence, or baggage facts.
 
 # 26. Admin Design Direction & RBAC
 
@@ -1727,7 +1792,9 @@ Capabilities:
 - inspect cancellation/refund relation
 - verify that a ticket exists and is authoritative
 
-This is **not** an airport check-in or boarding-pass application.
+This is **not** a full airport check-in, DCS, gate, or boarding-pass
+application. The current bounded staff-assisted check-in and per-passenger
+Boarding Pass workflow is described in section 1.2 and section 25A.
 
 The system must never expose full Stripe card data, client secrets, or unrelated passenger-sensitive fields merely because an employee can access ticket operations.
 
@@ -1975,7 +2042,9 @@ styles/
 types/
 ```
 
-Do not create customer check-in or boarding-pass feature modules in this product scope.
+Do not create customer online check-in or full airport/DCS boarding-pass
+feature modules in this product scope. The bounded staff-assisted
+Ticket / Passenger Operations module is part of the current product.
 
 Customer booking-confirmation email is outside the active scope. Legacy email infrastructure may remain temporarily for safe retirement, but the frontend must not depend on email delivery.
 
@@ -3309,8 +3378,10 @@ feat/23-ticket-passenger-operations
 
 This workspace does not duplicate Booking Operations cancellation/refund
 controls or Flight Management mutation controls. It implements no ticket
-issuance/reissue/void operation, passenger editing/CRM, check-in, Boarding Pass,
-QR scanner, gate validation, or boarding workflow.
+issuance/reissue/void operation, passenger editing/CRM, customer online
+check-in, QR scanner, gate validation, boarded/no-show, or full airport
+boarding workflow. It does implement the bounded staff-assisted check-in and
+per-passenger Boarding Pass issuance described in section 1.2.
 
 ---
 
@@ -3784,9 +3855,13 @@ Must include:
 Explicitly absent from E2E:
 
 - customer online check-in
-- Boarding Pass
+- full airport Boarding Pass / DCS lifecycle
 - staff QR scanner
 - gate/baggage operational workflow
+
+The focused staff-assisted check-in and per-passenger Boarding Pass lifecycle
+has its own backend and frontend regression coverage; it is not customer online
+check-in.
 
 ---
 
@@ -4760,7 +4835,11 @@ Presentation assets:
 
 `17A` extends the historical roadmap without renumbering already completed numeric branches. `20A` is the latest stakeholder-alignment branch inserted after Branch 20 and before Branch 21; it supersedes the active product behavior introduced by historical Branches 13A and 17A where noted.
 
-Customer online check-in and Boarding Pass branches are intentionally removed from the implementation roadmap because they belong to downstream airport operations, not the X-Fly booking/ticketing product.
+Customer online check-in and full airport Boarding Pass/DCS branches remain out
+of the implementation roadmap because they belong to downstream airport
+operations. The bounded `feat/staff-boarding-pass` implementation adds only
+staff-assisted check-in, per-passenger issuance, print, and current-state QR
+verification inside Ticket / Passenger Operations.
 
 # 75. Git Merge Strategy
 
@@ -4953,6 +5032,7 @@ Employee Web
   ├── Flight Management
   ├── Booking Management
   ├── Ticket / Passenger Operations
+  ├── Staff Check-in / Boarding Pass
   └── API Client Management
 
 External Systems
@@ -4966,7 +5046,10 @@ External requests bypass the browser BFF and staff/customer cookie flows. The
 external router has no browser CORS layer; PostgreSQL remains private and is
 reachable only by the backend runtime role.
 
-Airport check-in, boarding-pass lifecycle, gate processing, and staff QR-scanner applications are downstream external operations and are not implemented by X-Fly.
+Customer online check-in, full airport boarding-pass lifecycle, gate processing,
+and staff QR-scanner applications are downstream external operations and are
+not implemented by X-Fly. The bounded staff-assisted per-passenger Boarding
+Pass lifecycle is implemented in Ticket / Passenger Operations.
 
 ## Local Development
 
@@ -5058,7 +5141,8 @@ Internal experience:
 
 - Executive dashboards answer planning/revenue/demand questions
 - Flight managers alone control flight creation/editing
-- Ticketing/baggage/booking staff receive role-appropriate information
+- Ticket / Passenger Operations staff receive role-appropriate information and
+  can issue the bounded per-passenger Boarding Pass after check-in
 - API admins govern external integrations
 
 Integration:
@@ -5067,7 +5151,11 @@ Integration:
 - scopes and field minimization control what they may read
 - direct database access is forbidden
 
-Do not expand X-Fly into online check-in, boarding passes, airport gate systems, staff QR scanners, chatbot/support, loyalty points, or campaign management unless the stakeholder explicitly changes the requirement.
+Do not expand X-Fly into customer online check-in, a full airport DCS, gate
+systems, staff QR scanners, boarded/no-show or baggage operations,
+chatbot/support, loyalty points, or campaign management unless the stakeholder
+explicitly changes the requirement. The bounded staff-assisted Boarding Pass
+lifecycle is already part of the current product.
 
 # 83. Recommended First Implementation Sequence
 
@@ -5187,6 +5275,10 @@ X-Fly Anyway is successful when:
 - Manage Booking uses Booking Reference + Last Name and is anti-enumeration safe
 - stale authorization can never display a different booking
 - E-Ticket/booking details show authoritative data and signed verification QR
+- authorized Ticket / Passenger Operations staff can check in an eligible
+  passenger and issue one dedicated Boarding Pass per passenger
+- Boarding Pass print and separate signed QR verification reflect current
+  ticket/flight state
 - QR contains no raw PII
 - cancellation >=24h yields 0-fee / 100% refund
 - cancellation <24h is rejected
@@ -5195,9 +5287,11 @@ X-Fly Anyway is successful when:
 ## Product Boundary
 
 - no customer online check-in implementation
-- no Boarding Pass lifecycle
+- minimal staff-assisted check-in + per-passenger Boarding Pass lifecycle is implemented
+- no full airport Departure Control System
 - no staff QR-scanner application
-- no gate/baggage operational workflow
+- no gate/terminal/boarding or baggage operational workflow
+- no boarded/no-show, boarding-group, or government APIS workflow
 - no chatbot/customer-support module
 - no loyalty/points
 - no promotion/campaign builder

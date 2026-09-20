@@ -3,6 +3,10 @@ use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use sqlx::FromRow;
 
 use crate::domain::{
+    boarding_pass::{
+        derive_boarding_pass_invalid_reason, derive_check_in_state, BoardingPassSummary,
+    },
+    flight::FlightStatus,
     manage_booking::BookingStatus,
     passengers::{Gender, PassengerType},
     payment::PaymentStatus,
@@ -123,6 +127,8 @@ impl TicketOperationsRepository for SqlxSeatHoldRepository {
             "SELECT ticket.id ticket_id,ticket.ticket_number,ticket.booking_reference,
                     ticket.status ticket_status,ticket.issued_at,ticket.cancelled_at,
                     attempt.id payment_attempt_id,attempt.status payment_status,hold.id hold_id,
+                    instance.id flight_instance_id,
+                    hold.consumed_at,
                     hold.cabin,service.flight_number,service.origin_code,service.destination_code,
                     service.status flight_status,instance.departure_date travel_date,
                     service.departure_time,service.origin_time_zone,
@@ -150,22 +156,46 @@ impl TicketOperationsRepository for SqlxSeatHoldRepository {
         };
         let passengers = sqlx::query_as::<_, PassengerRow>(
             "SELECT passenger.ordinal,passenger.passenger_type,passenger.given_name,
-                    passenger.middle_name,passenger.family_name,passenger.gender,seat.seat_number
+                    passenger.middle_name,passenger.family_name,passenger.gender,seat.seat_number,
+                    CASE WHEN finalized.released_at IS NULL
+                              AND seat.booking_status = 'BOOKED'
+                              AND seat.hold_id IS NULL
+                              AND seat.booked_at IS NOT NULL
+                         THEN seat.seat_number END AS active_seat_number,
+                    boarding.id AS boarding_pass_id, boarding.seat_snapshot AS boarding_pass_seat,
+                    boarding.cabin_snapshot AS boarding_pass_cabin,
+                    boarding.checked_in_at AS boarding_pass_checked_in_at,
+                    boarding.issued_at AS boarding_pass_issued_at
              FROM hold_passengers passenger
              LEFT JOIN payment_attempt_seats finalized
                ON finalized.payment_attempt_id=$2 AND finalized.passenger_ordinal=passenger.ordinal
              LEFT JOIN flight_seats seat ON seat.id=finalized.flight_seat_id
+             LEFT JOIN boarding_passes boarding
+               ON boarding.ticket_id=$3
+              AND boarding.flight_instance_id=$4
+              AND boarding.passenger_ordinal=passenger.ordinal
              WHERE passenger.seat_hold_id=$1 ORDER BY passenger.ordinal",
         )
         .bind(row.hold_id)
         .bind(row.payment_attempt_id)
+        .bind(row.ticket_id)
+        .bind(row.flight_instance_id)
         .fetch_all(&mut *tx)
         .await
         .map_err(TicketOperationsRepositoryError::Infrastructure)?;
+        let now: DateTime<Utc> = sqlx::query_scalar("SELECT NOW()")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(TicketOperationsRepositoryError::Infrastructure)?;
         tx.commit()
             .await
             .map_err(TicketOperationsRepositoryError::Infrastructure)?;
         let ticket_status = parse_ticket_status(&row.ticket_status)?;
+        let flight_status = FlightStatus::parse_database(&row.flight_status)
+            .ok_or(TicketOperationsRepositoryError::InconsistentState)?;
+        let payment_status = PaymentStatus::parse_database(&row.payment_status)
+            .ok_or(TicketOperationsRepositoryError::InconsistentState)?;
+        let booking_valid = payment_status == PaymentStatus::Succeeded && row.consumed_at.is_some();
         Ok(Some(TicketOperationsRecord {
             ticket_id: row.ticket_id,
             detail: TicketOperationsDetail {
@@ -179,8 +209,7 @@ impl TicketOperationsRepository for SqlxSeatHoldRepository {
                 } else {
                     BookingStatus::Confirmed
                 },
-                payment_status: PaymentStatus::parse_database(&row.payment_status)
-                    .ok_or(TicketOperationsRepositoryError::InconsistentState)?,
+                payment_status,
                 refund_status: row
                     .refund_status
                     .as_deref()
@@ -200,7 +229,15 @@ impl TicketOperationsRepository for SqlxSeatHoldRepository {
                 },
                 passengers: passengers
                     .into_iter()
-                    .map(PassengerRow::domain)
+                    .map(|passenger| {
+                        passenger.domain(
+                            now,
+                            row.departure_at,
+                            ticket_status,
+                            flight_status,
+                            booking_valid,
+                        )
+                    })
                     .collect::<Result<_, _>>()?,
             },
         }))
@@ -252,6 +289,8 @@ struct DetailRow {
     payment_attempt_id: uuid::Uuid,
     payment_status: String,
     hold_id: uuid::Uuid,
+    flight_instance_id: uuid::Uuid,
+    consumed_at: Option<DateTime<Utc>>,
     cabin: String,
     flight_number: String,
     origin_code: String,
@@ -273,9 +312,59 @@ struct PassengerRow {
     family_name: String,
     gender: String,
     seat_number: Option<String>,
+    active_seat_number: Option<String>,
+    boarding_pass_id: Option<uuid::Uuid>,
+    boarding_pass_seat: Option<String>,
+    boarding_pass_cabin: Option<String>,
+    boarding_pass_checked_in_at: Option<DateTime<Utc>>,
+    boarding_pass_issued_at: Option<DateTime<Utc>>,
 }
 impl PassengerRow {
-    fn domain(self) -> Result<TicketOperationsPassenger, TicketOperationsRepositoryError> {
+    fn domain(
+        self,
+        now: DateTime<Utc>,
+        departure_at: Option<DateTime<Utc>>,
+        ticket_status: TicketStatus,
+        flight_status: FlightStatus,
+        booking_valid: bool,
+    ) -> Result<TicketOperationsPassenger, TicketOperationsRepositoryError> {
+        let check_in = derive_check_in_state(
+            now,
+            departure_at,
+            ticket_status,
+            flight_status,
+            booking_valid,
+            self.active_seat_number.is_some(),
+            self.boarding_pass_id.is_some(),
+        )
+        .into();
+        let boarding_pass = match (
+            self.boarding_pass_id,
+            self.boarding_pass_seat,
+            self.boarding_pass_cabin,
+            self.boarding_pass_checked_in_at,
+            self.boarding_pass_issued_at,
+        ) {
+            (None, None, None, None, None) => None,
+            (Some(id), Some(seat), Some(cabin), Some(checked_in_at), Some(issued_at)) => {
+                Some(BoardingPassSummary {
+                    id,
+                    seat,
+                    cabin,
+                    checked_in_at,
+                    issued_at,
+                    valid_for_travel: derive_boarding_pass_invalid_reason(
+                        now,
+                        departure_at,
+                        ticket_status,
+                        flight_status,
+                        booking_valid,
+                    )
+                    .is_none(),
+                })
+            }
+            _ => return Err(TicketOperationsRepositoryError::InconsistentState),
+        };
         Ok(TicketOperationsPassenger {
             ordinal: u8::try_from(self.ordinal)
                 .map_err(|_| TicketOperationsRepositoryError::InconsistentState)?,
@@ -293,6 +382,8 @@ impl PassengerRow {
             gender: Gender::parse_database(&self.gender)
                 .ok_or(TicketOperationsRepositoryError::InconsistentState)?,
             seat: self.seat_number,
+            check_in,
+            boarding_pass,
         })
     }
 }

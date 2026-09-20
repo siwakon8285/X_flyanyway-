@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     application::flight::PublicFlightFilter,
+    application::use_cases::BoardingPassApplicationError,
     domain::{
         entities::{CreateSeatHold, FlightSelection, SeatHold},
         manage_booking::ManageBookingLookup,
@@ -87,6 +88,10 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/v1/payments/stripe/webhook", post(stripe_webhook))
         .route("/api/v1/tickets/verify/{token}", get(verify_ticket))
+        .route(
+            "/api/v1/boarding-passes/verify/{token}",
+            get(verify_boarding_pass),
+        )
         .route("/api/v1/manage-booking/lookup", post(lookup_manage_booking))
         .route("/api/v1/manage-booking/current", get(get_manage_booking))
         .route(
@@ -509,6 +514,24 @@ async fn verify_ticket(State(state): State<AppState>, Path(token): Path<String>)
     let result = async {
         let tickets = state.tickets.as_ref().ok_or_else(ApiError::internal)?;
         tickets.verify_ticket(&token).await.map_err(ApiError::from)
+    }
+    .await;
+    private_no_store(match result {
+        Ok(verification) => Json(verification).into_response(),
+        Err(error) => error.into_response(),
+    })
+}
+
+async fn verify_boarding_pass(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> Response {
+    let result = async {
+        let service = state
+            .boarding_passes
+            .as_ref()
+            .ok_or_else(ApiError::boarding_pass_unavailable)?;
+        service.verify(&token).await.map_err(ApiError::from)
     }
     .await;
     private_no_store(match result {
@@ -968,6 +991,16 @@ impl ApiError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             code: "FLIGHT_SEARCH_UNAVAILABLE",
             message: "Flight search is temporarily unavailable.",
+            conflicting_seats: Vec::new(),
+            field_errors: Vec::new(),
+        }
+    }
+
+    fn boarding_pass_unavailable() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "BOARDING_PASS_VERIFICATION_UNAVAILABLE",
+            message: "Boarding Pass verification is temporarily unavailable.",
             conflicting_seats: Vec::new(),
             field_errors: Vec::new(),
         }
@@ -1527,6 +1560,19 @@ impl From<ManageBookingRepositoryError> for ApiError {
                 tracing::error!("manage booking authoritative state is inconsistent");
                 Self::internal()
             }
+        }
+    }
+}
+
+impl From<BoardingPassApplicationError> for ApiError {
+    fn from(error: BoardingPassApplicationError) -> Self {
+        match error {
+            BoardingPassApplicationError::IdentityGeneration
+            | BoardingPassApplicationError::Repository(
+                crate::domain::repositories::BoardingPassRepositoryError::Infrastructure(_)
+                | crate::domain::repositories::BoardingPassRepositoryError::InconsistentState,
+            ) => Self::boarding_pass_unavailable(),
+            BoardingPassApplicationError::Repository(_) => Self::boarding_pass_unavailable(),
         }
     }
 }

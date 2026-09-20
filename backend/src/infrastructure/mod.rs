@@ -1,3 +1,4 @@
+pub mod boarding_pass;
 pub mod database;
 pub mod diagnostics;
 pub mod email;
